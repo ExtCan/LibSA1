@@ -1,0 +1,18 @@
+# args: --level 3 --act 1 --chr 5 --no-objects --create-task 8C08A5AE:2:0 --hostobj harness/tests/sim/ho/hud_rings.ho
+# HUD reference (prep-oracle, docs/research/gsa1_070_refs.md): Amy, Twinkle Park act 2 (the game makes her bird here),
+# game clock running (task exec 8C08A5AE), hud_rings.ho's ring / life counts, amy_tp2's inputs then standing.
+30 0 0
+90 0 -127
+1 0 -127 A
+30 0 -127
+1 0 -127 B
+40 0 -127
+1 0 0 B
+40 0 0
+1 0 -127 A
+6 0 -127
+1 0 -127 B
+40 0 -127
+60 127 0 B
+40 0 0
+330 0 0

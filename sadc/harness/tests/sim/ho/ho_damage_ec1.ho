@@ -1,0 +1,18 @@
+# ho_damage_ec1 (libsa1_interaction.md 4.2 case 7 and 2.5): host damage requests (sa1_character_damage) and the
+# character options on a standing Sonic in Emerald Coast act 1 (start (-9, 4, 4), facing ang.y 0x6000)
+10 rings 5
+40 damage face=5,4,-10
+60 damage
+200 rings -999
+200 option NO_DEATH 1
+200 damage face=10,4,-6
+340 option NO_DEATH 0
+340 option KEEP_RINGS 1
+340 rings 3
+340 damage
+480 option KEEP_RINGS 0
+480 option NO_DAMAGE 1
+480 damage
+520 option NO_DAMAGE 0
+520 rings -999
+520 damage face=-29,4,-6

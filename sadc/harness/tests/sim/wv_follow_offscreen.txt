@@ -1,0 +1,8 @@
+# args: --level 2 --act 0 --chr 0 --no-objects --no-level-tasks --pno1
+# Follower, Windy Valley act 1: the off-screen respawn. Sonic runs and stops at the edge where Tails falls,
+# Tails is respawned by distance (step ~424), flies back, falls again and hangs below the screen within
+# 1000 units: the off-screen counter (AI taskwk +8, 8C082570) passes 300 and the respawn at step ~822
+# comes from the counter (trace --pno1 prints the cause of every respawn).
+60 0 0
+200 0 -127
+940 0 0

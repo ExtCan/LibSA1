@@ -1,0 +1,16 @@
+# B_CHAOS7 overlay (disc/SONICADV/B_CHAOS7.PRS), load address 0x0C900000
+name: B_CHAOS7
+target: baserom/overlays/B_CHAOS7.BIN
+sha1: 5be2ac6c478308da9580a9e23b9b9134a87185a1
+base: 0x0C900000
+code_ranges:
+  - [0x0C900080, 0x0C900560]
+  - [0x0C914D60, 0x0C91C9B8]
+  - [0x0C91CA78, 0x0C91E664]
+seeds: []
+symbol_files: [config/symbols.b_chaos7.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/b_chaos7
+data_chunk: 0x8000
+prs: disc/SONICADV/B_CHAOS7.PRS
+prs_sha1: e43aa8955683a173b12f43fb03c3e9b25589f5d0

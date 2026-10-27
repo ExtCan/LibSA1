@@ -1,0 +1,12 @@
+# hud_rings (prep-oracle, docs/research/gsa1_070_refs.md): the ring and life counts of the HUD references (gsa1_070_hud.md
+# F7 states). "rings N" is sa1_character_add_rings: the layer clamps the result to 0..999 (sa1_world_hostobj.c
+# ho_rings_cb) and calls the game's 8C08A198 (rings += n, a 1-up 8C08A120 per 100 crossed). Rings / lives: 0 / 4
+# (the zero-ring blink), 7, 123 / 5, 999 / 13, 999 (clamped), 0, 250 / 15, 205, 0 (blink).
+60 rings 7
+120 rings 116
+180 rings 876
+240 rings 1
+300 rings -1000
+420 rings 250
+480 rings -45
+540 rings -1000

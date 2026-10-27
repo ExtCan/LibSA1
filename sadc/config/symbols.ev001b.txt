@@ -1,0 +1,15 @@
+// Names for EV001B.BIN. Seeded from reference/apply.
+EV001B_sonic_s_r_a5_01 = 0x0CB830C8; // data basicmodel
+EV001B_s_s0001_sonic_nam = 0x0CB8423C; // data animation
+EV001B_s_s0002_sonic_nam = 0x0CB85FF0; // data animation
+EV001B_s_s0005_sonic_nam = 0x0CB889D4; // data animation
+EV001B_s_s0006_sonic_nam = 0x0CB8A6E8; // data animation
+EV001B_s_s0012_sonic_nam = 0x0CB8F280; // data animation
+EV001B_m_m0001_miles_nam = 0x0CB91504; // data animation
+EV001B_a_a0002_amy_nam = 0x0CB93268; // data animation
+EV001B_s_s0007_sonic_nam = 0x0CB95D4C; // data animation
+EV001B_a_a0004_amy_nam = 0x0CB977C0; // data animation
+EV001B_e_e0002_e102_nam = 0x0CB9C734; // data animation
+EV001B_e_e0003_e102_nam = 0x0CBA1D38; // data animation
+EV001B_e_e0004_e102_nam = 0x0CBA3BDC; // data animation
+EV001B_e_e0005_e102_nam = 0x0CBA5BA0; // data animation

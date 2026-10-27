@@ -1,0 +1,9 @@
+# balloon_ec1 (libsa1_interaction.md 6.2, 6.7 test 16): BALLOON spheres (r 5) in Emerald Coast act 1: the first with
+# LAUNCH_BOUNCE (SetVelocityP only: the ball and the homing chain stay), the second plain (the ground spring's request
+# 8C07C720: Sonic_Spring_Launch), the third on the ground with POP_ON_TOUCH; the host pops (removes) each after its hit
+0 add 1 BALLOON pos=-234.5,10,121.7 flags=LAUNCH_BOUNCE shape=sphere:5
+0 add 2 BALLOON pos=-270.1,10,140.0 shape=sphere:5
+0 add 3 BALLOON pos=-386.1,4.35,294.85 flags=POP_ON_TOUCH shape=sphere:5
+180 remove 1 SILENT
+196 remove 2 SILENT
+334 remove 3 SILENT

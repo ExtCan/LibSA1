@@ -1,0 +1,19 @@
+# STG05 overlay (disc/SONICADV/STG05.PRS), load address 0x0C900000
+name: STG05
+target: baserom/overlays/STG05.BIN
+sha1: 0ed29a97630fc2db4ccd6d633a8e686f8f728f2d
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C906620]
+  - [0x0C906640, 0x0C908A20]
+  - [0x0C908A40, 0x0C908CE8]
+  - [0x0C908D00, 0x0C90EA00]
+  - [0x0C90EA20, 0x0C90F480]
+  - [0x0C90F4A0, 0x0C913774]
+seeds: []
+symbol_files: [config/symbols.stg05.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/stg05
+data_chunk: 0x8000
+prs: disc/SONICADV/STG05.PRS
+prs_sha1: 0b5fbddcdbf6d22087ee3afc3a34fa113b66d012

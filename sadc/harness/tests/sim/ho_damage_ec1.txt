@@ -1,0 +1,7 @@
+# args: --level 1 --act 0 --no-objects --hostobj harness/tests/sim/ho/ho_damage_ec1.ho
+# Round 5 oracle, libsa1_interaction.md 4.2 case 7 and 2.5 (host damage and the options), Sonic standing in Emerald
+# Coast act 1: 5 rings, a FACE_SOURCE request from behind (step 40: turned to the source, knocked back away from it,
+# rings scattered), a request during the invulnerability (IGNORED), at 0 rings with NO_DEATH (ABSORBED: the phantom
+# barrier, the barrier branch of the mode machine), KEEP_RINGS with 3 rings (ABSORBED, rings kept), NO_DAMAGE (IGNORED),
+# and at 0 rings without options (FATAL, DEATH).
+600 0 0

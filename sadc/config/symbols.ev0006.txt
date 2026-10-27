@@ -1,0 +1,3 @@
+// Names for EV0006.BIN. Seeded from reference/apply.
+EV0006_Purple_Chaos_Emerald_Event = 0x0CB87594; // data basicmodel
+EV0006_Purple_Chaos_Emerald_in_Tails_Posession_Event = 0x0CB87B58; // data animation

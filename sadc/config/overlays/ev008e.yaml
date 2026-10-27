@@ -1,0 +1,14 @@
+# EV008E overlay (disc/SONICADV/EV008E.PRS), load address 0x0CB80000
+name: EV008E
+target: baserom/overlays/EV008E.BIN
+sha1: 6519ecc90666548447bd4b90d1c9d9122d1d4bfb
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB809C0]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev008e.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev008e
+data_chunk: 0x8000
+prs: disc/SONICADV/EV008E.PRS
+prs_sha1: 4bf9883b1ad78ca17d42b576c34ce75ac274b3cc

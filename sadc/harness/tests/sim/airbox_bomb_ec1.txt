@@ -1,0 +1,10 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C05D9F6:15:3@-9,4,4/7,0,0+late --hostobj harness/tests/sim/ho/airbox_bomb_ec1.ho
+# Round 0.9.2 oracle (docs/research/gsa1_090_faults.md F2 and owner question 4, gsa1_090_plan.md 6.4): the bomb item's
+# box (airbox_7_ec1) with libsa1's host objects around it (ho/airbox_bomb_ec1.ho). The box breaks at step 22 and the
+# bomb's handler 8C05D930 starts the sphere (8C05E582: centre at the box, radius 10), which the item icon task grows by
+# 10 per step (8C05E59A) and ends past 500. libsa1's layer (sa1_world_hostobj.c ho_bomb) asks the game's enemy check
+# 8C0489E4 for each ENEMY proxy without a hit: inside the sphere it takes one HIT (OTHER, level 3) at the sphere's
+# centre. The near ENEMY and the one 200 units away are hit as the sphere reaches them, the TARGET never.
+60 0 0
+120 0 -127
+120 0 0

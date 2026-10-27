@@ -1,0 +1,14 @@
+# ADV01OBJ overlay (disc/SONICADV/ADV01OBJ.PRS), load address 0x0C900000
+name: ADV01OBJ
+target: baserom/overlays/ADV01OBJ.BIN
+sha1: 0ffd208f2735deda437eb02d1a127efbe5a34b1f
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C901600]
+seeds: []
+symbol_files: [config/symbols.adv01obj.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/adv01obj
+data_chunk: 0x8000
+prs: disc/SONICADV/ADV01OBJ.PRS
+prs_sha1: 418d1994b10c45edd9cd594a6dd12234b74f6d0e

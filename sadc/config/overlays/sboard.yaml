@@ -1,0 +1,15 @@
+# SBOARD overlay (disc/SONICADV/SBOARD.PRS), load address 0x0C900000
+name: SBOARD
+target: baserom/overlays/SBOARD.BIN
+sha1: e5ff29bc5a26edc81c0291248bd19ffe62fa807d
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C900118]
+  - [0x0C902E80, 0x0C905864]
+seeds: []
+symbol_files: [config/symbols.sboard.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/sboard
+data_chunk: 0x8000
+prs: disc/SONICADV/SBOARD.PRS
+prs_sha1: 1e5d198a5960657660a7b6cadfc31cea7fb045eb

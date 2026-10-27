@@ -1,0 +1,14 @@
+// Names for EV0002.BIN. Seeded from reference/apply.
+EV0002_Chaos_0_Puddle_Event = 0x0CB8B6A0; // data basicmodel
+EV0002_Chaos_0_Event = 0x0CB941EC; // data basicmodel
+EV0002_Chaos_0_Active_Stand_Event = 0x0CB97690; // data animation
+EV0002_Chaos_0_Walk_Event = 0x0CB9AD74; // data animation
+EV0002_Chaos_0_Jump_Event = 0x0CB9C708; // data animation
+EV0002_Chaos_0_Begin_Falling_Event = 0x0CB9DF1C; // data animation
+EV0002_Chaos_0_Fall_Event = 0x0CB9F810; // data animation
+EV0002_Chaos_0_Landing_Event = 0x0CBA1144; // data animation
+EV0002_Chaos_0_Normal_Stand_Event = 0x0CBA2518; // data animation
+EV0002_Chaos_0_Shakes_Head_Event = 0x0CBA3DEC; // data animation
+EV0002_Chaos_0_Looks_Left_Event = 0x0CBA51C0; // data animation
+EV0002_Chaos_0_Looks_Up_Ascends_Event = 0x0CBA6434; // data animation
+EV0002_ev0002_00026848 = 0x0CBA6848; // data basicmodel

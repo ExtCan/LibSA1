@@ -1,0 +1,14 @@
+# STG06 overlay (disc/SONICADV/STG06.PRS), load address 0x0C900000
+name: STG06
+target: baserom/overlays/STG06.BIN
+sha1: 2c3e379853d786e329108ce354a252ea655fd6e4
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C91BAE8]
+seeds: []
+symbol_files: [config/symbols.stg06.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/stg06
+data_chunk: 0x8000
+prs: disc/SONICADV/STG06.PRS
+prs_sha1: a0a7b51c62c4debfbc395db37505d4c5394d749d

@@ -1,0 +1,8 @@
+// Names for EV0142.BIN. Seeded from reference/apply.
+EV0142_e_e0015_e102 = 0x0CB831C8; // data animation
+EV0142_e_e0016_e102 = 0x0CB8404C; // data animation
+EV0142_e_e0026_e102 = 0x0CB86090; // data animation
+EV0142_e_e0027_e102 = 0x0CB883A4; // data animation
+EV0142_e_e0036_e102 = 0x0CB8A9C8; // data animation
+EV0142_e101kai_e101kai = 0x0CB93118; // data basicmodel
+EV0142_hadou_e101kai_e101kai = 0x0CB960DC; // data animation

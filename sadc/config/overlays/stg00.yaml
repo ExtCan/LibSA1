@@ -1,0 +1,15 @@
+# STG00 overlay (disc/SONICADV/STG00.PRS), load address 0x0C900000
+name: STG00
+target: baserom/overlays/STG00.BIN
+sha1: 6c3c52eb718132835a48bfb557d6b1cf88b2ac94
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C90008C]
+  - [0x0C900D00, 0x0C903A0C]
+seeds: []
+symbol_files: [config/symbols.stg00.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/stg00
+data_chunk: 0x8000
+prs: disc/SONICADV/STG00.PRS
+prs_sha1: 828bfcc5e750e53089b76378bb568025f78dba8a

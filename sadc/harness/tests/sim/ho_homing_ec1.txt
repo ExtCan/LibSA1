@@ -1,0 +1,14 @@
+# args: --level 1 --act 0 --no-objects --hostobj harness/tests/sim/ho/ho_homing_ec1.ho
+# Round 5 oracle, libsa1_interaction.md 4.2 case 5 (homing chain): Sonic runs, jumps (step 150), homes onto the first
+# ENEMY (A at step 164, HIT HOMING + BOUNCED at 174), onto the second after the bounce (A at 182, HIT at 190) and onto
+# the third (A at 198), each removed KILLED by the host after its hit, then lands and runs on.
+30 0 0
+120 0 -127
+1 0 -127 A
+13 0 -127
+1 0 -127 A
+17 0 -127
+1 0 -127 A
+15 0 -127
+1 0 -127 A
+101 0 -127

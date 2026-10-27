@@ -1,0 +1,29 @@
+# args: --level 1 --act 0 --no-objects --hostobj harness/tests/sim/ho/ho_hold_ec1.ho
+# Round 5 oracle, the HOLDABLE kind (libsa1_interaction.md 6.1, 6.7 tests 11, 12, 14, 15), Sonic in Emerald Coast act 1:
+# runs to the prop and presses B (lift: mode 21 action 33, LIFTED at step 92), carries it, runs and throws it (B while
+# running: mode 26 action 60, RELEASED THROW at 176, 517 HU/s), runs to where the host put it, lifts it (240) and puts it
+# down standing (mode 22 action 63, RELEASED PUT_DOWN at 278), lifts it (314), jumps and throws it in the air at the
+# TARGET (mode 33 action 61, RELEASED THROW_AIMED target 2 at 345, 720 HU/s), lifts it again (414), the host forces a
+# release (sa1_hostobj_release: the holder's drop 8C0B1D60, RELEASED FORCED at 430), lifts it (474) and a host damage
+# request hurts him while he carries it (the drop, RELEASED DROP, then the hurt with 3 rings at 490).
+30 0 0
+48 0 -127
+1 0 -127 B
+31 0 0
+40 0 -127
+1 0 -127 B
+75 0 -127
+1 0 -127 B
+30 0 0
+1 0 0 B
+42 0 0
+1 0 0 B
+29 0 0
+1 0 0 A
+5 0 0
+1 0 0 B
+63 0 0
+1 0 0 B
+59 0 0
+1 0 0 B
+99 0 0

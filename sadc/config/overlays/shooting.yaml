@@ -1,0 +1,14 @@
+# SHOOTING overlay (disc/SONICADV/SHOOTING.PRS), load address 0x0C900000
+name: SHOOTING
+target: baserom/overlays/SHOOTING.BIN
+sha1: 4e1adaa58d82f1bc0243d6ea4f8f0097bbe588ad
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C908CCC]
+seeds: []
+symbol_files: [config/symbols.shooting.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/shooting
+data_chunk: 0x8000
+prs: disc/SONICADV/SHOOTING.PRS
+prs_sha1: 97667580581996065b07c3f7d7ab092bd733006b

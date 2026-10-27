@@ -1,0 +1,5 @@
+// Names for EV0001.BIN. Seeded from reference/apply.
+EV0001_SSPD_Helicopter = 0x0CB91208; // data basicmodel
+EV0001_Helicopter_Animation = 0x0CB9138C; // data animation
+EV0001_SSPD_Patrol_Car_Event = 0x0CB93A70; // data basicmodel
+EV0001_SSPD_Patrol_Car_Wheels_Turning_Event = 0x0CB93D34; // data animation

@@ -1,0 +1,13 @@
+# Sonic Adventure (US v1.005) main executable
+name: 1ST_READ
+target: baserom/1ST_READ.BIN
+base: 0x8C010000
+# uninitialised data up to the overlay load area
+bss_end: 0x8C900000
+code_ranges:
+  - [0x8C010000, 0x8C111200]   # game code
+  - [0x8C5FBB60, 0x8C66C300]   # Ninja / Katana SDK / driver code
+seeds: [0x8C010000]
+symbol_files: [config/symbols.1st_read.txt]
+asm_dir: asm/1st_read
+data_chunk: 0x8000

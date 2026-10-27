@@ -1,0 +1,5 @@
+// Names for EV0003.BIN. Seeded from reference/apply.
+EV0003_Tails_Piloting_the_Prototype_Tornado = 0x0CB9119C; // data basicmodel
+EV0003_Tails_in_the_Prototype_Tornado_Animation_Event = 0x0CB918F0; // data animation
+EV0003_Prototype_Tornado = 0x0CB94F84; // data basicmodel
+EV0003_Prototype_Tornado_Flying_Event = 0x0CB95588; // data animation

@@ -1,0 +1,14 @@
+# SUMMARY overlay (disc/SONICADV/SUMMARY.PRS), load address 0x8C900000
+name: SUMMARY
+target: baserom/overlays/SUMMARY.BIN
+sha1: 33c2ac04766ad267835cf642cea77dae287fa7e1
+base: 0x8C900000
+code_ranges:
+  - [0x8C900040, 0x8C903460]
+seeds: []
+symbol_files: [config/symbols.summary.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/summary
+data_chunk: 0x8000
+prs: disc/SONICADV/SUMMARY.PRS
+prs_sha1: ca773de5434e4659d7cfa02c351860bb833604b5

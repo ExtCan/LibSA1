@@ -1,0 +1,14 @@
+# STG07 overlay (disc/SONICADV/STG07.PRS), load address 0x0C900000
+name: STG07
+target: baserom/overlays/STG07.BIN
+sha1: 5763ec2bcb6215da4a1295930ec10801266c3754
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C90BFCC]
+seeds: []
+symbol_files: [config/symbols.stg07.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/stg07
+data_chunk: 0x8000
+prs: disc/SONICADV/STG07.PRS
+prs_sha1: 53da7bc4091acfbeb993f2d16b56c72f5d10c2fa

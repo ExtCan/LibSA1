@@ -1,0 +1,2 @@
+// Names for EV00F0.BIN. Seeded from reference/apply.
+EV00F0_tr2crash = 0x0CB86C38; // data basicmodel

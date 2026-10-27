@@ -1,0 +1,15 @@
+# B_E101 overlay (disc/SONICADV/B_E101.PRS), load address 0x0C900000
+name: B_E101
+target: baserom/overlays/B_E101.BIN
+sha1: 798ca2e6027b40af4020ad31cf529234686f338e
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C900044]
+  - [0x0C9000E0, 0x0C9028C4]
+seeds: []
+symbol_files: [config/symbols.b_e101.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/b_e101
+data_chunk: 0x8000
+prs: disc/SONICADV/B_E101.PRS
+prs_sha1: 2afbe6bad2f3361e96e6825acb7401e5927c22c7

@@ -1,0 +1,15 @@
+# MINICART overlay (disc/SONICADV/MINICART.PRS), load address 0x0C900000
+name: MINICART
+target: baserom/overlays/MINICART.BIN
+sha1: b966ab2e67714bf3c8fb8a81e27eb903a7b0b932
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C900148]
+  - [0x0C90A120, 0x0C916C68]
+seeds: []
+symbol_files: [config/symbols.minicart.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/minicart
+data_chunk: 0x8000
+prs: disc/SONICADV/MINICART.PRS
+prs_sha1: 80196ba46b650b9e11bcbbdd570b47a98f9a51f4

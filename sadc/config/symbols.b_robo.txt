@@ -1,0 +1,7 @@
+// Names for B_ROBO.BIN. Seeded from reference/apply.
+B_ROBO_landtablerobo = 0x0C900110; // data landtable
+texlist_E101R_TIKEI = 0x0C9096D4; // data NJS_TEXLIST
+B_ROBO_landtablerobo_COLList = 0x0C9096DC; // data COL[]
+B_ROBO_landtablerobo_AnimList = 0x0C909D30; // data GeoAnimData[]
+B_ROBO_Skybox_Sea = 0x0C92DBBC; // data basicmodel
+B_ROBO_Skybox_Sky = 0x0C92F294; // data basicmodel

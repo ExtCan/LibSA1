@@ -1,0 +1,16 @@
+# args: --level 4 --act 0 --chr 2 --no-objects --create-task 8C08A5AE:2:0 --hostobj harness/tests/sim/ho/hud_rings.ho
+# HUD reference (prep-oracle, docs/research/gsa1_070_refs.md): Tails, Speed Highway act 1, game clock running (task exec
+# 8C08A5AE), hud_rings.ho's ring / life counts, tails_sh1's inputs then standing. 2D draws: NAME.d2d.txt (--log-2d).
+30 0 0
+90 0 -127
+1 0 -127 A
+20 0 -127
+1 0 -127 A
+60 0 -127 A
+60 40 -100 A
+40 0 0
+1 0 0 B
+40 0 0
+1 0 -127 B
+30 -127 0
+360 0 0

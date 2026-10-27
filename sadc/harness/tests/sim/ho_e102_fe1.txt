@@ -1,0 +1,15 @@
+# args: --level 10 --act 0 --chr 6 --no-objects --hostobj harness/tests/sim/ho/ho_e102_fe1.ho
+# Round 5 oracle, libsa1_interaction.md 4.2 case 6 (E-102's lock-on chain 8C0D33A0 -> 8C0D38C6, markers, shots, the
+# time bonus): E-102 walks as in gamma_fe1, stands, holds B 70 steps (LOCKED x4, one per 8 steps), releases: the shots
+# (TARGETED, HIT LASER level 3 PROJECTILE LOCKED, the marker released at the hit 8C0D5D90: UNLOCKED), the balloon pops
+# without a launch (a projectile), the host removes the enemies KILLED (time bonus 8C0D5064) and the balloon SILENT.
+30 0 0
+90 0 -127
+1 0 -127 A
+20 0 -127
+1 0 -127 A
+40 0 -127 A
+40 0 0
+70 0 0 B
+1 0 0
+200 0 0

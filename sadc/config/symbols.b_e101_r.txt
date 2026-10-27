@@ -1,0 +1,10 @@
+// Names for B_E101_R.BIN. Seeded from reference/apply.
+B_E101_R_landtable2400 = 0x0C900180; // data landtable
+B_E101_R_Object_List = 0x0C9001A4; // data objlist
+str_objname_RING = 0x0C90775C; // data string
+B_E101_R_Skybox_Sea = 0x0C907C50; // data basicmodel
+B_E101_R_Skybox_Sky = 0x0C909328; // data basicmodel
+texlist_E101R_TIKEI = 0x0C909F9C; // data NJS_TEXLIST
+B_E101_R_landtable2400_COLList = 0x0C909FA4; // data COL[]
+B_E101_R_landtable2400_AnimList = 0x0C90A5F8; // data GeoAnimData[]
+B_E101_R_Object_List_entries = 0x0C92E1F4; // data objlist_entries

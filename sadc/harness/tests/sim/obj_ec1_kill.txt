@@ -1,0 +1,12 @@
+# args: --level 1 --act 0 --chr 0
+# Round 5 oracle, a real SA1 enemy up to the kill (libsa1_interaction.md 4.3, player state only): Emerald Coast act 1
+# WITH objects. Sonic runs (bearing right from step 100), jumps at step 175 and homes onto the Rhinotank (E_SAITO, SET
+# entry 615, wandering near (-306, 3, 111)) at step 185: the hit at step 192 (the enemy's damage check 8C0489E4, the
+# bounce 8C048980), the Rhinotank's death sequence, then the landing. Harness only (the enemy is not replayed).
+30 0 0
+70 0 -127
+75 30 -127
+1 30 -127 A
+9 30 -127
+1 30 -127 A
+113 30 -127

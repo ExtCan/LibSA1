@@ -1,0 +1,15 @@
+# STG08 overlay (disc/SONICADV/STG08.PRS), load address 0x0C900000
+name: STG08
+target: baserom/overlays/STG08.BIN
+sha1: c07134cb4afde4e37e2e62af4383bee79102ebdb
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C90D554]
+  - [0x0C90D560, 0x0C914048]
+seeds: []
+symbol_files: [config/symbols.stg08.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/stg08
+data_chunk: 0x8000
+prs: disc/SONICADV/STG08.PRS
+prs_sha1: 9477b39e5f52cf820d8f55d661267a08fc30d585

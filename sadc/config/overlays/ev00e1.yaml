@@ -1,0 +1,14 @@
+# EV00E1 overlay (disc/SONICADV/EV00E1.PRS), load address 0x0CB80000
+name: EV00E1
+target: baserom/overlays/EV00E1.BIN
+sha1: 43f14b1df8800cffa07ed13b7f0fba27576095aa
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB80048]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev00e1.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev00e1
+data_chunk: 0x8000
+prs: disc/SONICADV/EV00E1.PRS
+prs_sha1: e615158e8c030f820507cf225763d541ab24b021

@@ -1,0 +1,11 @@
+# libsa1 SET object types (round 0.9.4, SA1_API_SET; sadc docs/research/gsa1_094_plan.md 6.3 task 2, gsa1_094_items.md 1.1 / 6.8,
+# gsa1_090_rings.md 4.1). Numbers and names only (no game data). The ids are libsa1's own and stable: they are NOT a stage's
+# object-list index (RING is index 0 everywhere, O_GRING 21 / 1 / 104 ..., O_ITEMBOX 13 / 15 / 27 ...); 1.0's generator must
+# keep them. src/sa1_set.c holds the same table (tests/set_test.c compares the two).
+# columns: id, list name, exec, im, level, attribute, range (0 = the spawner 8C091380's 400-unit default), class, model,
+# rotation order (none / y / zxy: the njRotate order of the type's code), states, budget
+#id	name	exec	im	level	attr	range	class	model	rotation	states	budget
+1	RING	8C0869E8	2	3	0	0	CONSUMABLE	8C1A2204	y	PRESENT	ring:1
+2	O GRING	8C087B80	2	3	0	0	CONSUMABLE	8C1A2204	zxy	PRESENT+USERBITS	ring:line scl.x+1, circle scl.x
+3	O ITEMBOX	8C05D10C	2	3	0	0	CONSUMABLE	8C1AC96C	none	PRESENT+BROKEN	box:1
+4	O ItemBoxAir	8C05D9F6	15	3	0	0	CONSUMABLE	8C1B87BC	zxy	PRESENT	box:1

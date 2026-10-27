@@ -1,0 +1,26 @@
+# B_ROBO overlay (disc/SONICADV/B_ROBO.PRS), load address 0x0C900000
+name: B_ROBO
+target: baserom/overlays/B_ROBO.BIN
+sha1: d2ca66d40cf8cfb03d20f5fba29e382ec311d20f
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C9000DC]
+  - [0x0C900180, 0x0C900924]
+  - [0x0C900924, 0x0C9016E4]
+  - [0x0C901700, 0x0C902E88]
+  - [0x0C902E88, 0x0C904958]
+  - [0x0C904958, 0x0C904A20]
+  - [0x0C904AAC, 0x0C904BA0]
+  - [0x0C904C00, 0x0C906128]
+  - [0x0C906230, 0x0C9062C0]
+  - [0x0C9062E0, 0x0C907148]
+  - [0x0C907148, 0x0C907200]
+  - [0x0C907200, 0x0C907D30]
+  - [0x0C907D30, 0x0C908688]
+seeds: []
+symbol_files: [config/symbols.b_robo.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/b_robo
+data_chunk: 0x8000
+prs: disc/SONICADV/B_ROBO.PRS
+prs_sha1: 0755988acc94405fec718352ee3a7c5470c0faae

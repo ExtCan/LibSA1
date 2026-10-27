@@ -1,0 +1,14 @@
+# EV016B overlay (disc/SONICADV/EV016B.PRS), load address 0x0CB80000
+name: EV016B
+target: baserom/overlays/EV016B.BIN
+sha1: d7d5cc6cce9905b5e4469e46bb35b8207a7fcef8
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB84B0C]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev016b.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev016b
+data_chunk: 0x8000
+prs: disc/SONICADV/EV016B.PRS
+prs_sha1: 80f03a841e5b9cae56b3db86989e4ad6d8e928a6

@@ -1,0 +1,14 @@
+# AL_GARDEN00 overlay (disc/SONICADV/AL_GARDEN00.PRS), load address 0x0CB80000
+name: AL_GARDEN00
+target: baserom/overlays/AL_GARDEN00.BIN
+sha1: 9f54c84bcf51e0a4acea181512905e0e4c5a8507
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80000, 0x0CB80E08]
+seeds: []
+symbol_files: [config/symbols.al_garden00.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/al_garden00
+data_chunk: 0x8000
+prs: disc/SONICADV/AL_GARDEN00.PRS
+prs_sha1: 3f2540263b283109be795f6adc4dc84780ad8316

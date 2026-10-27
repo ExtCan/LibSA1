@@ -1,0 +1,4 @@
+// Names for EV0020.BIN. Seeded from reference/apply.
+EV0020_wave7_wa = 0x0CB86210; // data basicmodel
+EV0020_wave7_wa_nam = 0x0CB86254; // data animation
+EV0020_wave7_wa_nas = 0x0CB867A0; // data animation

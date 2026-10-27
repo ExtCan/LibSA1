@@ -1,0 +1,2 @@
+// Names for SUMMARY.BIN. Seeded from reference/apply.
+SUMMARY_Credits_Text = 0x8C90D5D0; // data creditstextlist

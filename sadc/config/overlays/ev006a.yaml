@@ -1,0 +1,15 @@
+# EV006A overlay (disc/SONICADV/EV006A.PRS), load address 0x0CB80000
+name: EV006A
+target: baserom/overlays/EV006A.BIN
+sha1: 5b52e9578c1f02179718ac17cb75ad8fda985444
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB83698]
+  - [0x0CB836A0, 0x0CB837B0]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev006a.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev006a
+data_chunk: 0x8000
+prs: disc/SONICADV/EV006A.PRS
+prs_sha1: b9ddf66be3a7bb702fe3aeb4cbc89ebf6661cc36

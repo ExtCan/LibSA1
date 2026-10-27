@@ -1,0 +1,16 @@
+# args: --level 5 --act 2 --chr 3
+# Knuckles, Red Mountain act 3 WITH objects: run, glide into walls (climb), punch, dig (B held on the ground)
+30 0 0
+60 0 -127
+1 0 -127 A
+8 0 -127
+120 0 -127 A
+60 0 -127
+60 0 -127 UP
+1 0 0 B
+40 0 0
+60 0 0 B
+120 -60 -100
+1 0 -127 A
+8 0 -127
+120 60 -127 A

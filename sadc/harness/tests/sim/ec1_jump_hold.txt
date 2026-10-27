@@ -1,0 +1,10 @@
+# Emerald Coast act 1: standing jumps: a 1-step tap and a 30-step hold of A
+# (variable jump height), then a jump while walking slowly.
+40 0 0
+1 0 0 A
+80 0 0
+30 0 0 A
+80 0 0
+30 0 -40
+1 0 -40 A
+60 0 -40

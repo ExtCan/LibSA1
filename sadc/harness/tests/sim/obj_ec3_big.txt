@@ -1,0 +1,11 @@
+# args: --level 1 --act 2 --chr 7
+# Big, Emerald Coast act 3 WITH objects: walk to the water, cast the lure (B), reel (hold A), move the rod
+30 0 0
+60 0 -127
+1 0 0 B
+120 0 0
+60 0 0 A
+60 60 0 A
+60 0 60 A
+1 0 0 B
+120 0 0

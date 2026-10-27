@@ -1,0 +1,14 @@
+# build outputs
+/build/
+/out/
+/unit_test_tmp/
+# ripped game data must never be committed
+*.obj
+*.mtl
+*.png
+*.BIN
+*.PRS
+*.gdi
+*.bin
+*.raw
+*.iso

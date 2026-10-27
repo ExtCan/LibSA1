@@ -1,0 +1,14 @@
+# EV0094 overlay (disc/SONICADV/EV0094.PRS), load address 0x0CB80000
+name: EV0094
+target: baserom/overlays/EV0094.BIN
+sha1: 7f6a4d667a19cbb1e7748b7a9df4cf65d1d15d4e
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB8037C]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0094.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0094
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0094.PRS
+prs_sha1: 70e3392e12391678a5f006296ac7db2134ead694

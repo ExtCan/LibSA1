@@ -1,0 +1,40 @@
+# pc_cflags.txt - the one PC (TARGET_PC) flag set for decompiled game C and
+# the libsa1 runtime (libsa1/src/rt), design docs/libsa1_integration.md 8.1/D11.
+#
+# Read by:  harness/build.py --pc (and --rt), the oracle build that has to
+#           reproduce the reference traces; libsa1/build.py (game + runtime
+#           objects); tools/pclower.py (preprocessing).
+# Not here: include paths, warnings, -g and the harness's force-include
+#           (harness_pre.h), which belong to each build.
+# Format:   one or more flags per line, '#' starts a comment. "[x86]" makes the
+#           flags below it apply to 32-bit x86 only, "[x86 x86_64]" to both,
+#           "[all]" to every target again.
+# Changing a flag changes the code of every game function: rebuild with
+# "py -3.12 harness/build.py --non-matching --pc --rt --tag T" and require
+# "py -3.12 harness/tests/sim/regress.py --route --exe harness/build/sa1h_T.exe"
+# identical on 10/10 (and route_matrix clean) before committing.
+#
+# Still to evaluate (design 8.1 lists them; each must keep the 10 traces
+# identical): -std=gnu11 -fno-math-errno -ffp-model=strict
+# -ftrivial-auto-var-init=zero -fvisibility=hidden.
+
+[all]
+-DTARGET_PC                 # fixed-size types, PC-only code paths (include/common.h)
+-DNON_MATCHING              # C bodies of non-matching functions (harness: only with --non-matching)
+-O2
+-fwrapv                     # BAMS angle arithmetic wraps
+-fno-strict-aliasing        # type punning as on SHC
+-ffp-contract=off           # never fuse a*b+c: FMAC only where the source says SA1_FMAC
+-frounding-math             # no constant folding that assumes round-to-nearest (the game runs in RZ)
+-fno-builtin                # the game's own memset/strlen/rand are game functions
+-fsigned-char               # char is signed on SH-4
+
+[x86]
+-msse2                      # scalar SSE math, never x87 extended precision
+-mfpmath=sse
+
+[x86 x86_64]
+-mfma                       # SA1_FMAC / SA1_FMAC_ACC (__builtin_fmaf) is one fused instruction
+                            # (needs an FMA3 CPU: Intel Haswell / AMD Piledriver or later)
+
+[all]

@@ -1,0 +1,12 @@
+# ho_hold_ec1 (libsa1_interaction.md 6.7 tests 11, 12, 14, 15): a HOLDABLE cylinder (body r 2, half height 2.5, centre
+# 2 above its reference point like O_SAMPLE_S) on Sonic's running line in Emerald Coast act 1; the host moves it where
+# a thrown prop lands, adds a TARGET for the aimed throw, forces a release and hurts Sonic (3 rings) while he carries it
+0 add 1 HOLDABLE pos=-48.0,3.58,25.07 shape=cyl:2,2.5@0,2,0
+180 move 1 -150.1,3.0,60.4
+300 add 2 TARGET pos=-190.8,8,104.1 shape=sphere:5
+360 remove 2 SILENT
+360 move 1 -155.3,2.8,63.3
+430 release 1
+440 move 1 -155.3,2.8,63.3
+480 rings 3
+490 damage

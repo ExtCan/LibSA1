@@ -1,0 +1,22 @@
+# args: --level 2 --act 0 --chr 0 --no-objects --no-level-tasks --pno1
+# Follower ("1.5P" Tails AI, func_8C081AC0 / 8C081D4E), Windy Valley act 1: Sonic runs, jumps, stands,
+# jumps with A held, turns, Tails follows (steering smodes 1 / 2), falls behind into a pit and is respawned
+# by distance (step ~515) and flies back (smode 3). Sidecar NAME.p1.bin: player 1 + the AI per step
+# (follower_ai.md 6 F1). No level tasks: LIB has no STG02 stand-in (decoded fields are identical with them).
+60 0 0
+90 0 -127
+1 0 -127 A
+25 0 -127
+60 0 0
+1 0 0 A
+20 0 0 A
+40 0 0
+90 0 127
+1 0 127 A
+30 0 127
+60 127 0
+60 0 -127
+1 0 -127 A
+30 0 -127
+90 -127 -60
+60 0 0

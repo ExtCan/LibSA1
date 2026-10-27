@@ -1,0 +1,4 @@
+# ho_touch_ec1 (libsa1_interaction.md 4.2 case 2): an ENEMY sphere (touch 1, r 4.5) on Sonic's running line in
+# Emerald Coast act 1, 5 rings given at step 20 (sa1_character_add_rings: the game's 8C08A198)
+0 add 1 ENEMY pos=-61.64,7.9,32.21 shape=sphere:4.5
+20 rings 5

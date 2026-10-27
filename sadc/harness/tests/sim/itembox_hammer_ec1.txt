@@ -1,0 +1,20 @@
+# args: --level 1 --act 0 --chr 5 --no-objects --create-task 8C05D10C:2:3@9.6,3.65,0/2,0,0+ocp+late
+# Round 0.9.4 oracle (docs/research/gsa1_094_plan.md 6.4 with its Review R.6 / R.7, gsa1_094_items.md 3.1 and 9):
+# the ground item box objexec_O_ITEMBOX 8C05D10C (CreateElementalTask(2, 3) as the SET spawner 8C091380 makes it,
+# twp->scl.x = the item kind) with an OBJ_CONDITION (+ocp: B_8C79A3E0[0] = 0x8001, written again after the SET
+# manager's reset of step 0, the box's mode 0 adds 0x0010, 8C091B5E), made after the whole stage start (+late).
+# It grows for 46 steps without collision (mode 1, 8C05D360), is solid from step 46 (mode 2, 8C05D386), a break
+# (its top sphere touched, or its cylinder out-levelled by an attack) gives the item (D_8C1B9BA0[kind]) and the
+# item icon (8C05E0F8), sets 0x0004 one step later (8C05D4CE -> 8C091B54: 0x8011 -> 0x8015) and leaves the base,
+# the shell (mode 4, CCL id 4). The player stays within the box's 400-unit range (the original's range-out
+# 8C0919CC destroys the task, libsa1's is 'ret 0').
+# Emerald Coast act 1, Amy (094-res gb_a_act), item 2: the hammer (B, mode 19) twice, adjacent (9.6 units) and
+# facing: NO contact. Amy's display does not call the visibility test, but in Emerald Coast the game camera's view
+# is NaN for her too (the box's own display 8C05D56E never passes the test after step 0). Compare
+# itembox_hammer_tp2, her own stage: there the same hammer breaks the box.
+60 0 0
+10 0 0 B
+1 0 0
+30 0 0
+10 0 0 B
+120 0 0

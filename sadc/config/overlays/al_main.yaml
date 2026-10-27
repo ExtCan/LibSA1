@@ -1,0 +1,16 @@
+# AL_MAIN overlay (disc/SONICADV/AL_MAIN.PRS), load address 0x0C900000
+name: AL_MAIN
+target: baserom/overlays/AL_MAIN.BIN
+sha1: b2c17fe49f9ab58fb7064172bfd31fa1c37dd1b2
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C90C54C]
+  - [0x0C90C580, 0x0C919764]
+  - [0x0C919780, 0x0C91AC2C]
+seeds: []
+symbol_files: [config/symbols.al_main.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/al_main
+data_chunk: 0x8000
+prs: disc/SONICADV/AL_MAIN.PRS
+prs_sha1: 8a544dd95334b538748375544eedf380cd8be2ba

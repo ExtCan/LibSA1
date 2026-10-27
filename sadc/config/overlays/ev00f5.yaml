@@ -1,0 +1,14 @@
+# EV00F5 overlay (disc/SONICADV/EV00F5.PRS), load address 0x0CB80000
+name: EV00F5
+target: baserom/overlays/EV00F5.BIN
+sha1: e4a38d884368e961478806a12cbf658ec5e59ae3
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB880E8]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev00f5.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev00f5
+data_chunk: 0x8000
+prs: disc/SONICADV/EV00F5.PRS
+prs_sha1: 072688f8c281cfa8c91371b8f72122a65ad5ac97

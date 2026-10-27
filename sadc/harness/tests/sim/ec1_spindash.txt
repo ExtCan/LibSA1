@@ -1,0 +1,12 @@
+# Emerald Coast act 1: spin dash (hold B 60 steps standing, release), roll,
+# jump out of the roll, second A in the air (jump dash, no homing target
+# with --no-objects), land and run.
+40 0 0
+60 0 0 B
+1 0 0
+60 0 0
+20 0 -127
+10 0 -127 A
+10 0 -127
+1 0 -127 A
+40 0 -127

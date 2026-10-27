@@ -1,0 +1,13 @@
+# args: --level 1 --act 0 --no-objects --hostobj harness/tests/sim/ho/balloon_ec1.ho
+# Round 5 oracle, the BALLOON kind (libsa1_interaction.md 6.2, 6.7 test 16): Sonic runs, jumps, homes onto the
+# LAUNCH_BOUNCE balloon (HIT HOMING LAUNCHED at 174: SetVelocityP 5 up, still in the ball, mode 8), homes onto the plain
+# balloon from there (HIT HOMING LAUNCHED at 191: the spring request, mode 9 action 16, then the fall mode 12 action 17),
+# lands, runs into the POP_ON_TOUCH balloon (HIT LAUNCHED at 328: mode 9 again) and lands again.
+30 0 0
+120 0 -127
+1 0 -127 A
+13 0 -127
+1 0 -127 A
+17 0 -127
+1 0 -127 A
+297 0 -127

@@ -1,0 +1,5 @@
+# args: --level 4 --act 0 --chr 2 --no-objects --hostobj harness/tests/sim/ho/ho_hurt.ho
+# Round 5 oracle, the hurt path of Tails, Speed Highway act 1 (libsa1_interaction.md 4.1): standing, 5 rings, a host damage request at
+# step 60 (HURT: knock-back, the ring scatter with rings), at 220 with KEEP_RINGS (the phantom barrier: the mode machine's
+# barrier branch, ABSORBED), at 380 with 0 rings (FATAL: the death request, DEATH).
+480 0 0

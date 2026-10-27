@@ -1,0 +1,23 @@
+# args: --level 1 --act 2 --chr 7 --no-objects --create-task 8C08A5AE:2:0 --hostobj harness/tests/sim/ho/hud_rings.ho
+# HUD reference (prep-oracle, docs/research/gsa1_070_refs.md): Big, Emerald Coast act 3, game clock running (task exec
+# 8C08A5AE: Big's own HUD shows no timer), hud_rings.ho's ring / life counts. Big's HUD is his fishing HUD task (exec
+# 8C0EB160 -> 8C0E6FE0, numbers 8C08EE98): WEIGHT, rings, lives, every pair. Big walks towards the lake and casts
+# (B held, released) four times: while the lure flies (lure mode 3) the lure display 8C0E7720 draws the reel
+# 8C0E727A and the gauge 8C0E72DA (frame sprite + the tension bar njDrawPolygon2D). The lure misses the water here
+# (8C0E93AE, SE 0x31F) and is reeled in, so each cast gives one or two pairs of these draws. A short hold (mode 34),
+# a jump, the reel button (A).
+30 0 0
+60 -90 -90
+20 0 0
+40 0 0 B
+80 0 0
+60 0 0 B
+80 0 0
+25 0 0 B
+60 0 0
+40 0 0 B
+80 0 0 A
+30 0 0 B
+60 0 0
+1 0 0 A
+100 0 0

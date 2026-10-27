@@ -1,0 +1,7 @@
+# Emerald Coast act 1: stand, run forward (camera-relative stick up), tap A
+# at step 150 (jump), keep running, then turn to the right while running.
+30 0 0
+120 0 -127
+1 0 -127 A
+60 0 -127
+60 60 -100

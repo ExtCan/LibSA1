@@ -1,0 +1,17 @@
+# args: --level 5 --act 2 --chr 3 --no-objects --create-task 8C08A5AE:2:0 --hostobj harness/tests/sim/ho/hud_rings.ho
+# HUD reference (prep-oracle, docs/research/gsa1_070_refs.md): Knuckles, Red Mountain act 3, game clock running (task
+# exec 8C08A5AE), hud_rings.ho's ring / life counts, knux_rm3's inputs then standing. 2D draws: NAME.d2d.txt.
+30 0 0
+60 0 -127
+1 0 -127 A
+8 0 -127
+1 0 -127 A
+80 0 -127 A
+40 60 -100 A
+40 0 0
+1 0 0 B
+8 0 0
+1 0 0 B
+8 0 0
+1 0 0 B
+440 0 0

@@ -1,0 +1,8 @@
+// Names for TIKAL_PROG.BIN. Seeded from reference/apply.
+TIKAL_PROG_TikalWeldList = 0x0CB015A8; // data weldlist
+TIKAL_PROG_Tikal = 0x0CB09818; // data basicmodel
+TIKAL_PROG_Tikal_EV_Head = 0x0CB0DA04; // data basicmodel
+TIKAL_PROG_Tikal_EV_Head_Shapes = 0x0CB23298; // data animation
+TIKAL_PROG_Tikal_Ducking = 0x0CB29574; // data animation
+TIKAL_PROG_Tikal_Stand = 0x0CB2D2A8; // data animation
+TIKAL_PROG_Tikal_Walk = 0x0CB3178C; // data animation

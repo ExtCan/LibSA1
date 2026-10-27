@@ -1,0 +1,9 @@
+# ho_hurt (libsa1_interaction.md 4.1: the hurt paths of every character, the barrier / ring branches of their mode
+# machines, the ring scatter 8C086F5E / 8C0870EA with and without rings): host damage requests on a standing character
+10 rings 5
+60 damage
+220 option KEEP_RINGS 1
+220 damage
+380 option KEEP_RINGS 0
+380 rings -999
+380 damage

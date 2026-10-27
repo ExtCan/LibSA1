@@ -1,0 +1,7 @@
+# airbox_bomb_ec1 (round 0.9.2, docs/research/gsa1_090_faults.md F2 and owner question 4, gsa1_090_plan.md 6.4 / 6.5): host
+# objects near the bomb item's box at Sonic's start (-9, 4, 4), inside the host-object window (280 units): an ENEMY 36
+# units behind him and one 200 units away (the growing bomb sphere reaches them at different steps, the game's enemy
+# check 8C0489E4 -> 8C05E5C2 says so: one HIT each) and a TARGET (never hit by the bomb: it reaches enemies only)
+0 add 1 ENEMY pos=30,6,-20 shape=sphere:5
+0 add 2 TARGET pos=-30,6,-25 shape=sphere:5
+0 add 3 ENEMY pos=-9,6,-196 shape=sphere:5

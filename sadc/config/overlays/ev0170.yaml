@@ -1,0 +1,14 @@
+# EV0170 overlay (disc/SONICADV/EV0170.PRS), load address 0x0CB80000
+name: EV0170
+target: baserom/overlays/EV0170.BIN
+sha1: 27855c01890a00e08df569cf134999815cb8522f
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB84A9C]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0170.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0170
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0170.PRS
+prs_sha1: 0bea1e772537b3934306efea8d5f90d1095a8d55

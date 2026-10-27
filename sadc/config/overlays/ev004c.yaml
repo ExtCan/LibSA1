@@ -1,0 +1,15 @@
+# EV004C overlay (disc/SONICADV/EV004C.PRS), load address 0x0CB80000
+name: EV004C
+target: baserom/overlays/EV004C.BIN
+sha1: e3ff1384c237c29c0d82ddae6243c7e26d73dac6
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB8183C]
+  - [0x0CB81840, 0x0CB82658]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev004c.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev004c
+data_chunk: 0x8000
+prs: disc/SONICADV/EV004C.PRS
+prs_sha1: 1f1d9ab35906d92525ad2ebcf1dcbcf94dc4df32

@@ -1,0 +1,8 @@
+# args: --level 1 --act 0 --no-objects --hostobj harness/tests/sim/ho/ho_jump_ec1.ho
+# Round 5 oracle, libsa1_interaction.md 4.2 case 1 (jump on an enemy): Emerald Coast act 1, Sonic runs as in
+# ec1_run_jump, jumps at step 150 and comes down on an ENEMY sphere (r 4.5, Kiki's numbers) at step 180:
+# HIT SPIN level 1 damage 1 BOUNCED, the game's bounce (world speed 2 up) and the proxy's cooldown, then he runs on.
+30 0 0
+120 0 -127
+1 0 -127 A
+119 0 -127

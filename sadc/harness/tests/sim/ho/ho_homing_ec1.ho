@@ -1,0 +1,9 @@
+# ho_homing_ec1 (libsa1_interaction.md 4.2 case 5): three ENEMY spheres on a line 40 units apart, about 8 units above
+# the ground ahead of Sonic's jump in Emerald Coast act 1 (the homing attack gives up on a target above Sonic at its start,
+# 8C0AF280), removed KILLED by the host some steps after their hits
+0 add 1 ENEMY pos=-234.5,10,121.7 shape=sphere:4.5
+0 add 2 ENEMY pos=-270.1,10,140.0 shape=sphere:4.5
+0 add 3 ENEMY pos=-305.6,10,158.3 shape=sphere:4.5
+180 remove 1 KILLED
+196 remove 2 KILLED
+230 remove 3 KILLED

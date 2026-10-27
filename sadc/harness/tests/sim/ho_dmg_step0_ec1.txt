@@ -1,0 +1,10 @@
+# args: --level 1 --act 0 --no-objects --hostobj harness/tests/sim/ho/ho_dmg_step0_ec1.ho
+# Round 0.9.2 oracle (docs/research/gsa1_090_faults.md 1.5 and F1 with its Review R.3.5, gsa1_090_plan.md 6.5): a
+# FACE_SOURCE damage request before step 0, when the player task has not run PInitialize (mode 0, no playerwk).
+# Recorded with libsa1's layer as of round 0.9.2 (F1: the request is HELD while the task is in mode 0 and applied at
+# step 1, the first step with the playerwk): Sonic at 0 rings takes the hit one step later (step 1: HURT FATAL|HOST,
+# DEATH cause HURT, mode 82 / smode 50, wtimer 120, action 86 from step 2, 87 at the end). Without F1 the original
+# code, given the hit before PInitialize, went straight to mode 82 / smode 50 at
+# step 0, never ran PInitialize and stood frozen at the start point for 60 steps (no DEATH), and libsa1 faulted in
+# 8C0AFB10 (read 00000004).
+60 0 0

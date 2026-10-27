@@ -1,0 +1,18 @@
+# args: --level 6 --act 1 --chr 0 --no-objects --no-level-tasks --pno1
+# Follower, Sky Deck act 2 (--act 1): run, jumps, turns, Tails jumps after Sonic and flies (jump then fly:
+# steering smode 2 -> 3 while the leader is above), no respawn.
+60 0 0
+120 0 -127
+1 0 -127 A
+30 0 -127
+60 127 0
+1 127 0 A
+60 0 -127
+60 0 0
+1 0 0 A
+25 0 0 A
+60 0 0
+90 -127 0
+1 -127 0 A
+40 -127 -60
+90 0 0

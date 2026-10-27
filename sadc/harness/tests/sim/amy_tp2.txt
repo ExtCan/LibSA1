@@ -1,0 +1,16 @@
+# args: --level 3 --act 1 --chr 5 --no-objects
+# Amy, Twinkle Park act 2: run, jump, hammer, jump hammer, spin hammer, turn
+30 0 0
+90 0 -127
+1 0 -127 A
+30 0 -127
+1 0 -127 B
+40 0 -127
+1 0 0 B
+40 0 0
+1 0 -127 A
+6 0 -127
+1 0 -127 B
+40 0 -127
+60 127 0 B
+40 0 0

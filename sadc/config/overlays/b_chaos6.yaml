@@ -1,0 +1,15 @@
+# B_CHAOS6 overlay (disc/SONICADV/B_CHAOS6.PRS), load address 0x0C900000
+name: B_CHAOS6
+target: baserom/overlays/B_CHAOS6.BIN
+sha1: 7b73d015b67104b6818c0f781b9b3575fd035250
+base: 0x0C900000
+code_ranges:
+  - [0x0C900040, 0x0C900154]
+  - [0x0C900360, 0x0C9074A4]
+seeds: []
+symbol_files: [config/symbols.b_chaos6.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/b_chaos6
+data_chunk: 0x8000
+prs: disc/SONICADV/B_CHAOS6.PRS
+prs_sha1: 737854f824e4d76eba42d1e9cf4232f6d4f6264b

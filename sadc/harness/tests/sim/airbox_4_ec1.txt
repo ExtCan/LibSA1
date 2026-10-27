@@ -1,0 +1,17 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C05D9F6:15:3@-9,4,4/4,0,0+late
+# Round 0.9.2 oracle (docs/research/gsa1_090_faults.md 2.3 and F2, gsa1_090_plan.md 6.5): Emerald Coast act 1, the air
+# item box objexec_O_ItemBoxAir 8C05D9F6 made as its spawner 8C05D9C0 makes it (CreateElementalTask(15, 3), twp->scl.x =
+# the item kind) at Sonic's feet (-9, 4, 4), item 4: random rings (8C05D806: rand() -> D_8C154C40 {1, 5, 10, 15, 20,
+# 40}). +late: the box is made after the whole stage start, the newest task of list 3 as a dug box in the game and as
+# libsa1's replay makes it, so it runs before the stage start's item icon task 8C05E14E (list 3 too). The box opens
+# after 21 frames, Sonic standing in it hits it at step 21 and breaks it at step 22 (mode 2): the handler D_8C1B9BA0[4]
+# and the item icon (8C05E0F8) on the list B_8C78C394, which the icon task slides in, holds and shrinks away. The box
+# reaches mode 4 at step 43 and is gone at step 44. Then Sonic runs, jumps, turns and stands until step 1400 (past the
+# invincibility's 1,260 frames).
+60 0 0
+120 0 -127
+1 0 -127 A
+59 0 -127
+60 60 -100
+60 0 0
+1040 0 0

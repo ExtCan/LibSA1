@@ -1,0 +1,14 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C08A5AE:2:0 --hostobj harness/tests/sim/ho/hud_rings.ho
+# HUD reference (prep-oracle, docs/research/gsa1_070_refs.md, gsa1_070_hud.md F7): Sonic, Emerald Coast act 1, with the
+# game clock running (the task made after LoadPlayerTask has exec 8C08A5AE, the clock-on call of the frame state machine
+# 8C04CA40 that the harness does not run: D_8C1BF198 = 1 every step) and hud_rings.ho's ring / life counts. The 2D
+# draws (rings, lives, timer: 8C08A4BA / 8C08A724 in the frame code after each pair) are in NAME.d2d.txt (--log-2d).
+30 0 0
+120 0 -127
+1 0 -127 A
+60 0 -127
+60 60 -100
+60 0 0
+1 0 0 A
+60 0 0
+600 0 0

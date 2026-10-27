@@ -1,0 +1,16 @@
+// Names for STG00.BIN. Seeded from reference/apply.
+STG00_landtable0000_COLList = 0x0C9001AC; // data COL[]
+STG00_landtable0000 = 0x0C900BA8; // data landtable
+STG00_Object_List = 0x0C900BCC; // data objlist
+objexec_Minigame_Mogura = 0x0C900E26; // function; SA Tools GameConfig/DC_SA1 objlist entries, pointer read from sadc/disc binaries
+STG00_Object_List_entries = 0x0C912960; // data objlist_entries
+STG00_mogura_ems_mogura1e = 0x0C914C9C; // data basicmodel
+STG00_mogura_ems_mogura1e_2 = 0x0C916410; // data animation
+STG00_mogura_sms_mogura1a = 0x0C91B9F8; // data basicmodel
+STG00_mogura_sms_mogura1a_2 = 0x0C91C284; // data animation
+STG00_mogura_yms_mogura1a = 0x0C923C7C; // data basicmodel
+STG00_mogura_yms_mogura1a_2 = 0x0C924508; // data animation
+STG00_tataki1_dai1mt = 0x0C92ED90; // data basicmodel
+str_objname_RING = 0x0C92F3B0; // data string
+str_objname_Minigame_Mogura = 0x0C92F3B8; // data string
+str_objname_C_CUBE = 0x0C92F3C8; // data string

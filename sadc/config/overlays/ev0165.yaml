@@ -1,0 +1,14 @@
+# EV0165 overlay (disc/SONICADV/EV0165.PRS), load address 0x0CB80000
+name: EV0165
+target: baserom/overlays/EV0165.BIN
+sha1: 9324a305efaacefc4cfe7d7688905b7a9a585e17
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB80980]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0165.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0165
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0165.PRS
+prs_sha1: abf3ca018d80dfbbad40540b0f42bc7c47ebd82e

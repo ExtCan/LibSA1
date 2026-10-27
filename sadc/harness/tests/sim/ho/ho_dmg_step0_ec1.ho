@@ -1,0 +1,4 @@
+# ho_dmg_step0_ec1 (round 0.9.2, docs/research/gsa1_090_faults.md 1.5 and F1, gsa1_090_plan.md 6.5): a host damage
+# request made before logic step 0, the character's first exec (what G-SA1 sent right after a respawn on
+# gm_goldencity_v2), from the front of Sonic's start (-9, 4, 4)
+0 damage face=5,4,-10

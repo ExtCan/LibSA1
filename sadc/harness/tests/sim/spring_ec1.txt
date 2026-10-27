@@ -1,0 +1,7 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C065800:2:3@-61.64,3.405,32.21
+# Round 5 oracle, the real-object counterpart of the BALLOON launch (libsa1_interaction.md 6.2.1, 6.7 spring_ec1): a
+# ground spring (objexec_SPRING 8C065800, type 0: 8C065A98 -> 8C07C720, 5 units per step up) made after LoadPlayerTask on
+# Sonic's running line in Emerald Coast act 1. Sonic runs onto it at step 96: mode 9 action 16 (Sonic_Spring_Launch),
+# then the fall (mode 12 action 17) and the landing. Harness only: libsa1 has no C for the spring.
+30 0 0
+270 0 -127

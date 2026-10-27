@@ -1,0 +1,19 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C064980:3:3@-48.0,3.58,25.07
+# Round 5 oracle, a real SA1 liftable object (libsa1_interaction.md 6.1.1, 6.7 hold_ec1): O_SAMPLE_S (objexec_O_SAMPLE_S
+# 8C064980: class 4 by 8C0586A0, moved by the movable step 8C05872A) made after LoadPlayerTask on Sonic's running line in
+# Emerald Coast act 1. Sonic runs to it and lifts it (B, mode 21 then 23), carries it, runs and throws it (B: mode 26
+# action 60, it flies and lands by itself at step 255), stands, runs to it, lifts it again (B at 328, mode 23 at 342) and
+# puts it down standing (B: mode 22 action 63). The object's taskwk is in the sidecar (handle 128).
+30 0 0
+48 0 -127
+1 0 -127 B
+31 0 0
+40 0 -127
+1 0 -127 B
+30 0 -127
+60 0 0
+87 0 -127
+1 0 -127 B
+40 0 0
+1 0 0 B
+60 0 0

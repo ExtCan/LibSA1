@@ -1,0 +1,9 @@
+# args: --frames 352 --unlock --set8 8C754BFC=1
+# Round 0.9.2 (docs/research/gsa1_090_charselect.md CS2 with its Review RC4 / RC6): everything unlocked (7 slots), from
+# the ADVERTISE load with the RC4 boot: LEFT from Sonic to Super Sonic (slot 6, the "?" task), A (dialog 9) (research
+# E4, runs/s4.txt).
+230 0 0
+1 0 0 LEFT
+60 0 0
+1 0 0 A
+60 0 0

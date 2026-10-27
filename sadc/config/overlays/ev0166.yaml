@@ -1,0 +1,14 @@
+# EV0166 overlay (disc/SONICADV/EV0166.PRS), load address 0x0CB80000
+name: EV0166
+target: baserom/overlays/EV0166.BIN
+sha1: 552db2a232e60c33034b5c4a85cd622a5fda4e2b
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB80B60]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0166.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0166
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0166.PRS
+prs_sha1: ee3145a1cc43d43630b766a553e78c6fe15061ae

@@ -1,0 +1,14 @@
+# EV0141 overlay (disc/SONICADV/EV0141.PRS), load address 0x0CB80000
+name: EV0141
+target: baserom/overlays/EV0141.BIN
+sha1: 2cbbc6643f902cee2a94b93f6b5d41d37a01a6c0
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB802A8]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0141.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0141
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0141.PRS
+prs_sha1: a50effc0bac22ff98cb5e0f4d8b37f4fd5e3e544

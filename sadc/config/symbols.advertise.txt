@@ -1,0 +1,3 @@
+// Names for ADVERTISE.BIN. Seeded from reference/apply.
+ADVERTISE_Character_Select_Question_Mark = 0x8C9412C0; // data basicmodel
+ADVERTISE_Title_Screen = 0x8C95EB54; // data basicmodel

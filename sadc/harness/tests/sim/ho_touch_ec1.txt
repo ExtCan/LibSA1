@@ -1,0 +1,9 @@
+# args: --level 1 --act 0 --no-objects --hostobj harness/tests/sim/ho/ho_touch_ec1.ho
+# Round 5 oracle, libsa1_interaction.md 4.2 case 2 (touch an enemy, with rings and at 0 rings): Sonic runs into the
+# ENEMY with 5 rings (step 96: HURT, 5 rings lost, the ring scatter 8C086F5E / 8C0870EA, knock-back mode 16, 120 steps
+# of invulnerability), stands still, runs into it again with 0 rings (step 298: HURT FATAL, the death request 8C07BBC2,
+# DEATH cause HURT) and lies there (the death sequence, mode 82).
+30 0 0
+80 0 -127
+130 0 0
+160 0 -127

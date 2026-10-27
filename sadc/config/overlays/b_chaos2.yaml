@@ -1,0 +1,16 @@
+# B_CHAOS2 overlay (disc/SONICADV/B_CHAOS2.PRS), load address 0x0C900000
+name: B_CHAOS2
+target: baserom/overlays/B_CHAOS2.BIN
+sha1: 386c515928b9b44b70c0b4bd653c48f4dd72e9b5
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C900160]
+  - [0x0C9002C0, 0x0C9003A4]
+  - [0x0C9004E0, 0x0C906EA4]
+seeds: []
+symbol_files: [config/symbols.b_chaos2.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/b_chaos2
+data_chunk: 0x8000
+prs: disc/SONICADV/B_CHAOS2.PRS
+prs_sha1: 2dd2654539bbcf4f160d7c8e5b3827419512f459

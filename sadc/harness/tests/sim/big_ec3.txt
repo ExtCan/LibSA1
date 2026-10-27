@@ -1,0 +1,12 @@
+# args: --level 1 --act 2 --chr 7 --no-objects
+# Big, Emerald Coast act 3: walk, jump, turn, cast (B), reel
+30 0 0
+90 0 -127
+1 0 -127 A
+40 0 -127
+60 60 -100
+40 0 0
+1 0 0 B
+60 0 0
+30 0 0 A
+40 0 0

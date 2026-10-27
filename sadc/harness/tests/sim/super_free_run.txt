@@ -1,0 +1,21 @@
+# args: --level 19 --act 0 --chr 0 --no-objects --super-free
+# Free-roam Super Sonic (gsa1_rounds_plan.md 11.1): the level task 0C900000 is the stand-in, which creates
+# only the sea plane 0C91514A and the trigger 0C914D60 (no boss, no drain, no pos.y clamp). Stand 620 steps
+# while the plane stays at the spawn (it follows the player from step 600, 0C91525E-0C91526E), then run,
+# jump, homing (second A), air stop (B), turns.
+620 0 0
+120 0 -127
+1 0 -127 A
+15 0 -127
+1 0 -127 A
+80 0 -127
+1 0 0 A
+10 0 0
+1 0 0 B
+60 0 0
+60 127 -60
+60 -127 -60
+60 0 -127
+1 0 -127 A
+40 0 -127
+60 0 0

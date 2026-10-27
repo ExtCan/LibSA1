@@ -1,0 +1,9 @@
+// Names for EV00DC.BIN. Seeded from reference/apply.
+EV00DC_Tikal_Idle_With_Hand_on_Chest_Event = 0x0CB85EB4; // data animation
+EV00DC_Tikal_Moves_Hand_Away_from_Chest_Event = 0x0CB8C968; // data animation
+EV00DC_Tikal_Clasps_Hands_Event = 0x0CB8F7AC; // data animation
+EV00DC_Tikal_Clasps_Hands_While_Looking_Up_Event = 0x0CB94390; // data animation
+EV00DC_Tikal_Clasps_Hands_and_Nods_Event = 0x0CB97014; // data animation
+EV00DC_Chaos_Water_Ripple_Effect_Event = 0x0CB975C0; // data basicmodel
+EV00DC_Chaos_Water_Ripple_Shape_Motion_Event = 0x0CB97604; // data animation
+EV00DC_Chaos_Water_Ripple_Animation_Event = 0x0CB97B50; // data animation

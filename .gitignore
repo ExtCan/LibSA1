@@ -1,0 +1,24 @@
+# Game data and anything extracted or ripped from it: never commit (bring your own disc)
+*.gdi
+*.cdi
+*.iso
+*.chd
+*.raw
+*.bin
+*.BIN
+*.prs
+*.PRS
+*.pvr
+*.pvm
+*.mlt
+*.adx
+*.afs
+*.wav
+*.png
+*.obj
+*.mtl
+
+# Build outputs and caches (sadc/.gitignore and libsa1/.gitignore list their own)
+build/
+__pycache__/
+*.pyc

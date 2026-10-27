@@ -1,0 +1,14 @@
+# EV0092 overlay (disc/SONICADV/EV0092.PRS), load address 0x0CB80000
+name: EV0092
+target: baserom/overlays/EV0092.BIN
+sha1: cf5769133310eb31c618698bfb705a015de4c5c0
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB80BE0]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0092.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0092
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0092.PRS
+prs_sha1: f5f43a6d36ad827a8a96afe81777bb082a52a6f0

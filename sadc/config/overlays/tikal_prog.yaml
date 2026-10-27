@@ -1,0 +1,14 @@
+# TIKAL_PROG overlay (disc/SONICADV/TIKAL_PROG.PRS), load address 0x0CB00000
+name: TIKAL_PROG
+target: baserom/overlays/TIKAL_PROG.BIN
+sha1: dd87cb03f0cb5fd73584786fceee9fb05976ef78
+base: 0x0CB00000
+code_ranges:
+  - [0x0CB00000, 0x0CB013F4]
+seeds: []
+symbol_files: [config/symbols.tikal_prog.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/tikal_prog
+data_chunk: 0x8000
+prs: disc/SONICADV/TIKAL_PROG.PRS
+prs_sha1: d5245a7e12ce6cff02f415b72f175fe4999747bb

@@ -1,0 +1,20 @@
+# ADV00 overlay (disc/SONICADV/ADV00.PRS), load address 0x0C900000
+name: ADV00
+target: baserom/overlays/ADV00.BIN
+sha1: dd4df19d1fbd600df2d3a6dda33f0f20dd3ab659
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C90A37C]
+  - [0x0C90A380, 0x0C910028]
+  - [0x0C910060, 0x0C9100A0]
+  - [0x0C9100C0, 0x0C9101C0]
+  - [0x0C9101C0, 0x0C9101E0]
+  - [0x0C910200, 0x0C912284]
+  - [0x0C9122C0, 0x0C913218]
+seeds: []
+symbol_files: [config/symbols.adv00.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/adv00
+data_chunk: 0x8000
+prs: disc/SONICADV/ADV00.PRS
+prs_sha1: d50ee68d788222c6789582759d971aa9b1b31f80

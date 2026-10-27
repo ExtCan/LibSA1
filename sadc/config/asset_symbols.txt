@@ -1,0 +1,12 @@
+# Named data inside data files and overlays (not 1ST_READ) that TARGET_PC code
+# references by name instead of by absolute address. Format as in the symbol
+# files: NAME = 0xADDRESS; followed by a comment naming the file.
+#
+# libsa1 resolves these through its asset loader (data ripped at run time from
+# the user's own disc); the harness (harness/tools/gen_native.py) uses the
+# guest address, valid while that file is loaded, like on the console.
+# Names that end in their address (S_SBMOT_texlist_0CB36F94) need no entry.
+
+B_CHAOS7_texlist_SUPERSONIC = 0x0C901EA0; # B_CHAOS7.BIN (Super Sonic textures; Perfect Chaos overlay)
+S_SBMOT_Sonic_Snowboard     = 0x0CB37454; # S_SBMOT.PRS (Sonic's snowboard object)
+M_SBMOT_Tails_Snowboard     = 0x0CB029C4; # M_SBMOT.PRS (Tails' snowboard object)

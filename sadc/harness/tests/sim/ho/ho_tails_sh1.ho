@@ -1,0 +1,4 @@
+# ho_tails_sh1 (libsa1_interaction.md 2.6, 6.7): a TARGET cylinder (r 5, half height 3) above Tails' flight in Speed
+# Highway act 1 and a BREAKABLE box (half extents 2, yaw 0.3) beside him where he does the tail attack
+0 add 1 TARGET pos=-394,25.5,-18.5 shape=cyl:5,3
+0 add 2 BREAKABLE pos=-150.7,0.06,40.2 shape=box:2,2,2^0.3

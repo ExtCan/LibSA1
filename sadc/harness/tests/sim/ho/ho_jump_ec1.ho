@@ -1,0 +1,3 @@
+# ho_jump_ec1 (libsa1_interaction.md 4.2 case 1): an ENEMY sphere r 4.5 (Kiki's numbers) on the ground where Sonic comes
+# down from the jump of ec1_run_jump; expect HIT SPIN level 1 damage 1 BOUNCED, then the bounce (world speed 2 up).
+0 add 1 ENEMY pos=-220.6,6.2,114.3 shape=sphere:4.5

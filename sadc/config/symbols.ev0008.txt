@@ -1,0 +1,2 @@
+// Names for EV0008.BIN. Seeded from reference/apply.
+EV0008_Egg_Mobile_Event = 0x0CBF0824; // data basicmodel

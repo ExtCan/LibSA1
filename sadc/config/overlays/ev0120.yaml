@@ -1,0 +1,14 @@
+# EV0120 overlay (disc/SONICADV/EV0120.PRS), load address 0x0CB80000
+name: EV0120
+target: baserom/overlays/EV0120.BIN
+sha1: 088fd694adfecfc574252aa5fed8a0af08e8b988
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB80244]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0120.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0120
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0120.PRS
+prs_sha1: 204b057081b05abc5a888cfc801bdae27f4d4e63

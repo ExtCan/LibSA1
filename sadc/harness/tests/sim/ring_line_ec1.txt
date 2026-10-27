@@ -1,0 +1,7 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C0869E8:2:3@-19.46,8.0,9.95 --create-task 8C0869E8:2:3@-26.99,8.0,13.94 --create-task 8C0869E8:2:3@-36.47,8.0,18.97 --create-task 8C0869E8:2:3@-48.0,8.0,25.07
+# Round 0.9.2 oracle (docs/research/gsa1_090_rings.md 2 E12 and 5.2, gsa1_090_plan.md 6.5): four RINGs (objexec_RING
+# 8C0869E8, CreateElementalTask(2, 3) as the SET spawner makes them, no OBJ_CONDITION) on Sonic's running line in Emerald
+# Coast act 1 (the spring_ec1 line). Sonic runs through them: rings 1 / 2 / 3 / 4 (AddRings 8C08A198, SE 7), each ring's
+# sparkle (mode 2, 8C086DE6) and its FreeTask (no ocp), the tasks' taskwk are in the sidecar (handles 128-131).
+30 0 0
+270 0 -127

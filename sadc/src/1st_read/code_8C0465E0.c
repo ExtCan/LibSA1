@@ -1,0 +1,81 @@
+/*
+ * 1ST_READ 8C0465E0 (chunk 8C0465E0-8C0467E0): dust particles.
+ *
+ *  func_8C0465E0  spawn one dust particle (pos, velocity, scale) in the
+ *                 dust effect list D_8C19BF48 with the exec func_8C0464EE
+ *                 and the parameter block D_8C19BF5C: random start frame
+ *                 and random angle, white opaque colour
+ */
+#include "common.h"
+#include "sa1/sa1.h"
+
+/* Effect spawn/animation parameters (15 floats; same shape as
+ * SA1_EFFECT_PARAM in code_8C0D67C0.c / PTCL_PARAM in code_8C0D2C00.c).
+ * Local view until a shared type exists. */
+typedef struct {
+    Float scl;                  /* 0x00 */
+    Float dscl;                 /* 0x04 scale step per frame */
+    Float dframe;               /* 0x08 animation step per frame */
+    Float drag;                 /* 0x0C velocity damping */
+    Float rise;                 /* 0x10 added to spd.y per frame */
+    NJS_POINT3 pos;             /* 0x14 */
+    NJS_POINT3 spd;             /* 0x20 */
+    NJS_ARGB argb;              /* 0x2C */
+} SA1_EFFECT_PARAM;             /* 0x3C */
+
+/* Particle node of the effect lists (func_8C09DDFC takes one from the free
+ * list, links it into the list and sets exec). Local view (same layout as
+ * code_8C0D67C0.c) until a shared type exists. */
+struct sa1_effect_list;
+typedef struct sa1_effect {
+    struct sa1_effect *next;    /* DC 0x00 */
+    void (*exec)(struct sa1_effect *ep, struct sa1_effect_list *list); /* DC 0x04 */
+    Sint16 w08;                 /* DC 0x08 */
+    Sint16 cell;                /* DC 0x0A animation cell */
+    Angle ang;                  /* DC 0x0C */
+    Float frame;                /* DC 0x10 */
+    Float scl;                  /* DC 0x14 */
+    NJS_POINT3 pos;             /* DC 0x18 */
+    NJS_POINT3 spd;             /* DC 0x24 */
+    NJS_ARGB argb;              /* DC 0x30 */
+    Float f40;                  /* DC 0x40 */
+    SA1_EFFECT_PARAM *param;    /* DC 0x44 */
+} SA1_EFFECT;                   /* DC 0x48 */
+
+typedef struct sa1_effect_list SA1_EFFECT_LIST;   /* opaque here */
+
+#if SA1_PTR32
+SA1_ASSERT_SIZE(SA1_EFFECT_PARAM, 0x3C);
+SA1_ASSERT_SIZE(SA1_EFFECT, 0x48);
+SA1_ASSERT_OFFSET(SA1_EFFECT, ang, 0x0C);
+SA1_ASSERT_OFFSET(SA1_EFFECT, pos, 0x18);
+SA1_ASSERT_OFFSET(SA1_EFFECT, argb, 0x30);
+SA1_ASSERT_OFFSET(SA1_EFFECT, param, 0x44);
+#endif
+
+typedef void (*SA1_EFFECT_EXEC)(SA1_EFFECT *ep, SA1_EFFECT_LIST *list);
+
+extern SA1_EFFECT_LIST *D_8C19BF48;     /* dust effect list */
+extern SA1_EFFECT_PARAM D_8C19BF5C;     /* dust parameters */
+
+SA1_EFFECT *func_8C09DDFC(SA1_EFFECT_LIST *list, SA1_EFFECT_EXEC exec);
+void func_8C0464EE(SA1_EFFECT *ep, SA1_EFFECT_LIST *list);
+
+void func_8C0465E0(NJS_POINT3 *pos, NJS_POINT3 *spd, Float scl)
+{
+    SA1_EFFECT *ep;
+
+    ep = func_8C09DDFC(D_8C19BF48, func_8C0464EE);
+    if (ep != NULL) {
+        ep->pos = *pos;
+        ep->spd = *spd;
+        ep->scl = scl * 0.149999992f;
+        ep->frame = (Float)rand() * 1.8310546875e-04f;
+        ep->ang = SA1_FTOI((Float)rand() * 1.9999999f);
+        ep->argb.a = 1.0f;
+        ep->argb.r = 1.0f;
+        ep->argb.g = 1.0f;
+        ep->argb.b = 1.0f;
+        ep->param = &D_8C19BF5C;
+    }
+}

@@ -1,0 +1,11 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C087B80:2:3@-36.47,8.0,18.97,4000/7,10,0+ocp+late
+# Round 0.9.2 oracle (docs/research/gsa1_090_rings.md 5.2 with its Review R.2.4 / R.4.3, gsa1_090_plan.md 6.5): a ring
+# group objexec_O_GRING 8C087B80 (CreateElementalTask(2, 3) as the SET spawner makes it), a line (scl 7, 10, 0: 8 RING
+# children 10 apart on its local z axis, ang.y 0x4000, centred on Sonic's running line in Emerald Coast act 1) with an
+# OBJ_CONDITION (+ocp, B_8C79A3E0[0]: 0x8001, written again after the SET manager's reset of step 0) and made after the
+# stage start (+late). Sonic runs across the line and takes 3 of its 8 rings (the centre and its two neighbours, steps
+# 82 / 90 / 98): each child's mode 3 makes the group's 8C087EAC OR its bit into scUserFlag through 8C091C00 (0x02, 0x03,
+# 0x07, in the sidecar's OBJ_CONDITION word). He stops 300 units away, inside the group's range (no range-out 8C0919CC).
+30 0 0
+150 0 -127
+120 0 0

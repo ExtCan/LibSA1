@@ -1,0 +1,11 @@
+# ho_e102_fe1 (libsa1_interaction.md 4.2 case 6): three ENEMY spheres and a BALLOON 60-120 units in front of E-102
+# where it stands in Final Egg act 1 (115, -167, 670), facing ang.y 0x98F6; the enemies are removed KILLED after the
+# laser hits (the time bonus of E-102's hooked destructor, paid by the layer at the removal), the balloon SILENT
+0 add 1 ENEMY pos=65.86,-159,635.56 shape=sphere:4.5
+0 add 2 ENEMY pos=41.29,-159,618.34 shape=sphere:4.5
+0 add 3 ENEMY pos=16.72,-159,601.12 shape=sphere:4.5
+0 add 4 BALLOON pos=29.0,-159,609.7 shape=sphere:5
+306 remove 1 KILLED
+324 remove 2 KILLED
+340 remove 4 SILENT
+358 remove 3 KILLED

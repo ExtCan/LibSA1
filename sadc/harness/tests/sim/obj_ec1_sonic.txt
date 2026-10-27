@@ -1,0 +1,13 @@
+# args: --level 1 --act 0 --chr 0
+# Sonic, Emerald Coast act 1 WITH objects (rings, springs, dash panels, enemies): run, jumps, homing attempts
+30 0 0
+200 0 -127
+1 0 -127 A
+20 0 -127
+1 0 -127 A
+150 0 -127
+1 0 -127 A
+30 30 -127
+1 30 -127 A
+200 0 -127
+60 0 0

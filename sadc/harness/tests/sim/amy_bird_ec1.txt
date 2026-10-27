@@ -1,0 +1,41 @@
+# args: --level 1 --act 0 --chr 5 --no-objects --create-task 8C0DECDA:2:3
+# gsa1_070_bird.md F2 (its Review R.4 keeps it unchanged, HOSTOBJ list): Amy and her bird (Birdie) in Emerald Coast
+# act 1. The stage (0x0100) fails AmyMain's spawner gate (8C0DEDC0, list D_8C15C808), so the game makes no bird, the
+# bird is the spawner's own call CreateElementalTask(2, 3, 8C0DECDA), made after LoadPlayerTask (--create-task, the
+# sidecar .obj.bin holds its taskwk every step, handle 0x80). Inputs: stand (birth 12 above Amy), run, stop, a
+# turn-around (the bird's 0x400-per-step yaw), jumps, the hammer, a jump hammer, sharp turns (run, reverse, zigzag:
+# Review R.3.3, F5's "turn" case), then a long idle (the 3-unit circle, ang.x += 16, and the +-1 bob, period 64).
+60 0 0
+90 0 -127
+40 0 0
+1 0 0 A
+40 0 0
+60 0 -127
+30 127 0
+30 0 127
+30 -127 0
+30 0 -127
+1 0 -127 A
+30 0 -127
+1 0 -127 B
+40 0 -127
+1 0 0 B
+40 0 0
+1 0 -127 A
+6 0 -127
+1 0 -127 B
+40 0 -127
+20 0 -127
+20 0 127
+20 0 -127
+20 0 127
+12 127 -60
+12 -127 -60
+12 127 -60
+12 -127 -60
+12 127 -60
+12 -127 -60
+40 0 0
+60 0 -127
+1 0 0 B
+600 0 0

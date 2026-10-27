@@ -1,0 +1,14 @@
+# STG02 overlay (disc/SONICADV/STG02.PRS), load address 0x0C900000
+name: STG02
+target: baserom/overlays/STG02.BIN
+sha1: d4660ee22701163f81822cf68c060d25db649e06
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C90CDB0]
+seeds: []
+symbol_files: [config/symbols.stg02.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/stg02
+data_chunk: 0x8000
+prs: disc/SONICADV/STG02.PRS
+prs_sha1: 7f8e243a8b581ab3a522f2e73c0d2344aa41d1f7

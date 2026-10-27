@@ -1,0 +1,20 @@
+# Game data: never commit (supply your own disc)
+/disc/
+/baserom/*
+!/baserom/README.md
+
+# Generated from baserom by `configure.py --split`
+/asm/
+/build/
+/build.ninja
+/.ninja_log
+/.ninja_deps
+
+# Third-party toolchains (downloaded locally, see README)
+/tools/shc/
+/tools/dl/
+/tools/ghidra_*/
+/tools/jdk-*/
+
+__pycache__/
+*.pyc

@@ -1,0 +1,14 @@
+# EV0098 overlay (disc/SONICADV/EV0098.PRS), load address 0x0CB80000
+name: EV0098
+target: baserom/overlays/EV0098.BIN
+sha1: 4bc8983e5bae0b18d90a23a38c43aeaa3a40eeb2
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB80C00]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0098.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0098
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0098.PRS
+prs_sha1: 1d54af201c2040da7fe791a162fae1f9bdba3893

@@ -1,0 +1,14 @@
+# args: --level 1 --act 2 --chr 7 --no-objects
+# Drowning in a real stage (prep-oracle, docs/research/gsa1_070_refs.md, gsa1_070_drown.md E1 / H1 / W1 regression):
+# Big walks into the Emerald Coast act 3 lake and sinks to its floor (y -73, about 71 under the water top -2 of COL
+# 186, well inside the game's water reach). Air timer 8C06C6F8 from about step 255, the countdown task 8C07BE6E at
+# breathtimer 0x438 (created in step 1334: TIMER.ADX 8C107C80 twice), its digits 5..1 above the head (8C07BDA0 -> 8C08EE98: 2D
+# draws in NAME.d2d.txt), SetInputP(0, 39) at task frame 0x30C (step 2115: mode 53 action 98, voice 0x51B, music stop),
+# the restart request 8C04E386(2) at task frame 0x3FC (about step 2354), then 300 more steps.
+30 0 0
+90 0 -127
+1 0 -127 A
+40 0 -127
+60 60 -100
+120 0 -127
+2314 0 0

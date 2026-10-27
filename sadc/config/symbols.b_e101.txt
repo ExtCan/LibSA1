@@ -1,0 +1,15 @@
+// Names for B_E101.BIN. Seeded from reference/apply.
+B_E101_landtable2300 = 0x0C900068; // data landtable
+B_E101_Object_List = 0x0C90008C; // data objlist
+str_objname_RING = 0x0C902D2C; // data string
+texlist_E101_TIKEI = 0x0C90328C; // data NJS_TEXLIST
+B_E101_landtable2300_COLList = 0x0C903294; // data COL[]
+B_E101_landtable2300_AnimList = 0x0C9048F0; // data GeoAnimData[]
+B_E101_Object_List_entries = 0x0C91B384; // data objlist_entries
+B_E101_E_101_Beta = 0x0C9235B0; // data basicmodel
+B_E101_E_101_Jet_Booster = 0x0C923B00; // data basicmodel
+B_E101_E_101_Missile = 0x0C9241A8; // data basicmodel
+B_E101_E_101_Shoot_Left = 0x0C929E6C; // data animation
+B_E101_E_101_Defeated = 0x0C93E010; // data animation
+B_E101_E_101_Hover = 0x0C93F8EC; // data animation
+B_E101_E_101_Idle = 0x0C9410E8; // data animation

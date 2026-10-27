@@ -1,0 +1,4 @@
+# Emerald Coast act 1 (--level 1 --act 0): Sonic drops from the start position
+# (y = 16), lands on the deck (y = 4, attr A0100001) and stands.
+# STEPS X Y [BUTTONS]   (60 Hz logic steps, stick -128..127, Y < 0 = up/forward)
+180 0 0

@@ -1,0 +1,18 @@
+# ADV02 overlay (disc/SONICADV/ADV02.PRS), load address 0x0C900000
+name: ADV02
+target: baserom/overlays/ADV02.BIN
+sha1: 5889f2dd60d2da88d15288f5286ccf96c23187ce
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C900138]
+  - [0x0C902880, 0x0C90D7C0]
+  - [0x0C90D7E0, 0x0C9127DC]
+  - [0x0C912824, 0x0C912994]
+  - [0x0C912994, 0x0C915E58]
+seeds: []
+symbol_files: [config/symbols.adv02.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/adv02
+data_chunk: 0x8000
+prs: disc/SONICADV/ADV02.PRS
+prs_sha1: ab5f600e707681f538794520c296c4fefe84659c

@@ -1,0 +1,14 @@
+# EV00FB overlay (disc/SONICADV/EV00FB.PRS), load address 0x0CB80000
+name: EV00FB
+target: baserom/overlays/EV00FB.BIN
+sha1: c024c553d121ad96c54b42c90c9c244d9711edef
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB811F0]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev00fb.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev00fb
+data_chunk: 0x8000
+prs: disc/SONICADV/EV00FB.PRS
+prs_sha1: 8f5c09e8f6795e1d84e8a6a803c05c6a1105f9cb

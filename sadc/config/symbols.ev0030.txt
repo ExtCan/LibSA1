@@ -1,0 +1,13 @@
+// Names for EV0030.BIN. Seeded from reference/apply.
+EV0030_Prototype_Tornado_Tails_Intro = 0x0CB90870; // data basicmodel
+EV0030_Tails_Head_Intro = 0x0CB9407C; // data basicmodel
+EV0030_Prototype_Tornado_in_Tails_Intro_Normal_Flight_Event = 0x0CB97000; // data animation
+EV0030_Prototype_Tornado_in_Tails_Intro_Begin_Hard_Steer_Event = 0x0CB99E34; // data animation
+EV0030_Prototype_Tornado_in_Tails_Intro_Hard_Steer_Event = 0x0CB9C6B8; // data animation
+EV0030_Prototype_Tornado_in_Tails_Intro_Malfunctioning_Event = 0x0CB9F87C; // data animation
+EV0030_Tails_Head_in_Intro_Animation_1_Event = 0x0CB9F8A0; // data animation
+EV0030_Tails_Head_in_Intro_Animation_2_Event = 0x0CB9F8C4; // data animation
+EV0030_Tails_Head_in_Intro_Animation_3_Event = 0x0CB9F8E8; // data animation
+EV0030_Tails_Head_in_Intro_Shape_Motion_Wide_Open_Mouth_Event = 0x0CBA602C; // data animation
+EV0030_Tails_Head_in_Intro_Shape_Motion_Closed_Mouth_Event = 0x0CBAE9C8; // data animation
+EV0030_Tails_Head_in_Intro_Shape_Motion_Frowned_Mouth_Event = 0x0CBB95C4; // data animation

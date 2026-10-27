@@ -1,0 +1,16 @@
+# args: --level 10 --act 0 --chr 6 --no-objects --create-task 8C08A5AE:2:0 --hostobj harness/tests/sim/ho/hud_gamma_fe1.ho
+# HUD reference (prep-oracle, docs/research/gsa1_070_refs.md, gsa1_070_hud.md F7 / R.4.3): E-102, Final Egg act 1, with
+# the game clock running (task exec 8C08A5AE): his 3:00 countdown 8C08A5CC, the lock-on time bonus of ho_e102_fe1 (the
+# "+N" counter task 8C0D4E40), hud_rings.ho's counts from step 460, the white / yellow digits under 30 s and the red ones
+# under 15 s (8C08A7E0), the SE 0x30B ticks, the last-seconds digits (8C0D6198 / 8C0D60C0) and the time-up death
+# (8C0D23E4: mode 49, action 69), then the death sequence. 2D draws: NAME.d2d.txt (--log-2d).
+30 0 0
+90 0 -127
+1 0 -127 A
+20 0 -127
+1 0 -127 A
+40 0 -127 A
+40 0 0
+70 0 0 B
+1 0 0
+11267 0 0

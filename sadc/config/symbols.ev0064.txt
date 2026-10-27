@@ -1,0 +1,19 @@
+// Names for EV0064.BIN. Seeded from reference/apply.
+EV0064_Amy_Walks_with_Held_Item_A_Event = 0x0CB85D20; // data animation
+EV0064_Amy_Holds_Item_Event = 0x0CB87574; // data animation
+EV0064_Amy_Alternate_Walk_Event = 0x0CB8CB18; // data animation
+EV0064_Amy_Stops_Alternate_Walk_Event = 0x0CB8F34C; // data animation
+EV0064_Amy_Idle_After_Alternate_Walk_Event = 0x0CB8FC80; // data animation
+EV0064_Amy_Turns_Left_After_Alternate_Walk_Idle_Event = 0x0CB91624; // data animation
+EV0064_Amy_Looks_Behind_from_the_Left_Event = 0x0CB91FB8; // data animation
+EV0064_Birdie_Event_Wings = 0x0CB960E4; // data basicmodel
+EV0064_Birdie_Opening_Eyes_During_Amy_Hold_Bandaged_Event = 0x0CB98830; // data animation
+EV0064_Amy_Body_Carried_by_ZERO = 0x0CB9E468; // data basicmodel
+EV0064_Amy_Head_Carried_by_ZERO = 0x0CBA1758; // data basicmodel
+EV0064_ZERO_Holding_Amy_and_Birdie = 0x0CBA9064; // data basicmodel
+EV0064_Birdie_Held_by_ZERO = 0x0CBAD118; // data basicmodel
+EV0064_Amy_While_Carried_By_ZERO_Animation_Body_Event = 0x0CBAF2FC; // data animation
+EV0064_Amy_While_Carried_By_ZERO_Animation_Head_Event = 0x0CBAF320; // data animation
+EV0064_ZERO_While_Holding_Amy_Animation_Event = 0x0CBB1834; // data animation
+EV0064_Birdie_While_Held_By_ZERO_Animation_Event = 0x0CBB21C0; // data animation
+EV0064_Amy_While_Carried_By_ZERO_Shape_Motion_Head_Event = 0x0CBC38E4; // data animation

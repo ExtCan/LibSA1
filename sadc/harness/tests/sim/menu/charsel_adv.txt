@@ -1,0 +1,15 @@
+# args: --frames 754 --unlock --set8 8C754BFC=1
+# Round 0.9.2 (docs/research/gsa1_090_charselect.md CS2 with its Review RC4 / RC6): the game's character select screen
+# (ADVERTISE screen type 1) from the ADVERTISE load, with the game's own direct entry (submode 1, the screen sequence
+# ended after its first entry: the screen built in 130 frames, voice 4 and BGM 24 at frame 131), everything unlocked,
+# English textures. Two RIGHT presses, A (the slot: the dialog), A (the dialog's first entry: the pick, its voice, the
+# result 101). = docs/research/charselect review/e_sub1_only1.txt.
+230 0 0
+1 0 0 RIGHT
+40 0 0
+1 0 0 RIGHT
+40 0 0
+1 0 0 A
+40 0 0
+1 0 0 A
+400 0 0

@@ -1,0 +1,14 @@
+# ADVERTISE overlay (disc/SONICADV/ADVERTISE.PRS), load address 0x8C900000
+name: ADVERTISE
+target: baserom/overlays/ADVERTISE.BIN
+sha1: 5abb7a8b0d85e90b4ee9ee6815a5ad10ca5a81e7
+base: 0x8C900000
+code_ranges:
+  - [0x8C900020, 0x8C90EAF0]
+seeds: []
+symbol_files: [config/symbols.advertise.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/advertise
+data_chunk: 0x8000
+prs: disc/SONICADV/ADVERTISE.PRS
+prs_sha1: 1166c5d474790fb18f304b0d4a544301c3547236

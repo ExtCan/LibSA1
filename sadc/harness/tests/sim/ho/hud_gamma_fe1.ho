@@ -1,0 +1,19 @@
+# hud_gamma_fe1 (prep-oracle, docs/research/gsa1_070_refs.md): ho_e102_fe1's three ENEMY spheres and BALLOON in front of
+# E-102 in Final Egg act 1 (the lock-on chain and the time bonus 8C0D5064 at the KILLED removals: the "+N" counter
+# 8C0D4E40 / 8C0D4D08 / 8C0D50AC), then hud_rings.ho's ring and life counts, 400 steps later
+0 add 1 ENEMY pos=65.86,-159,635.56 shape=sphere:4.5
+0 add 2 ENEMY pos=41.29,-159,618.34 shape=sphere:4.5
+0 add 3 ENEMY pos=16.72,-159,601.12 shape=sphere:4.5
+0 add 4 BALLOON pos=29.0,-159,609.7 shape=sphere:5
+306 remove 1 KILLED
+324 remove 2 KILLED
+340 remove 4 SILENT
+358 remove 3 KILLED
+460 rings 7
+520 rings 116
+580 rings 876
+640 rings 1
+700 rings -1000
+820 rings 250
+880 rings -45
+940 rings -1000

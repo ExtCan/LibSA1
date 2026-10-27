@@ -1,0 +1,19 @@
+# args: --level 1 --act 0 --chr 2 --no-objects --create-task 8C05D10C:2:3@0,3.65,-14/2,0,0+ocp+late
+# Round 0.9.4 oracle (docs/research/gsa1_094_plan.md 6.4 with its Review R.6 / R.7, gsa1_094_items.md 3.1 and 9):
+# the ground item box objexec_O_ITEMBOX 8C05D10C (CreateElementalTask(2, 3) as the SET spawner 8C091380 makes it,
+# twp->scl.x = the item kind) with an OBJ_CONDITION (+ocp: B_8C79A3E0[0] = 0x8001, written again after the SET
+# manager's reset of step 0, the box's mode 0 adds 0x0010, 8C091B5E), made after the whole stage start (+late).
+# It grows for 46 steps without collision (mode 1, 8C05D360), is solid from step 46 (mode 2, 8C05D386), a break
+# (its top sphere touched, or its cylinder out-levelled by an attack) gives the item (D_8C1B9BA0[kind]) and the
+# item icon (8C05E0F8), sets 0x0004 one step later (8C05D4CE -> 8C091B54: 0x8011 -> 0x8015) and leaves the base,
+# the shell (mode 4, CCL id 4). The player stays within the box's 400-unit range (the original's range-out
+# 8C0919CC destroys the task, libsa1's is 'ret 0').
+# Emerald Coast act 1, Tails (094-res gb_t_jump12), item 2: his jump ball (mode 6) against the box's side, an attack
+# (flag 0xC) at step 77, the break at 78, condition 0x8015 at 79, he walks on past the shell (242 steps). NOTE: in
+# Emerald Coast every character but Sonic and E-102 has the game camera's view matrix NaN after step 0 (the harness's
+# --log-vis: every visibility test of Tails' display 8C0BA820 answers 0), so his display never places his collision
+# shape 0 (visibility_fidelity.md 5, 7), the jump ball breaks the box all the same.
+60 0 0
+12 0 -127
+20 0 -127 A
+150 0 -127

@@ -1,0 +1,16 @@
+# STG09 overlay (disc/SONICADV/STG09.PRS), load address 0x0C900000
+name: STG09
+target: baserom/overlays/STG09.BIN
+sha1: 2e83fa2ca0284f0f6e6756e38ef51813b5227571
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C904964]
+  - [0x0C904980, 0x0C906804]
+  - [0x0C906820, 0x0C923D90]
+seeds: []
+symbol_files: [config/symbols.stg09.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/stg09
+data_chunk: 0x8000
+prs: disc/SONICADV/STG09.PRS
+prs_sha1: 581f4a4b6cd7f263300f7d0a0b75cd56fe4aede1

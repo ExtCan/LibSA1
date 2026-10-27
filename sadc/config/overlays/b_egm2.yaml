@@ -1,0 +1,15 @@
+# B_EGM2 overlay (disc/SONICADV/B_EGM2.PRS), load address 0x0C900000
+name: B_EGM2
+target: baserom/overlays/B_EGM2.BIN
+sha1: 8920ecab24be4b5208120c4329da2b7dd251cec0
+base: 0x0C900000
+code_ranges:
+  - [0x0C900000, 0x0C900118]
+  - [0x0C900260, 0x0C907AA4]
+seeds: []
+symbol_files: [config/symbols.b_egm2.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/b_egm2
+data_chunk: 0x8000
+prs: disc/SONICADV/B_EGM2.PRS
+prs_sha1: 719af435ba1cd28ea7a255224e8f59bfb3528c1c

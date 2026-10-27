@@ -1,0 +1,14 @@
+# EV0047 overlay (disc/SONICADV/EV0047.PRS), load address 0x0CB80000
+name: EV0047
+target: baserom/overlays/EV0047.BIN
+sha1: 3f32047c9e83485a30ea5efcbbeb620fb03eb0ed
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80020, 0x0CB872E8]
+seeds: [0x0CB80020]
+symbol_files: [config/symbols.ev0047.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/ev0047
+data_chunk: 0x8000
+prs: disc/SONICADV/EV0047.PRS
+prs_sha1: 58419f6521cd92061df1f32806045e9e9ca21b1a

@@ -1,0 +1,15 @@
+# ADV0130 overlay (disc/SONICADV/ADV0130.PRS), load address 0x0C920000
+name: ADV0130
+target: baserom/overlays/ADV0130.BIN
+sha1: a01d774c0b8a35131fdbd152792c5b318a1c2b98
+base: 0x0C920000
+code_ranges:
+  - [0x0C920000, 0x0C92006C]
+  - [0x0C921AE0, 0x0C92BAB0]
+seeds: []
+symbol_files: [config/symbols.adv0130.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/adv0130
+data_chunk: 0x8000
+prs: disc/SONICADV/ADV0130.PRS
+prs_sha1: 54f4e9d60cb45bd0bc3cfe607921c62efb0a4e61

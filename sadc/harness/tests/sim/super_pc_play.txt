@@ -1,0 +1,16 @@
+# args: --level 19 --act 0 --chr 0
+# Super Sonic on the Perfect Chaos stage itself (B_CHAOS7, objects and level tasks on): the stage's trigger
+# 0C914D60 transforms Sonic (step 6) and the boss intro locks the stick until about step 498. Then: run,
+# jump, homing (second A), land, B in the air (air stop), turn (super_sonic.md 6.1 ss_l19_play).
+500 0 0
+120 0 -127
+1 0 -127 A
+15 0 -127
+1 0 -127 A
+80 0 -127
+1 0 0 A
+10 0 0
+1 0 0 B
+60 0 0
+60 127 -60
+60 0 0

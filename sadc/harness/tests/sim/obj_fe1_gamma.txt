@@ -1,0 +1,13 @@
+# args: --level 10 --act 0 --chr 6
+# E-102, Final Egg act 1 WITH objects: walk, lock-on (hold B) and fire (release), hover
+30 0 0
+120 0 -127
+90 0 -60 B
+1 0 0
+120 0 -127
+90 40 -60 B
+1 0 0
+1 0 -127 A
+20 0 -127
+60 0 -127 A
+60 0 -127

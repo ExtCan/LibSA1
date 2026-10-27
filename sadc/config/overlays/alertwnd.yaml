@@ -1,0 +1,14 @@
+# ALERTWND overlay (disc/SONICADV/ALERTWND.PRS), load address 0x8C900000
+name: ALERTWND
+target: baserom/overlays/ALERTWND.BIN
+sha1: 979f212e817464fcf159ee9c1a9dd3ad413c1c0d
+base: 0x8C900000
+code_ranges:
+  - [0x8C900020, 0x8C901648]
+seeds: []
+symbol_files: [config/symbols.alertwnd.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/alertwnd
+data_chunk: 0x8000
+prs: disc/SONICADV/ALERTWND.PRS
+prs_sha1: d3371d9c850d08d16991ed17b8c76cee7375bfe5

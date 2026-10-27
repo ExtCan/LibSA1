@@ -1,0 +1,10 @@
+# args: --level 2 --act 0 --chr 0 --no-objects --no-level-tasks --pno1
+# Follower, Windy Valley act 1: the distance respawn (follower_ai.md 1.5 "wv_sonic_b"): Sonic runs ahead,
+# Tails falls into a pit, at more than 1000 units the supervisor respawns him (step ~432) at the camera
+# position + 50 Y, flying (SetInputP(1, 48)), then Sonic turns right and stops.
+60 0 0
+240 0 -127
+1 0 -127 A
+119 0 -127
+120 127 0
+120 0 0

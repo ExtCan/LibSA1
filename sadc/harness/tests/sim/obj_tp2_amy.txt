@@ -1,0 +1,12 @@
+# args: --level 3 --act 1 --chr 5
+# Amy, Twinkle Park act 2 WITH objects (E-100 Zero chaser, enemies, items): run, jump, hammer
+30 0 0
+150 0 -127
+1 0 -127 A
+30 0 -127
+1 0 -127 B
+60 0 -127
+1 0 0 B
+120 40 -127
+1 40 -127 A
+200 0 -127

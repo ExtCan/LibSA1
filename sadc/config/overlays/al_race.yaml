@@ -1,0 +1,18 @@
+# AL_RACE overlay (disc/SONICADV/AL_RACE.PRS), load address 0x0CB80000
+name: AL_RACE
+target: baserom/overlays/AL_RACE.BIN
+sha1: 7fddfd593a247ea8639ed3f292ec15d75a8266ab
+base: 0x0CB80000
+code_ranges:
+  - [0x0CB80000, 0x0CB8008C]
+  - [0x0CB80EE0, 0x0CB941A0]
+  - [0x0CB941E0, 0x0CB96908]
+  - [0x0CB96908, 0x0CB96A20]
+  - [0x0CB96C60, 0x0CB98110]
+seeds: []
+symbol_files: [config/symbols.al_race.txt]
+link_with: [1ST_READ]
+asm_dir: asm/overlays/al_race
+data_chunk: 0x8000
+prs: disc/SONICADV/AL_RACE.PRS
+prs_sha1: d8a9e5533c019162b204e7cd576409d85df53cd0

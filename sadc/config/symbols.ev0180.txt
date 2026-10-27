@@ -1,0 +1,3 @@
+// Names for EV0180.BIN. Seeded from reference/apply.
+EV0180_ecff_bf_s_fbody_2 = 0x0CB91D88; // data basicmodel
+EV0180_ecff_bf_s_fbody = 0x0CB9409C; // data animation
