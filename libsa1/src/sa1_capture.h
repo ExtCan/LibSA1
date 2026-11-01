@@ -531,7 +531,19 @@ typedef struct sa1_capture_emit_opts {
     /* round 0.9.4 (zero: none) */
     int32_t exec_arrays;        /* 1: fill the builder's node_exec / spr_exec (sa1_meshbuf; free them with
                                    sa1_meshbuf_free_exec). SA1_DRAW_OBJECT / SA1_NODE_OBJECT are set either way */
+    /* round 0.9.5 (the board, SA1_DRAW_BOARD; sadc docs/research/gsa1_095_plan.md 5.3, 6.2 task 4; zero: none). The board
+       task's draws (sa1_capture_board_exec) are always emitted with SA1_DRAW_BOARD (before the merge test: never merged
+       with a draw without it) */
+    int32_t board_hide;         /* 1: leave the board task's draws out (it was not held yet: its first pairs at the SA1
+                                   origin; presentation only) */
+    int32_t board_world;        /* 1: the board is a KEPT board: its models get SA1_NODE_OBJECT (interpolated in world
+                                   space where the game drew it, never moved with the character's root) */
 } sa1_capture_emit_opts;
+/* round 0.9.5: 1 when exec is a board task's (8C0B2F46 Sonic, 8C0BF804 Tails; compared physically). 0 is never one */
+int sa1_capture_board_exec(uint32_t exec);
+#ifndef SA1_DRAW_BOARD
+#define SA1_DRAW_BOARD 0x4000u
+#endif
 
 /* frees a builder's node_exec / spr_exec (sa1_capture_emit_opts.exec_arrays); call it before sa1_meshbuf_free */
 void sa1_meshbuf_free_exec(const sa1_context *ctx, sa1_meshbuf *b);

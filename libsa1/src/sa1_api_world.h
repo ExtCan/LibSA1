@@ -181,6 +181,12 @@ sa1_status sa1w_world_tick(struct sa1g_world *w, const sa1_input *in, float dt, 
  *              SA1_ERR_INVALID_ARGUMENT (no world, no step, a bad dt), the dead world's status, SA1_ERR_NOT_IMPLEMENTED
  *              (the game step without the game code), SA1_ERR_NOT_LOADED (the game step before the boot) */
 void sa1w_world_input(struct sa1g_world *w, const sa1_input *in);
+/* round 0.9.5 (sadc docs/research/board095_cam.md 5.3): the same plus the host camera - with co (the context's coords) the
+ * world latches sa1_input.host_cam_pos / host_cam_target for the pairs of this tick when struct_size covers them,
+ * host_flags has SA1_INPUT_HOST_CAMERA and all six floats are finite with |v| <= 1e30; else (and with co NULL: the bridge's
+ * own sa1w_world_tick, the tests) the virtual eye. sa1w_world_input(w, in) == sa1w_world_input_ex(w, in, NULL) */
+#define SA1W_HAS_WORLD_INPUT_EX 1
+void sa1w_world_input_ex(struct sa1g_world *w, const sa1_input *in, const sa1_coords *co);
 uint32_t sa1w_world_pairs_due(const struct sa1g_world *w, float dt);
 sa1_status sa1w_world_run(struct sa1g_world *w, float dt, uint32_t max_pairs, int keep_backlog, uint32_t *pairs);
 void sa1w_world_pstate(const struct sa1g_world *w, sa1w_pstate *out);
@@ -260,6 +266,12 @@ uint32_t sa1w_world_super_lifted(const struct sa1g_world *w, uint32_t action);
    NULL on any error; SA1_PARTIAL (built without land) is no error: *out set (review R.12) */
 #define SA1W_HAS_WORLD_ENSURE 1
 sa1_status sa1w_character_world_ensure(sa1_context *ctx, sa1_character_id id, struct sa1g_world **out);
+/* round 0.9.5 (src/sa1_board.c): the character's kind, create flags (SA1_CREATE_*) and world without building it (*world
+   NULL: not built yet, a puppet, or a build without the world core); SA1_ERR_NOT_FOUND for an unknown id. Any out may be
+   NULL */
+#define SA1W_HAS_CHARACTER_PEEK 1
+sa1_status sa1w_character_peek(const sa1_context *ctx, sa1_character_id id, int32_t *kind, uint32_t *create_flags,
+                               struct sa1g_world **world);
 
 /* ---- round 0.9.4: SET objects (SA1_API_SET; src/sa1_set.c the registry and the API, src/world/sa1_world_set.c the world
  *      side; sadc docs/research/gsa1_094_plan.md 6.3 with its Review) ---------------------------------------------------- */
@@ -411,6 +423,49 @@ typedef struct sa1w_hint_info {
 } sa1w_hint_info;
 sa1_status sa1w_test_hint(const sa1_context *ctx, sa1_character_id id, sa1w_hint_info *out);
 void sa1w_test_hint_legacy(int on);
+
+/* ---- round 0.9.5: the board (SA1_API_BOARD; src/sa1_board.c the API, src/world/sa1_world_board.c the lane) ---------- */
+/* The round's hand-over rule (gsa1_095_plan.md 3.2 / 5.4 review R.6): between lanes/lib_contract.txt and lanes/lib_done.txt
+ * the OPTIMISED archives that G-SA1 snapshots keep the contract's answers ("the board is not built yet", SA1_PREVIEW_BOARD
+ * not available); the lane's own tests run the -O0 build (build.py --debug, build/<target>-debug). SA1WB_BUILT is 1 from
+ * lib_done.txt on. */
+#define SA1WB_BUILT 1
+#if defined(__OPTIMIZE__) && !SA1WB_BUILT
+#define SA1WB_GATED 1
+#else
+#define SA1WB_GATED 0
+#endif
+#define SA1WB_NOT_BUILT "the board is not built yet"
+#define SA1WB_WHY_MAX 128u
+/* the BOARD preview (src/world/sa1_world_board.c's LIBSA1_BOARD image; src/world/sa1_world_preview.c makes the copies): the
+   synthetic code address of its exec, and the board's model (NJS_OBJECT) and texlist of a kind / variant (0: none) */
+#define SA1WB_PREVIEW_CODE 0x7F010100u
+uint32_t sa1wb_board_object(int32_t kind);
+uint32_t sa1wb_board_texlist(int32_t kind, uint32_t variant);
+/* the start push (STG08 0C90E810's C through STG08's code map) is in this build */
+int sa1wb_push_available(void);
+/* the lane's state for sa1_character_board_state, SA1 space (the API converts to host space) */
+typedef struct sa1wb_state {
+    uint32_t flags;             /* SA1_BSTATE_* */
+    uint32_t terrain;
+    uint32_t board_task, push_steps;
+    float saved_jmp;
+    int32_t kind;               /* -1 none */
+    uint32_t variant;
+    int32_t pose_valid;
+    float mpos[3], mrot[9];     /* the model's origin and rotation (row-major, column vectors) as the game draws it */
+    uint32_t still;
+    int32_t mode;               /* player 0's mode after the last step */
+    uint32_t ons, offs, refusals, frees;
+} sa1wb_state;
+/* a request between ticks (the world built, kind 0 or 2 checked by the API): latched, carried out at the next pair start.
+   SA1_OK; SA1_ERR_UNSUPPORTED / NOT_LOADED / INVALID_ARGUMENT with plain words in why; a dead world's status */
+sa1_status sa1wb_request(sa1_context *ctx, struct sa1g_world *w, int32_t kind, const sa1_board_desc *d, char *why,
+                         size_t n);
+void sa1wb_state_get(const struct sa1g_world *w, sa1wb_state *out);
+/* the render capture (sa1_character.c): 1 = a board task's draws are left out (not held once yet); 1 = the board is kept */
+int sa1wb_draw_hidden(const struct sa1g_world *w);
+int sa1wb_kept(const struct sa1g_world *w);
 
 /* ---- tests (tests/replay_test.c): the world of a character (NULL: not created yet, or none) -------- */
 struct sa1g_world *sa1_character_world(const sa1_context *ctx, sa1_character_id id);

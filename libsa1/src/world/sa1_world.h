@@ -177,6 +177,10 @@ const sa1g_fnimage *sa1g_fnimage_find(const char *name);
  * proxies' exec), appended to every world's fn_images (sa1_world_image.c) so the game's executor, DestroyTask and the
  * replay walker reach it through sa1_fn like overlay code (sadc docs/libsa1_interaction.md 2.3, 6.4 row 1) */
 extern const sa1g_fnimage sa1g_hostobj_image;
+/* LIBSA1_BOARD (round 0.9.5, sa1_world_board.c): libsa1's board execs (the BOARD preview 0x7F010100, the start push
+   0x7F010200, Sonic's board pick 0x7F010300),
+   appended after LIBSA1_HOST to every world's fn_images (sa1_world_image.c) */
+extern const sa1g_fnimage sa1g_board_image;
 /* a rebuild (apply_image / apply_ram) forgets the world's queued requests and per-step host-object state; the options and
  * the kind mask stay (sa1_world_hostobj.c) */
 struct sa1g_world;
@@ -394,6 +398,14 @@ typedef struct sa1g_camera {
     uint32_t ang[3];            /* BAMS; ang.z >= 0x4000 inverts the steering (8C06FB8C) */
     float pos[3];               /* SA1 space */
     int8_t smode;
+    /* round 0.9.5 (SA1_INPUT_HOST_CAMERA; sadc docs/research/board095_cam.md 5.3, gsa1_095_plan.md 5.3): the host's view of
+       this tick, latched by sa1w_world_input_ex (src/world/sa1_api_world.c) in HOST space with the context's coords; the
+       live step converts host_pos into pos (sa1g_camera_host, sa1_world_tick.c) inside the world's FP mode. host 0: none
+       (every replay, preview world, test and host without the bit: the virtual eye, as 0.9.4f). host_tgt is kept for
+       later rounds (0.9.6's look CAMERA mode, 0.9.7's camera seeding); 0.9.5's step does not read it */
+    int32_t host;
+    float host_pos[3], host_tgt[3];
+    float co_scale, co_axis[9];
 } sa1g_camera;
 
 /* round 0.9.3a (src/world/sa1_world_super.c): the General form's options and run state */
@@ -620,7 +632,17 @@ typedef struct sa1g_world {
     float drawn_frame;
     uint32_t drawn_action;
     int32_t drawn_frame_valid;      /* 0: not read with the last drawn_valid */
+
+    /* round 0.9.5 (the board, src/world/sa1_world_board.c; sadc docs/research/gsa1_095_plan.md 6.2): the lane (installed by
+       the first sa1_character_board for the world; NULL hooks until then) and the collision window's riding word,
+       computed by the lane after every step: 0 on foot (or no lane), else SA1WB_COL_RIDING | the terrain in force
+       (SA1_BOARD_TERRAIN_*); read by sa1_coladapt_world.c's window copy and moving objects. Kept at the end: the offsets
+       above stay */
+    sa1g_lane board;
+    uint32_t board_col;
+    uint32_t board_col_applied;     /* the word the window last registered its moving objects with (sa1_coladapt_world.c) */
 } sa1g_world;
+#define SA1WB_COL_RIDING 0x80000000u
 
 /* ---- context-wide collision segment ------------------------------------------------------------ */
 int sa1g_shared_create(sa1g_shared *s);

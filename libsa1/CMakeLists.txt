@@ -22,7 +22,7 @@
 # tools/pc_cflags.txt, design 8.1 / D11).  The certified binaries are build.py's (zig's
 # pinned clang); MSVC builds of game code are unsupported.
 cmake_minimum_required(VERSION 3.16)
-project(libsa1 VERSION 0.2.0 LANGUAGES C)
+project(libsa1 VERSION 0.3.0 LANGUAGES C)
 
 option(SA1_BUILD_SHARED "Build the shared library (sa1)" ON)
 option(SA1_BUILD_TESTS "Build unit_test and rip_test" ON)

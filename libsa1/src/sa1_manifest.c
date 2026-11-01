@@ -51,6 +51,11 @@ static const sa1_file_desc k_files[] = {
     { "OBJ_REGULAR.PRS", 155785, "446e5450ab93d62cf6578dab419e095d33ca2c6a", 0 },
     { "EFF_REGULAR.PRS", 124234, "e6c36621a4624c076ddb053320e3f5c989ec4899", 0 },
     { "CON_REGULAR.PRS",  27268, "52639ac35660cd45926cd45756427fbc20127992", 0 },
+    /* round 0.9.5 (the board, SA1_LOAD_BOARDS; sadc docs/research/board095_lib.md 2.6): standalone PVRs, uncompressed
+       (GBIX + PVRT), one 64 x 64 RGB565 twiddled + mips texture each */
+    { "MIW_B001.PVR",     10952, "7eb21e78fa9d54ef00029043be91285bdde1de32", 0 },
+    { "SB_BOARD1.PVR",    10956, "d851ade3e5d8b610790a25aca1e8960aeae9bde6", 0 },
+    { "MTX_BOARD0.PVR",   10956, "f41d0bf31bc1af46cf683bc55343161d519fee7a", 0 },
 };
 
 const sa1_file_desc *sa1_manifest_file(const char *name)

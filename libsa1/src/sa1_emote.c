@@ -255,7 +255,16 @@ sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_
         }
         st = sa1em_world_check(w, emote, 0, why, sizeof why);
         if (SA1_FAILED(st)) {
-            /* the plain words alone ("in the air", "moving", "the game's memory is full", "... is not available ...") */
+            /* the plain words alone ("in the air", "moving", "the game's memory is full", "... is not available ...").
+               Round 0.9.5 (sadc docs/research/board095_perf.md 4): a refusal of the game's state is the call's normal
+               answer - logged at DEBUG; the full heap at WARN; any other status (an entry the plan cannot use) stays an
+               ERROR. sa1_last_error is the same text in every case */
+            if (st == SA1_ERR_UNSUPPORTED) {
+                return sa1_refuse(ctx, st, SA1_LOG_DEBUG, "%s", why[0] ? why : "busy");
+            }
+            if (st == SA1_ERR_LIMIT) {
+                return sa1_refuse(ctx, st, SA1_LOG_WARN, "%s", why[0] ? why : "busy");
+            }
             return sa1_fail(ctx, st, "%s", why[0] ? why : "busy");
         }
         /* SA1_PARTIAL: the world has not run its first pair (no player, or jvmode not 1 yet): checked at the pair start */

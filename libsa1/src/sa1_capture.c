@@ -521,6 +521,16 @@ int sa1_capture_object_exec(uint32_t exec)
     return 0;
 }
 
+/* round 0.9.5 (SA1_DRAW_BOARD): the board tasks' execs, which call their displays lbl_8C0B3068 / 8C0BF92C (sadc
+ * code_8C0B2EA0.c:112-193, code_8C0BF804.c:137-219): the board model (njDrawModel / njDrawObject) or its motion draw
+ * 8C60E080 */
+int sa1_capture_board_exec(uint32_t exec)
+{
+    uint32_t e = exec & 0x1FFFFFFFu;
+    /* and the BOARD preview's exec (LIBSA1_BOARD 0x7F010100, src/world/sa1_world_board.c) */
+    return e != 0 && (e == 0x0C0B2F46u || e == 0x0C0BF804u || e == 0x1F010100u);
+}
+
 uint32_t sa1_capture_object_execs(const uint32_t **execs, const char *const **names)
 {
     if (execs)
@@ -1273,8 +1283,10 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
         double m[12];
         sa1_draw_state ds;
         sa1_emit_info ei;
-        int own, shadow, glow, object = sa1_capture_object_exec(r->exec);
+        int own, shadow, glow, object = sa1_capture_object_exec(r->exec), board = sa1_capture_board_exec(r->exec);
         uint32_t nn0 = b->nn, ns0 = b->nspr, nlv0 = b->nlv, nt0 = b->nt, k;
+        if (board && o->board_hide)
+            continue;               /* round 0.9.5: a board task not held yet (presentation only) */
         if (!SA1_CAP_IS_MODEL(r->kind)) {
             if (o->only_model || !o->effects ||
                 (r->kind != SA1_CAP_SPRITE3D && r->kind != SA1_CAP_LINE3D && r->kind != SA1_CAP_TRI3D &&
@@ -1361,6 +1373,9 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
                flags, before the emitter's merge test (add_tri_draw, sa1_pose.c), so it never merges with a draw that is
                not one (a ring's blob shadow with the character's: gsa1_094_plan.md Review R.1) */
             ei.extra_flags |= SA1_DRAW_OBJECT;
+        if (board)
+            /* round 0.9.5: the board under Sonic's / Tails' feet or left on the ground, before the merge test */
+            ei.extra_flags |= SA1_DRAW_BOARD;
         glow = cap_gold_glow(c, r);
         if (glow)
             /* round 0.9.4a M3: the charged glow in gold (the comment above cap_gold_texlist); the flag before the
@@ -1381,6 +1396,10 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
                 for (k = nn0; k < b->nn; k++)
                     b->node_fl[k] |= (uint8_t)SA1_NODE_OBJECT;
                 c->object_models++;
+            } else if (board && o->board_world) {
+                /* round 0.9.5: a kept board stays where the game drew it (world-space interpolation, no root) */
+                for (k = nn0; k < b->nn; k++)
+                    b->node_fl[k] |= (uint8_t)SA1_NODE_OBJECT;
             }
             if (o->exec_arrays) {
                 st = exec_room(ctx, b, b->nn, b->nspr);

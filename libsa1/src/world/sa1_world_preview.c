@@ -289,6 +289,10 @@ sa1_status sa1wp_create(sa1_context *ctx, int32_t kind, struct sa1g_world **out)
             st = SA1_ERR_LIMIT;
         }
     }
+    /* round 0.9.5: the BOARD preview's exec (sa1_world_board.c, LIBSA1_BOARD) under its copy's view too */
+    if (st == SA1_OK && sa1g_world_xhook(&ww->w, SA1WB_PREVIEW_CODE, wp_exec, ww) != 0) {
+        st = SA1_ERR_LIMIT;
+    }
     if (st != SA1_OK) {
         sa1_fail(ctx, st, "previews: the showcase of %s failed: %s", sa1_character_name(kind) ? sa1_character_name(kind)
                  : "this kind", ww->w.dead ? ww->w.fault.msg : sa1g_status_string(st));
@@ -348,6 +352,38 @@ static void wp_add_cb(sa1g_world *w, void *user)
     int32_t ang[3] = { 0, 0, 0 };
     uint8_t *se;
     j->tp = 0;
+    if (c->type == SA1_PREVIEW_BOARD && S != NULL) {
+        /* round 0.9.5 (SA1_PREVIEW_BOARD): libsa1's board task at the slot - the board's object and texlist in its taskwk
+           (timer.ptr / value.ptr, as the board tasks' inits set them), drawn by the LIBSA1_BOARD exec */
+        uint32_t obj = sa1wb_board_object(w->kind), tl = sa1wb_board_texlist(w->kind, (uint32_t)c->params[0]);
+        sa1pv_slot_pos(c->slot, pos);
+        if (obj == 0 || tl == 0) {
+            return;
+        }
+        tp = sa1g_create_task(3, 2, SA1WB_PREVIEW_CODE);
+        if (!wp_arena(tp)) {
+            return;
+        }
+        twp = wp_rd32(w, tp + 0x20u);
+        if (wp_arena(twp)) {
+            wp_wr32(w, twp + 0x0Cu, obj);
+            wp_wr32(w, twp + 0x10u, tl);
+            for (k = 0; k < 3; k++) {
+                wp_wrf(w, twp + 0x20u + 4u * k, pos[k]);
+                wp_wrf(w, twp + 0x2Cu + 4u * k, 1.0f);
+            }
+        }
+        se = S->sets[c->slot];
+        memset(se, 0, WP_SETENTRY);
+        memcpy(se + 8, pos, 12);
+        wp_wr32(w, cond + 0u, 1u | ((c->cond & 0xFFFFu) << 16));
+        wp_wr32(w, cond + 4u, tp);
+        wp_wr32(w, cond + 8u, wp_guest(S, se));
+        wp_wr32(w, cond + 12u, 0u);
+        wp_wr32(w, tp + 0x1Cu, cond);
+        j->tp = tp;
+        return;
+    }
     if (t == NULL || S == NULL) {
         return;
     }
@@ -391,7 +427,8 @@ sa1_status sa1wp_add(struct sa1g_world *w, const sa1pv_wcopy *c, uint32_t *tp)
     wp_add_job j;
     sa1_status st;
     *tp = 0;
-    if (w == NULL || c == NULL || c->slot >= SA1PV_SLOTS || sa1set_type_of(c->type) == NULL) {
+    if (w == NULL || c == NULL || c->slot >= SA1PV_SLOTS ||
+        (sa1set_type_of(c->type) == NULL && c->type != SA1_PREVIEW_BOARD)) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
     j.ww = wp_of(w);

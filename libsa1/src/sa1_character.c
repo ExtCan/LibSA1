@@ -808,6 +808,10 @@ static void state_of(const sa1_context *ctx, const sa1_char *ch, sa1_state_ex *x
     x->frame = p->nframe;
     x->flags = SA1_STATE_TICKING | ((p->twp_flag & 3u) ? SA1_STATE_ON_GROUND : 0u) | (faulted ? SA1_STATE_FAULTED : 0u) |
                ((p->equipment & 0x8000u) ? SA1_STATE_SUPER : 0u);
+    /* round 0.9.5 (SA1_API_BOARD): player 0 in a board mode (Sonic 62-68, Tails 48-54) */
+    if ((ch->inst.kind == SA1_CHAR_SONIC && p->mode >= 62 && p->mode <= 68) ||
+        (ch->inst.kind == SA1_CHAR_TAILS && p->mode >= 48 && p->mode <= 54))
+        x->flags |= SA1_STATE_ON_BOARD;
     x->surface = surface_of_attr(p->attr);
     x->step = (uint32_t)p->steps;
     x->mode = p->mode;
@@ -1023,6 +1027,32 @@ sa1_status sa1w_character_world_ensure(sa1_context *ctx, sa1_character_id id, st
     *out = ch->world;
     return SA1_OK;
 #endif
+}
+
+/* round 0.9.5 (src/sa1_board.c): kind, create flags and world, nothing built */
+sa1_status sa1w_character_peek(const sa1_context *ctx, sa1_character_id id, int32_t *kind, uint32_t *create_flags,
+                               struct sa1g_world **world)
+{
+    const sa1_char *ch = get_char(ctx, id);
+    if (kind != NULL)
+        *kind = -1;
+    if (create_flags != NULL)
+        *create_flags = 0;
+    if (world != NULL)
+        *world = NULL;
+    if (ctx == NULL)
+        return SA1_ERR_INVALID_ARGUMENT;
+    if (!ch)
+        return SA1_ERR_NOT_FOUND;
+    if (kind != NULL)
+        *kind = ch->inst.kind;
+    if (create_flags != NULL)
+        *create_flags = ch->create_flags;
+#if !defined(SA1_NO_WORLD)
+    if (world != NULL)
+        *world = ch->world;
+#endif
+    return SA1_OK;
 }
 
 /* sa1_state's fields must stay the head of sa1_state_ex */
@@ -1452,6 +1482,11 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
     o.effects = 1;
     o.dedupe = 1;
     o.exec_arrays = 1;      /* round 0.9.4: who drew each model / sprite (sa1_meshbuf.node_exec / spr_exec) */
+#if !defined(SA1_NO_WORLD)
+    /* round 0.9.5 (the board): its draws left out until it was held once; a kept board in world space */
+    o.board_hide = ch->world != NULL && sa1wb_draw_hidden(ch->world);
+    o.board_world = ch->world != NULL && sa1wb_kept(ch->world);
+#endif
     if (sa1_capture_hidden(ch->cap)) {
         /* the game's camera did not see the character in the last pair: its display returned before drawing (game
          * logic: the visibility test 8C038D00, rt_draw.c section 6). Hosts draw the character whether the game's
@@ -1555,7 +1590,7 @@ sa1_status sa1_character_tick(sa1_context *ctx, sa1_character_id id, const sa1_i
     /* the game's displays draw into the capture while the window is open (7.2): every live tick, whether the host asks
      * for the mesh or not, so the world runs the same code either way */
     capture_attach(ctx, ch);
-    sa1w_world_input(ch->world, input);
+    sa1w_world_input_ex(ch->world, input, &ctx->coords);   /* round 0.9.5: with the host camera (SA1_INPUT_HOST_CAMERA) */
     {
         /* A tick of k >= 2 pairs (a frame of 33 ms or more) captures every pair it runs, as k one-pair ticks do, so
          * that the render output interpolates between the last two pairs (sadc docs/research/gsa1_060_pops.md F1 and

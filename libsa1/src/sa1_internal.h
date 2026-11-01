@@ -117,6 +117,10 @@ static inline int32_t sa1_atomic_load32(volatile int32_t *p)
 void       sa1_log(const sa1_context *ctx, int32_t level, const char *fmt, ...) SA1_PRINTF(3, 4);
 /* Records `fmt` as the last error, logs it (ERROR for st < 0, WARN otherwise), returns st. */
 sa1_status sa1_fail(sa1_context *ctx, sa1_status st, const char *fmt, ...) SA1_PRINTF(3, 4);
+/* Round 0.9.5 (sadc docs/research/board095_perf.md 4): a refusal - the call's normal answer when the game's state says no,
+ * not a failure. Records `fmt` as the last error exactly as sa1_fail does (sa1_last_error unchanged), logs it at `level`
+ * (SA1_LOG_DEBUG for a refusal of the game's state, SA1_LOG_WARN for a full heap), returns st. */
+sa1_status sa1_refuse(sa1_context *ctx, sa1_status st, int32_t level, const char *fmt, ...) SA1_PRINTF(4, 5);
 double     sa1_now_ms(void);
 
 /* Host file access (defaults to stdio when the host gives no callbacks). */

@@ -103,6 +103,18 @@ sa1_status sa1_preview_type_get(const sa1_context *ctx, uint32_t type, sa1_previ
     (void)info;
     return SA1_ERR_NOT_IMPLEMENTED;
 #else
+    if (type == SA1_PREVIEW_BOARD) {
+        /* round 0.9.5 (SA1_PREVIEW_BOARD, gsa1_095_plan.md 5.3): the board model alone (kinds 0 / 2); not available in the
+           optimised archives before lib_done.txt (SA1WB_GATED) */
+        memset(&info, 0, sizeof info);
+        info.struct_size = sizeof info;
+        info.type = type;
+        info.available = (uint32_t)(!SA1WB_GATED && sa1w_ready());
+        info.rotation = SA1_PREVIEW_ROT_OUTER;
+        info.settle_steps = 0u;
+        sa1_copy_out(out, &info, sizeof info);
+        return SA1_OK;
+    }
     if (sa1set_type_of(type) == NULL) {
         return SA1_ERR_NOT_FOUND;
     }
@@ -626,6 +638,28 @@ static sa1_status desc_take(sa1_context *ctx, const sa1_preview_desc *in, sa1_pr
     memset(d, 0, sizeof *d);
     memcpy(d, in, in->struct_size < sizeof *d ? in->struct_size : sizeof *d);
     d->struct_size = sizeof *d;
+    if (d->type == SA1_PREVIEW_BOARD) {
+        /* round 0.9.5 (SA1_PREVIEW_BOARD): kind 0 (params[0] 0 MIW_B001 / 1 SB_BOARD1) or 2 (params[0] 0), no rotation (the
+           host applies a kept board's pose), PRESENT only */
+        if (SA1WB_GATED) {
+            return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, SA1WB_NOT_BUILT);
+        }
+        if (d->kind != SA1_CHAR_SONIC && d->kind != SA1_CHAR_TAILS) {
+            return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "SA1_PREVIEW_BOARD: only Sonic's (kind 0) and Tails' "
+                              "(kind 2) boards");
+        }
+        for (i = 0; i < 9; i++) {
+            zero &= d->rotation[i] == 0.0f;
+        }
+        if (!zero || d->params[1] != 0.0f || d->params[2] != 0.0f ||
+            !(d->params[0] == 0.0f || (d->params[0] == 1.0f && d->kind == SA1_CHAR_SONIC)) ||
+            d->state != SA1_SET_STATE_PRESENT || d->user_bits != 0) {
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_preview_desc: SA1_PREVIEW_BOARD takes params[0] = the variant "
+                            "(Sonic 0 MIW_B001 / 1 SB_BOARD1, Tails 0), no rotation, state SA1_SET_STATE_PRESENT");
+        }
+        *extent = 20.0f;
+        return SA1_OK;
+    }
     t = sa1set_type_of(d->type);
     if (t == NULL) {
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_preview_desc: unknown type %u (1..%u)", (unsigned)d->type,
@@ -691,6 +725,9 @@ static sa1_status desc_take(sa1_context *ctx, const sa1_preview_desc *in, sa1_pr
 /* capture records a copy is expected to take per pair (task 3) */
 static uint32_t desc_records(const sa1_preview_desc *d)
 {
+    if (d->type == SA1_PREVIEW_BOARD) {
+        return 2u;                  /* round 0.9.5: one njDrawModel (a record per material run kept: 2) */
+    }
     if (d->type == SA1_OBJTYPE_O_GRING) {
         uint32_t n = (uint32_t)(int32_t)d->params[0];
         return d->params[2] == 1.0f ? n : n + 1u;
@@ -732,7 +769,7 @@ sa1_status sa1_preview_add(sa1_context *ctx, const sa1_preview_desc *in, uint32_
     if (st != SA1_OK) {
         return st;
     }
-    if (!sa1w_set_exec_native(k_tinfo[d.type - 1u].exec)) {
+    if (d.type != SA1_PREVIEW_BOARD && !sa1w_set_exec_native(k_tinfo[d.type - 1u].exec)) {
         return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "sa1_preview_desc: type %u: its code (%08X) is not in this build",
                         (unsigned)d.type, (unsigned)k_tinfo[d.type - 1u].exec);
     }
@@ -1430,7 +1467,7 @@ sa1_status sa1_preview_info_get(const sa1_context *ctx, uint32_t id, sa1_preview
     info.kind = c->kind;
     info.type = c->type;
     info.steps = c->steps;
-    info.settled = c->steps >= k_tinfo[c->type - 1u].settle;
+    info.settled = c->type == SA1_PREVIEW_BOARD ? 1u : c->steps >= k_tinfo[c->type - 1u].settle;
     if (c->nfr > 0) {
         const pv_frame *f = &c->fr[c->cur];
         info.draws = f->nd;

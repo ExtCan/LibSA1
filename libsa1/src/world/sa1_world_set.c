@@ -74,7 +74,8 @@
  *               squared (st_list_range), which the game's unchanged spawner 8C091380 reads; the window's reach is range +
  *               margin (the catalogue's 400 + margin at 0)
  *   the order   above 400 (order B, objects2_range.md 1.3 G): tier 0 = the records whose place lies within the game's 400
- *               units (nearest first), tier 1 = those in front of the plane through the world's virtual eye (w->camera.pos,
+ *               units (nearest first), tier 1 = those in front of the plane through the camera position (the host's when
+ *               given: SA1_INPUT_HOST_CAMERA, round 0.9.5; else the world's virtual eye) (w->camera.pos,
  *               written by sa1g_camera_view at the step's start) perpendicular to the camera's yaw, tier 2 = the rest; a
  *               record keeps tier 1 or 2 for SA1_SET_TIER_HOLD pairs after a change between them (st_tier; tier 0 is
  *               never held: review R.12). At every range a ring line or circle is ordered by its NEAREST RING (11.1: the
@@ -896,7 +897,8 @@ static void st_window(sa1g_world *w, st_state *S, const sa1set_registry *R)
         return;                             /* no player 0: the window waits */
     }
     if (range > 0.0f) {
-        /* order B: the plane through the virtual eye (sa1g_camera_view: SA1G_VIEW_DIST behind player 0 along the camera's
+        /* order B: the plane through the camera position - the host's when given (round 0.9.5, sa1g_camera_host), else
+           the virtual eye (sa1g_camera_view: SA1G_VIEW_DIST behind player 0 along the camera's
            yaw, written into w->camera.pos at this step's start) perpendicular to that yaw: forward = (-sin c, 0, -cos c) */
         float sn, cs;
         sh4_fsca(w->camera.ang[1] & 0xFFFFu, &sn, &cs);

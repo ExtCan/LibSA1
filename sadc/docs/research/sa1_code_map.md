@@ -120,14 +120,14 @@ Children / helpers per character (high/medium confidence):
   models); **homing attack**: target search `8C0AF5A0` (walks the CCL "attackable" list
   `B_8C73EE38`/`B_8C742288`, double-buffered, also used by the camera) and steering `8C0AF280`;
   **light speed dash** `8C0AF90A` (walks the ring list `B_8C741280`/`B_8C7446D0`, calls PGetSpeed
-  `8C072174`); light speed attack `8C0AF6C4`; snowboard draw hook `8C0B2EE6` (called from SBOARD).
+  `8C072174`); light speed attack `8C0AF6C4`; board task init `8C0B2EE6` (exec `8C0B2F46`, display `lbl_8C0B3068`; created by Sand Hill's SBOARD and Ice Cap's STG08).
   Spin-dash/jump/roll are modes inside `8C0A966C` and the 84-case main (not separate functions).
   Effects TU: jump-ball `8C0B4436/8C0B4600/8C0B4724` (`Sonic_Jumpball_Effect`), spin trail
   `8C0B48E0..8C0B4B20` (`Sonic_Effect_Trail`), other effect tasks `8C0B504A..8C0B5B80` (role not pinned),
   ice `8C0B5D60..8C0B60B8` (`Sonic_Ice`, `Sonic_Ice_Particles`).
 * **Tails**: flight uses physics `8C06F6C0` (called only by Tails, from `8C0BD8B2`); tail morph
   `8C0BDC80/8C0BDD48` (uses the `Tails_*_Tail_Morph_*` models via `8C056000/8C05646C`); face child `8C0BF76A`; child `8C0BF402` (refs `Tails`,
-  `Tails_Flight`, `miles_head_z`); snowboard hooks `8C0BF7CE/8C0BF804/8C0BF92C`; tail-attack /
+  `Tails_Flight`, `miles_head_z`); board task init / exec / display `8C0BF7CE/8C0BF804/8C0BF92C`; tail-attack /
   flight trail polygons `8C0BFE00`, `8C0C023E`.
 * **Knuckles**: glide physics `8C06F9A2`/`8C06FB04` and climbing collision `8C076782` (called only
   by Knuckles); climb position update `8C0C7D4C` and `8C0C7FB0` (land collision + PSetPosition);
@@ -217,7 +217,7 @@ case 1, also Tikal):
 | 8C06F6C0 | 15E | 1 | **flight acceleration** (Tails only) (high) |
 | 8C06F9A2 / 8C06FB04 | 162 / 88 | 1 | **glide acceleration / speed** (Knuckles only) (high) |
 | 8C06FB8C | 3E4 | 1 | Sonic-only physics variant (low) |
-| 8C0700C2, 8C07061C, 8C070814, 8C07095E | | 2 | Sonic+Tails only: board / 1-D (path) physics (medium) |
+| 8C0700C2, 8C07061C, 8C070814, 8C07095E | | 2 | Sonic+Tails only: the board's accelerations (`8C0700C2` steers relative to the camera `D_8C18B7EC`; board095_lib.md 1.1) |
 | 8C070EDA, 8C0711D2, 8C0714B6, 8C071656 | | 3-8 | gravity / inertia / friction family (use gravity `8C754BDC`) (medium) |
 | 8C071700 | 17C | 15 | rotation from input (PGetRotation-like) (medium) |
 | 8C0718C0, 8C071A20, 8C071B26 | | | slope helpers (medium) |
@@ -358,7 +358,7 @@ distinct callees, "(n)" = callers inside the core). This is the shim surface a l
 | Code of Sonic, Tails, Knuckles, E-102, Amy, Big, Eggman + player physics + engine | 1ST_READ |
 | Their models, welds, morph targets, upgrades, effects, action lists, CCL infos, base motions | 1ST_READ data, in code order: Sonic `8C1C24BC/8C1C55A0-8C256D6C`, Tails `8C256D6C-8C3528CC`, Knuckles `8C3528CC-8C4225D4`, E-102 `8C4225D4-8C4BB1D0`, Amy `8C4BB1D0-8C525564`, Big (+fishing, Froggy) `8C525564-8C57008C`, Eggman `8C57008C-~8C594968`; physics `8C1BDFE4` (8 x 0x84); start positions `8C19C4F8..8C19DD78`; shadow blob `8C1ACA78` |
 | Extra motions (current character only) | `S_MOT.PRS`, `K_MOT.PRS`, `E_MOT.PRS`, `A_MOT.PRS`, `B_MOT.PRS` (no Tails file). Decompressed images are linked at **`0x0CC00000`** (1,059-2,145 internal pointers each) and point back into 1ST_READ models. Loader strings in `func_8C09D980`. Action-list entries point there: Sonic 43, Knuckles 29, E-102 29, Amy 60, Big 67 entries in `0x0CCxxxxx` |
-| Stage-dependent motions | Sonic has action entries into `0x0C9/0x0CA/0x0CB` (loaded overlays), e.g. `S_SBMOT.PRS` (base `0x0CBxxxxx`), `M_SBMOT.PRS` (`0x0CA/0x0CB`) for board riding; `SBOARD.PRS` overlay (`0x0C900000`, 104 funcs) holds the board objects |
+| Stage-dependent motions | Sonic has action entries into `0x0C9/0x0CA/0x0CB` (loaded overlays), e.g. `S_SBMOT.PRS` (base `0x0CBxxxxx`), `M_SBMOT.PRS` (`0x0CA/0x0CB`) for board riding; `SBOARD.PRS` overlay (`0x0C900000`, 104 funcs) is the Sand Hill stage (its level task puts the player on the board; the board task itself is 1ST_READ `8C0B2EE6` / `8C0BF7CE`) |
 | Textures | PRS-compressed PVM archives: `SONIC.PRS`, `SON_EFF.PRS`, `MILES.PRS`, `KNUCKLES.PRS`, `KNU_EFF.PRS`, `E102.PRS`, `E102BEAM/EFFECT/HIT/TIME.PRS`, `AMY.PRS`, `AMY_EFF.PRS`, `BIG.PRS`, `BIG_KAERU.PRS`, `EGGMAN.PRS`, `TIKAL.PRS`, `SUPERSONIC.PRS` (names in the 1ST_READ string table at 8C15A1A0.., FISHING texlist too) |
 | Tikal | `TIKAL_PROG.PRS` overlay at `0x0CB00000`: code (17 funcs) + model, weld list, motions |
 | Super Sonic | texture name only in the `B_CHAOS7` overlay; code path = Sonic |
@@ -366,7 +366,7 @@ distinct callees, "(n)" = callers inside the core). This is the shim surface a l
 | Landtables / paths / SET layouts | stage overlays `STGxx`, `ADVxx` + `SET*.BIN`/`CAM*.BIN` (not needed for a character library) |
 
 Overlays not needed for libsa1: all STG/ADV/boss/Chao/minigame/EV overlays (they only *use* the
-player API). Useful generic overlay code: TIKAL_PROG (and SBOARD for boards).
+player API). Useful generic overlay code: TIKAL_PROG (SBOARD is the Sand Hill stage; the board code is in 1ST_READ).
 
 ---------------------------------------------------------------------------------------------------
 

@@ -148,9 +148,22 @@ static const char *g_tsv;
 
 static const char *k_kinds[9] = { "Sonic", "Eggman", "Tails", "Knuckles", "Tikal", "Amy", "E-102", "Big", "Super Sonic" };
 
+/* round 0.9.5 (board095_perf.md 4, L1): the lines the host's callback gets, counted per level while g_logcap is set */
+static int g_logcap;
+static uint32_t g_log_error, g_log_warn, g_log_other;
+
 static void log_cb(void *user, int32_t level, const char *msg)
 {
     (void)user;
+    if (g_logcap) {
+        if (level >= SA1_LOG_ERROR) {
+            g_log_error++;
+        } else if (level == SA1_LOG_WARN) {
+            g_log_warn++;
+        } else {
+            g_log_other++;
+        }
+    }
     if (level >= SA1_LOG_WARN || g_verbose) {
         printf("    [libsa1] %s\n", msg);
     }
@@ -1328,14 +1341,34 @@ static void t_refusals(sa1_context *ctx)
     /* the plain words of the gameplay refusals */
     tick(ctx, so, 0, 1.0f, 0);
     tick(ctx, so, 0, 1.0f, 0);
+    g_log_error = g_log_warn = g_log_other = 0;
+    g_logcap = 1;
     st = emote_row(ctx, so, 3, SA1_EMOTE_PLAY_DEFAULT, 0);
+    g_logcap = 0;
     CHECK(refused_nothing(ctx, so, st, SA1_ERR_UNSUPPORTED) && strcmp(sa1_last_error(ctx), "moving") == 0,
           "running: %s \"%s\"", sa1_status_string(st), sa1_last_error(ctx));
+    /* round 0.9.5 (board095_perf.md 4, L1): a refusal of the game's state is logged at DEBUG (the host's INFO level drops
+       it); sa1_last_error keeps the words */
+    CHECK(g_log_error == 0 && g_log_warn == 0, "L1: no SA1_LOG_ERROR / WARN line for the UNSUPPORTED refusal (%u error, %u warn; "
+          "0.9.4f: one \"libsa1 error: moving\")", (unsigned)g_log_error, (unsigned)g_log_warn);
     run(ctx, so, 40);
     tick(ctx, so, 0, 0, SA1_BUTTON_JUMP);
+    g_log_error = g_log_warn = g_log_other = 0;
+    g_logcap = 1;
     st = emote_row(ctx, so, 3, SA1_EMOTE_PLAY_DEFAULT, 0);
+    g_logcap = 0;
     CHECK(refused_nothing(ctx, so, st, SA1_ERR_UNSUPPORTED) && strcmp(sa1_last_error(ctx), "in the air") == 0,
           "jumping: %s \"%s\"", sa1_status_string(st), sa1_last_error(ctx));
+    CHECK(g_log_error == 0 && g_log_warn == 0, "L1: no SA1_LOG_ERROR / WARN line for \"in the air\" (%u error, %u warn)",
+          (unsigned)g_log_error, (unsigned)g_log_warn);
+    /* an entry not offered stays an ERROR (a host mismatch, not a refusal) */
+    g_log_error = g_log_warn = g_log_other = 0;
+    g_logcap = 1;
+    st = emote_row(ctx, so, 130, SA1_EMOTE_PLAY_DEFAULT, 0);
+    g_logcap = 0;
+    CHECK(st == SA1_ERR_INVALID_ARGUMENT && g_log_error == 1 && strstr(sa1_last_error(ctx), "is not available for") != NULL,
+          "L1: an entry not offered (row 130 for Sonic): %s, %u SA1_LOG_ERROR line (\"%s\")", sa1_status_string(st),
+          (unsigned)g_log_error, sa1_last_error(ctx));
     run(ctx, so, 40);
     {
         sa1_damage d;

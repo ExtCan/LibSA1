@@ -12,7 +12,11 @@ globals visible to the host (everything lives in an `sa1_context`), a flat versi
 `sadc/tools/pclower.py` and run in a Dreamcast-layout arena per character (design:
 `sadc/docs/libsa1_integration.md`).
 
-## Status (0.2.0, 2026-10-20)
+## Status (0.3.0, 2026-11-01)
+
+0.3.0 (round 0.9.5, `SA1_API_BOARD`): Sonic's and Tails' sand / snow board by the game's own code (`sa1_character_board`, `sa1_board_state`, `SA1_EVENT_BOARD`, `SA1_DRAW_BOARD`, `SA1_SURFACE_BOARD_SNOW` / `_SAND`, `SA1_PREVIEW_BOARD`) and the host's camera position for the game's code that looks at the camera (`SA1_INPUT_HOST_CAMERA`); the header's section on the board names every host deviation. The strict replays stay bit-exact (67 traces, V7).
+
+### 0.2.0 (2026-10-20)
 
 **All ten reference traces replay strictly bit-exact.** The five Sonic Emerald Coast act 1 traces (M1, M1.1),
 tails_sh1, knux_rm3, amy_tp2, gamma_fe1 and big_ec3 replay through the public API identical to the reference
@@ -507,6 +511,12 @@ Files read per character (default flags `SA1_LOAD_BOARDS | SA1_LOAD_SUPER`):
 | Gamma | 1ST_READ, E_MOT | E102, E102BEAM, E102EFFECT, E102TIME, E102HIT | 86 / 87 of 87 |
 | Big | 1ST_READ, B_MOT | BIG, FISHING, BIG_KAERU | 93 / 94 of 101 (7 empty) |
 | Super Sonic | 1ST_READ, B_CHAOS7, S_MOT | SUPERSONIC | 96 of 142 (Sonic's table) |
+
+Round 0.9.5 (the board): with `SA1_LOAD_BOARDS`, Sonic also gets the archives **MIW_B001** and **SB_BOARD1**, Tails
+**MTX_BOARD0**, after every other archive (no index of an existing archive changes): the three standalone board textures
+`SONICADV/MIW_B001.PVR` (10,952 bytes, SHA-1 `7eb21e78fa9d54ef00029043be91285bdde1de32`), `SB_BOARD1.PVR` (10,956,
+`d851ade3e5d8b610790a25aca1e8960aeae9bde6`) and `MTX_BOARD0.PVR` (10,956, `f41d0bf31bc1af46cf683bc55343161d519fee7a`),
+one 64 x 64 texture each, named by the texlists the board tasks set (`0x8C1C6380`, `0x0CB36F94`, `0x0CB025A0`).
 
 Every character also gets the common archive **EFF_REGULAR** last (from the stage start's common PVM list
 `0x8C1C2450`, 138 textures): the particle lists' texlists (dust, water splash, sparks: drawn by the particle manager

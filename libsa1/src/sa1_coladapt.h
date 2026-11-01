@@ -174,7 +174,18 @@ typedef struct sa1ca_built {
     uint32_t undersides;        /* downward faces within reach of an upward face left out (GRID c2) */
     uint32_t front_only;        /* (round 0.9.3) front-only GRID triangles (the input's and c2's) */
     uint32_t curved;            /* (round 0.9.3) CURVED undersides within reach c2 kept */
+    /* round 0.9.5 (the board kinds, SA1_SURFACE_BOARD_SNOW / _SAND; gsa1_095_plan.md 5.3 with its Review R.1): the land
+       objects' board bits, one byte per COL entry in COL order (1 board snow, 2 board sand), in the collision segment right
+       after the GRID allocation's objects; 0 when no input triangle has a board bit (the GRID is then 0.2.0's, byte for
+       byte). Read by the world's window (sa1_coladapt_world.c) while its player rides */
+    uint32_t board;
+    uint32_t board_objects;     /* land objects with a board bit */
 } sa1ca_built;
+/* a surface's board bits (1 SA1_SURFACE_BOARD_SNOW, 2 SA1_SURFACE_BOARD_SAND): GRID object and moving-object group keys */
+static inline uint32_t sa1ca_surface_board(uint32_t surface)
+{
+    return ((surface & 0x100000u) ? 1u : 0u) | ((surface & 0x200000u) ? 2u : 0u);
+}
 
 #define SA1CA_MAGIC 0x41434153u /* "SACA" */
 
@@ -336,6 +347,8 @@ typedef struct sa1ca_objx {
     uint32_t ngroups;           /* collidable groups (distinct COL words) */
     uint32_t group_col[SA1_MAX_OBJECT_GROUPS];
     uint32_t group_first[SA1_MAX_OBJECT_GROUPS], group_count[SA1_MAX_OBJECT_GROUPS];
+    /* round 0.9.5 (review R.1): the groups' board bits (sa1ca_surface_board); a group is (COL word, board bits) */
+    uint32_t group_board[SA1_MAX_OBJECT_GROUPS];
 } sa1ca_objx;
 
 /* the header of an object (NULL if o has none) */

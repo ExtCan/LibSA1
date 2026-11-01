@@ -1891,6 +1891,36 @@ static void test_textures(const env *E)
                     }
                 }
             }
+            snprintf(path, sizeof path, "SONICADV/%s.PVR", ar->name);
+            if (ar->num_textures == 1 && sa1_disc_read_file(&disc, path, &raw, &rsize) == SA1_OK) {
+                /* round 0.9.5 (095-lib-board): the board's archives are standalone PVRs (sa1_loader.c load_pvr_archive): the
+                   PVRT after an optional GBIX chunk; mip-checked as the PVM entries are */
+                uint32_t pos = 0;
+                if (rsize >= 8u && memcmp(raw, "GBIX", 4) == 0) {
+                    pos = 8u + sa1_rd32(raw + 4);
+                }
+                if (pos + 16u <= rsize && memcmp(raw + pos, "PVRT", 4) == 0) {
+                    double e0 = mip_error(raw + pos, rsize - pos, 0), e4 = mip_error(raw + pos, rsize - pos, 4);
+                    if (e0 >= 0.0) {
+                        mips++;
+                        mips_ok += e0 < 24.0;
+                        better += e4 < 0.0 || e0 <= e4 + 0.5;
+                        if (e0 > worst) {
+                            worst = e0;
+                            snprintf(worst_name, sizeof worst_name, "%s", ar->name);
+                        }
+                        if (e4 >= 0.0) {
+                            shifted_bad += e4 > e0 + 2.0;
+                            best_shift = e4 < best_shift ? e4 : best_shift;
+                        }
+                    }
+                } else {
+                    CHECK(0, "%s: not a PVR texture", path);
+                }
+                sa1_mem_free(ctx, raw);
+                continue;
+            }
+            raw = NULL;
             snprintf(path, sizeof path, "SONICADV/%s.PRS", ar->name);
             if (sa1_disc_read_file(&disc, path, &raw, &rsize) != SA1_OK ||
                 sa1_prs_decompress(ctx, raw, rsize, 16u << 20, &pvm, &psize) != SA1_OK) {

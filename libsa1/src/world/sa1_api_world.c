@@ -626,9 +626,22 @@ sa1_status sa1w_world_run(struct sa1g_world *w, float dt, uint32_t max_pairs, in
     return st;
 }
 
+/* round 0.9.5 (board095_cam.md 5.3 item 1): the six floats of the host camera, finite and at most 1e30 in magnitude (the
+   water reference's bound) */
+static int cam_float_ok(float f)
+{
+    return isfinite(f) && f <= 1e30f && f >= -1e30f;
+}
+
 void sa1w_world_input(struct sa1g_world *w, const sa1_input *in)
 {
+    sa1w_world_input_ex(w, in, NULL);
+}
+
+void sa1w_world_input_ex(struct sa1g_world *w, const sa1_input *in, const sa1_coords *co)
+{
     sa1g_pad pad;
+    uint32_t k;
     w->replay = 0;
     sa1g_pad_from_input(in, &pad);
     sa1g_world_set_pad(w, 0, &pad);
@@ -640,6 +653,24 @@ void sa1w_world_input(struct sa1g_world *w, const sa1_input *in)
         double t = floor((double)in->camera_yaw / SA1W_TWO_PI * 65536.0 + 0.5);
         int64_t yb = (int64_t)fmod(t, 65536.0);
         w->camera.ang[1] = (uint32_t)(yb - 0x4000) & 0xFFFFu;
+    }
+    /* round 0.9.5 (SA1_INPUT_HOST_CAMERA; board095_cam.md 5.3 item 1): the host's view of this tick, latched in host space
+       with the coords (converted inside the world by sa1g_camera_host); cleared first, so a tick without it - or with any
+       float out of bounds, or the bit without the tail - runs the virtual eye exactly as 0.9.4f */
+    w->camera.host = 0;
+    if (co != NULL && in != NULL && in->struct_size >= offsetof(sa1_input, host_cam_target) + sizeof in->host_cam_target
+        && (in->host_flags & SA1_INPUT_HOST_CAMERA) && co->scale > 0.0f) {
+        int ok = 1;
+        for (k = 0; k < 3; k++) {
+            ok = ok && cam_float_ok(in->host_cam_pos[k]) && cam_float_ok(in->host_cam_target[k]);
+        }
+        if (ok) {
+            memcpy(w->camera.host_pos, in->host_cam_pos, sizeof w->camera.host_pos);
+            memcpy(w->camera.host_tgt, in->host_cam_target, sizeof w->camera.host_tgt);
+            w->camera.co_scale = co->scale;
+            memcpy(w->camera.co_axis, co->axis, sizeof w->camera.co_axis);
+            w->camera.host = 1;
+        }
     }
 }
 

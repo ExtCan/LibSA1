@@ -249,7 +249,31 @@ typedef struct cw_state {
     cw_contact ct[CW_CONTACTS];
     /* W1 (round 0.9.1): the water above the character kept in the window (sa1ca_world_water) */
     sa1g_water_stats water;
+    /* round 0.9.5 (the board, gsa1_095_plan.md 6.2 task 3 with its Review R.1 / R.4): the GRID's board bits (guest: one byte
+       per COL entry, sa1ca_built.board; 0: none) */
+    uint32_t board;
 } cw_state;
+
+/* round 0.9.5 (the board): the land word a COL entry / a moving group has in this world while its player rides
+   (w->board_col, src/world/sa1_world_board.c): SA1_BOARD_TERRAIN_SNOW / SAND replace the class bits 0x9C of every land word
+   (attr & 1; not water 0x400002) by 0x8 / 0x10 (Ice Cap's snow, Sand Hill's sand); TERRAIN_MAP ORs 0x8 / 0x10 into the
+   words of the objects whose board bits say board snow / sand (SA1_SURFACE_BOARD_*; review R.1: per object, never per
+   triangle). On foot, or in a world without the lane: the word unchanged */
+static uint32_t cw_board_word(const sa1g_world *w, uint32_t col, uint32_t board)
+{
+    uint32_t bc = w->board_col;
+    if (!(bc & SA1WB_COL_RIDING) || !(col & 0x1u) || (col & 0x400002u)) {
+        return col;
+    }
+    switch (bc & 0xFu) {
+    case SA1_BOARD_TERRAIN_SNOW:
+        return (col & ~0x9Cu) | 0x8u;
+    case SA1_BOARD_TERRAIN_SAND:
+        return (col & ~0x9Cu) | 0x10u;
+    default:
+        return col | ((board & 1u) ? 0x8u : 0u) | ((board & 2u) ? 0x10u : 0u);
+    }
+}
 
 /* a window entry of the step (cw_window: the W1 pass gives up the farthest ones for the water above the character) */
 typedef struct cw_sel {
@@ -536,6 +560,7 @@ sa1_status sa1ca_world_attach(sa1_context *ctx, struct sa1g_world *w, uint32_t *
     uint32_t cap = 0, grid = 0, g;
     cw_state *S = NULL;
     sa1_status st;
+    uint32_t board = 0;         /* round 0.9.5: the GRID's board bits (sa1ca_built.board) */
     if (ctx == NULL || w == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
@@ -558,12 +583,14 @@ sa1_status sa1ca_world_attach(sa1_context *ctx, struct sa1g_world *w, uint32_t *
                                 "collision adapter: the world is not on the prepared collision segment");
             }
             grid = prep->built.grid;
+            board = prep->built.board;
         }
     } else if (s != NULL && s->mode == SA1_COLLISION_MODE_GRID && (s->num_flat != 0 || s->num_groups != 0)) {
         st = cw_grid_build(ctx, w->shared, s, &grid);
         if (st != SA1_OK) {
             return st;
         }
+        board = grid != 0 && grid == s->built.grid ? s->built.board : 0u;
     }
     g = sa1g_world_ext_alloc(w, sizeof(cw_state), 16, (void **)&S);
     if (g == 0 || S == NULL) {
@@ -574,6 +601,7 @@ sa1_status sa1ca_world_attach(sa1_context *ctx, struct sa1g_world *w, uint32_t *
     S->self = g;
     S->ctx = ctx;
     S->grid = grid;
+    S->board = board;
     S->hdr = w->landtable;
     S->cols = w->window_cols;
     S->cap = cap;
@@ -1001,7 +1029,9 @@ static int cw_slot_open(sa1g_world *w, cw_slot *sl, const sa1_col_object *o, con
             *full |= 4u;
             continue;
         }
-        add(sl->ent[e].col | 0x08000000u, cw_ptr(w, sl->tp), cw_ptr(w, sl->ent[e].obj));
+        /* round 0.9.5: the riding word (cw_board_word; unchanged on foot); the entry index is the group index */
+        add(cw_board_word(w, sl->ent[e].col, x->group_board[e]) | 0x08000000u, cw_ptr(w, sl->tp),
+            cw_ptr(w, sl->ent[e].obj));
         sl->ent[e].reg = cw_dyn_count(w) > before;
         if (!sl->ent[e].reg) {
             *full |= 4u;
@@ -1091,12 +1121,39 @@ static void cw_slot_move(sa1g_world *w, cw_slot *sl, const sa1ca_objx *x, const 
     cw_slot_force(w, sl, spd, angy);
 }
 
+/* round 0.9.5 (review R.4): DynamicCOL_Add runs only when a slot opens, so at the two edges of a ride (w->board_col
+   changed) every open slot of this world is registered again with its new words (DynamicCOL_Remove + Add, as cw_slot_close
+   / cw_slot_open do): no prop keeps a riding word after OFF and none misses it at ON */
+static void cw_slot_reregister(sa1g_world *w, cw_slot *sl, const sa1ca_objx *x)
+{
+    void (*add)(uint32_t, void *, void *) = (void (*)(uint32_t, void *, void *))cw_fn(CW_FN_DYNCOL_ADD);
+    void (*rem)(void *, void *) = (void (*)(void *, void *))cw_fn(CW_FN_DYNCOL_REMOVE);
+    uint32_t e = sl->nent;
+    while (e-- > 0) {
+        if (sl->ent[e].reg) {
+            rem(cw_ptr(w, sl->tp), cw_ptr(w, sl->ent[e].obj));
+            sl->ent[e].reg = 0;
+        }
+    }
+    for (e = 0; e < sl->nent; e++) {
+        uint32_t before = cw_dyn_count(w);
+        if (before >= CW_DYN_MAX) {
+            continue;
+        }
+        add(cw_board_word(w, sl->ent[e].col, x->group_board[e]) | 0x08000000u, cw_ptr(w, sl->tp),
+            cw_ptr(w, sl->ent[e].obj));
+        sl->ent[e].reg = cw_dyn_count(w) > before;
+    }
+}
+
 static void cw_moving(sa1g_world *w, cw_state *S, const float *p, int32_t pang_y, uint32_t sub, uint32_t *active)
 {
     const sa1_context *ctx = S->ctx;
     const sa1_col_object *objs = SA1_VEC(ctx->col_objects, sa1_col_object);
     uint64_t seen = 0;
     uint32_t n = ctx->col_objects.count, i, j, over = 0, full = 0, ents = 0, moving = 0;
+    int reword = w->board_col != w->board_col_applied;     /* round 0.9.5: an edge of a ride */
+    w->board_col_applied = w->board_col;
     for (i = 0; i < n; i++) {
         const sa1_col_object *o = &objs[i];
         const sa1ca_objx *x = sa1ca_objx_of(o);
@@ -1121,6 +1178,8 @@ static void cw_moving(sa1g_world *w, cw_state *S, const float *p, int32_t pang_y
                 over++;
                 continue;
             }
+        } else if (reword) {
+            cw_slot_reregister(w, sl, x);
         }
         seen |= (uint64_t)1 << (uint32_t)(sl - S->slot);
         cw_slot_move(w, sl, x, p, pang_y, sub);
@@ -1938,6 +1997,15 @@ static void cw_window(sa1g_world *w, cw_state *S, const float p[3], uint32_t chr
         if (wfloor) {
             cw_wr32(win + SA1CA_COL_SIZE * n + 0x20u, attr);
             S->stats.water_floors++;
+        }
+        if (w->board_col != 0) {
+            /* round 0.9.5 (the board: gsa1_095_plan.md 6.2 task 3, review R.1): this world's player rides - the terrain
+               override, or the board bits of this object (the copy only: the static segment is never written) */
+            uint32_t bd = S->board ? ((const uint8_t *)cw_ptr(w, S->board))[S->cand[i].idx] : 0u;
+            uint32_t ba = cw_board_word(w, attr, bd);
+            if (ba != attr) {
+                cw_wr32(win + SA1CA_COL_SIZE * n + 0x20u, ba);
+            }
         }
         sel[n].idx = S->cand[i].idx;
         sel[n].np = np;

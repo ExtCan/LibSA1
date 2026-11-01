@@ -1488,6 +1488,18 @@ static void t_arguments(void)
         CHECK(ok && sa1_preview_type_get(ctx, 5, &t) == SA1_ERR_NOT_FOUND, "sa1_preview_type_get: the four types "
               "available with rotations OUTER, INNER, NONE, OUTER; type 5 NOT_FOUND");
     }
+#if defined(SA1_PREVIEW_BOARD)
+    {
+        /* round 0.9.5 (095-lib-board, gsa1_095_plan.md 5.3): the board model alone, not a SET type */
+        sa1_preview_type t;
+        memset(&t, 0, sizeof t);
+        t.struct_size = sizeof t;
+        CHECK(sa1_preview_type_get(ctx, SA1_PREVIEW_BOARD, &t) == SA1_OK && t.type == SA1_PREVIEW_BOARD &&
+              t.rotation == SA1_PREVIEW_ROT_OUTER && t.settle_steps == 0,
+              "sa1_preview_type_get(SA1_PREVIEW_BOARD 0x100): available %u, rotation ROT_OUTER, settle 0 (board_test (t) draws "
+              "its copies)", (unsigned)t.available);
+    }
+#endif
     bare = mkctx(0, 0);
     if (bare != NULL) {
         s1 = padd(bare, SA1_CHAR_SONIC, SA1_OBJTYPE_RING, zero, 1, 0, NULL, &id);

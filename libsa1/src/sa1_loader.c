@@ -249,6 +249,97 @@ done:
     sa1_mem_free(ctx, data);
 }
 
+/* Round 0.9.5 (the board; sadc docs/research/gsa1_095_plan.md 6.2 task 4, board095_lib.md 2.6 / 4.3): a texture archive of
+ * ONE standalone PVR file (<name>.PVR, uncompressed, checked against the manifest): an optional GBIX chunk skipped by its
+ * own length (MIW_B001's is 4 bytes long, SB_BOARD1's and MTX_BOARD0's 8), then the PVRT, decoded with sa1_pvr_header /
+ * sa1_pvr_decode. texlist: the game's texlist that names it (the board task's njSetTexture), so the capture resolves the
+ * board's draws into this archive (sa1_capture_resolve, by the texlist's TEXNAME address). */
+static void load_pvr_archive(loader *L, sa1_charset *cs, const char *name, uint32_t texlist, const sa1_view *v)
+{
+    sa1_context *ctx = L->ctx;
+    sa1_archive *ar;
+    char file[48];
+    uint8_t *data = NULL;
+    uint32_t size = 0, pos = 0, gbix = 0, w, h, pf, df;
+    const uint8_t *tl;
+    sa1_texture *t;
+    sa1_status st;
+    if (cs->num_archives >= SA1_MAX_ARCHIVES) {
+        sa1_log(ctx, SA1_LOG_WARN, "%s: more than %u texture archives", name, (unsigned)SA1_MAX_ARCHIVES);
+        L->partial = 1;
+        return;
+    }
+    snprintf(file, sizeof file, "%s.PVR", name);
+    st = read_unpacked(L, file, &data, &size);
+    if (st != SA1_OK) {
+        L->partial = 1;
+        return;
+    }
+    if (size >= 8u && memcmp(data, "GBIX", 4) == 0) {
+        uint32_t len = sa1_rd32(data + 4);
+        if (len >= 4u && len <= size - 8u) {
+            gbix = sa1_rd32(data + 8);
+        }
+        pos = len <= size - 8u ? 8u + len : size;
+    }
+    st = pos < size ? sa1_pvr_header(data + pos, size - pos, &w, &h, &pf, &df) : SA1_ERR_BAD_FORMAT;
+    if (st != SA1_OK) {
+        sa1_log(ctx, SA1_LOG_WARN, "%s: not a PVR texture (%s)", file, sa1_status_string(st));
+        L->partial = 1;
+        sa1_mem_free(ctx, data);
+        return;
+    }
+    ar = &cs->archives[cs->num_archives];
+    memset(ar, 0, sizeof *ar);
+    ar->tex = (sa1_texture *)sa1_arena_array(&cs->arena, 1u, sizeof(sa1_texture));
+    if (!ar->tex) {
+        L->partial = 1;
+        sa1_mem_free(ctx, data);
+        return;
+    }
+    cs->num_archives++;
+    snprintf(ar->name, sizeof ar->name, "%s", name);
+    ar->texlist_addr = texlist;
+    tl = sa1_view_get(v, texlist, 8, NULL);
+    ar->texlist_count = tl ? sa1_rd32(tl + 4) : 0u;
+    if (tl && ar->texlist_count != 1u) {
+        sa1_log(ctx, SA1_LOG_WARN, "%s: texlist 0x%08X expects %u textures (1 in the file)", file, (unsigned)texlist,
+                (unsigned)ar->texlist_count);
+    }
+    ar->num_textures = 1;
+    t = &ar->tex[0];
+    snprintf(t->name, sizeof t->name, "%s", name);
+    t->gbix = gbix;
+    t->width = w;
+    t->height = h;
+    t->pixel_format = (uint8_t)pf;
+    t->data_format = (uint8_t)df;
+    t->rgba = (uint8_t *)sa1_arena_alloc(&cs->arena, (size_t)w * h * 4u);
+    st = t->rgba ? sa1_pvr_decode(data + pos, size - pos, t->rgba, (size_t)w * h * 4u) : SA1_ERR_OUT_OF_MEMORY;
+    if (st != SA1_OK) {
+        t->rgba = NULL;
+        sa1_log(ctx, SA1_LOG_WARN, "%s: %s", file, sa1_status_string(st));
+    }
+    sa1_mem_free(ctx, data);
+}
+
+/* the board archives, after every other archive (no index of an existing one changes): Sonic MIW_B001 (texlist D_8C1C6380
+ * in 1ST_READ) and SB_BOARD1 (0x0CB36F94 in S_SBMOT), Tails MTX_BOARD0 (0x0CB025A0 in M_SBMOT) - the texlists the board
+ * tasks' inits 8C0B2EE6 / 8C0BF7CE set (sadc code_8C0B2EA0.c:84-89, code_8C0BF262.c:291-303). Only with SA1_LOAD_BOARDS
+ * (the overlays that hold two of the texlists come with it); never for Super Sonic (kind 8 does not ride) */
+static void load_board_textures(loader *L, sa1_charset *cs, int32_t kind, const sa1_view *base)
+{
+    if (!(L->flags & SA1_LOAD_BOARDS)) {
+        return;
+    }
+    if (kind == SA1_CHAR_SONIC) {
+        load_pvr_archive(L, cs, "MIW_B001", 0x8C1C6380u, base);
+        load_pvr_archive(L, cs, "SB_BOARD1", 0x0CB36F94u, base);
+    } else if (kind == SA1_CHAR_TAILS) {
+        load_pvr_archive(L, cs, "MTX_BOARD0", 0x0CB025A0u, base);
+    }
+}
+
 /* ------------------------------------------------------------------------- */
 /* Characters                                                                */
 /* ------------------------------------------------------------------------- */
@@ -509,6 +600,8 @@ static void build_character(loader *L, int32_t kind, const sa1_image *first)
     /* round 0.9.4a: libsa1's texture variants of the set (Sonic with SA1_LOAD_SUPER_FORMS: the golden Light Speed
        textures, sa1_texture_variant_get; sa1_texture.c), in the set's arena */
     sa1_texture_make_variants(ctx, cs, kind, L->flags);
+    /* round 0.9.5: the board's three PVRs, after every other archive */
+    load_board_textures(L, cs, kind, &base);
 
     for (k = 0; k < cs->objects.count; k++) {
         const sa1_object *o = &SA1_VEC(cs->objects, sa1_object)[k];

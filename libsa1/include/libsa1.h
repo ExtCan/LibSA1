@@ -101,6 +101,10 @@
  *                    phoneme detection), SA1_FACE_SAME_PAIR (the lip-sync mouth drawn in the pair it is applied: the face
  *                    task's own step-0 blend run before that step's draw), the per-character loudness ladders of
  *                    sa1_face_info (by the measured mouth opening, phoneme_shapes.md 6).
+ *   0.3 round 0.9.5 (SA1_VERSION_MINOR 3, SA1_API_BOARD; sadc docs/research/gsa1_095_plan.md): sa1_input.host_cam_pos / host_cam_target +
+ *                    SA1_INPUT_HOST_CAMERA, sa1_character_board / _board_state, SA1_STATE_ON_BOARD, SA1_EVENT_BOARD,
+ *                    SA1_DRAW_BOARD, SA1_SURFACE_BOARD_SNOW / _SAND, SA1_PREVIEW_BOARD, the board archives (MIW_B001,
+ *                    SB_BOARD1, MTX_BOARD0), stubs.tsv 0C900AE0 void, refusals logged at DEBUG.
  */
 #ifndef LIBSA1_H
 #define LIBSA1_H
@@ -117,7 +121,7 @@ extern "C" {
 /* ------------------------------------------------------------------------- */
 
 #define SA1_VERSION_MAJOR 0
-#define SA1_VERSION_MINOR 2
+#define SA1_VERSION_MINOR 3
 #define SA1_VERSION_PATCH 0
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
@@ -198,7 +202,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.2.0" */
+SA1_API const char *sa1_version_string(void);     /* "0.3.0" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -561,7 +565,11 @@ typedef struct sa1_input {
     uint32_t buttons;           /* SA1_BUTTON_* held */
     /* round 0.9.2 (SA1_API_092): read only when struct_size covers it; 0 = the host says nothing (the game's own rules) */
     uint32_t host_flags;        /* SA1_INPUT_HOST_* */
-} sa1_input;
+    /* round 0.9.5 (SA1_INPUT_HOST_CAMERA; sadc docs/research/gsa1_095_plan.md 5.3, board095_cam.md 5.2): read only when
+       struct_size covers host_cam_target AND host_flags has SA1_INPUT_HOST_CAMERA */
+    float    host_cam_pos[3];   /* host space: the eye of the view the host shows for this character */
+    float    host_cam_target[3];/* host space: a point that view looks at (kept in the world; unused by 0.9.5's step) */
+} sa1_input;                    /* 48 bytes (24 before round 0.9.5) */
 
 /* sa1_input.host_flags (round 0.9.2; sadc docs/research/gsa1_090_water.md WTR-A with its Review R4 a-c, R3.3, R3.5).
  * The host's own water at the character for the pairs of this tick: the character's probe point (its feet + 1 SA1 unit,
@@ -579,6 +587,17 @@ typedef struct sa1_input {
  * The flag is up to one host tick late on a hitch (the pairs of a tick share it). */
 #define SA1_INPUT_HOST_WATER_KNOWN 0x1u
 #define SA1_INPUT_HOST_IN_WATER    0x2u
+/* ---- sa1_input (round 0.9.5, the host camera; sadc docs/research/gsa1_095_plan.md 5.3, board095_cam.md 5.2) -------------
+ * The two fields at the END of sa1_input, read only when struct_size covers host_cam_target AND host_flags has
+ * SA1_INPUT_HOST_CAMERA. With the bit, every live step of this tick holds host_cam_pos (converted to SA1 space with the
+ * context's coords, inside the tick in the world's FP mode) in the world's camera taskwk (camera_twp, D_8C18B7EC) instead of
+ * the virtual eye 40 units behind the character: the game code that reads the camera's POSITION measures against the view
+ * the host shows (Big's line alpha 8C0EC60C; the SET spawner's centre 8C091380 while Big's lure is in the water; libsa1's SET
+ * window order beyond 400 units). Unchanged: the camera's angles (ang.y follows camera_yaw; ang.x, ang.z, smode 0) and XMTRX
+ * (the virtual view the game's visibility tests use). Ignored (the virtual eye) when any of the six floats is not finite or
+ * above 1e30 in magnitude, in replays, preview worlds and with set_no_eye. Latched per tick: every step of the tick uses the
+ * same camera. */
+#define SA1_INPUT_HOST_CAMERA 0x4u
 
 /* sa1_state.flags */
 #define SA1_STATE_ON_GROUND  0x01u  /* touching land collision (the game's taskwk.flag & 3) */
@@ -763,6 +782,13 @@ SA1_API sa1_status sa1_character_geometry(const sa1_context *ctx, sa1_character_
                                            texture's SA1_TEXTURE_VARIANT_SUPER_GOLD (sa1_texture_variant_get) in place of the
                                            texture (archive / texture stay the game's); untextured: the vertex colours are
                                            gold already. Never merged with a draw without it */
+#define SA1_DRAW_BOARD        0x4000u   /* round 0.9.5 (SA1_API_BOARD): the board task's draws (execs 8C0B2F46 / 8C0BF804: its
+                                           model and its motion draw 8C60E080) and SA1_PREVIEW_BOARD's: the board under
+                                           Sonic's / Tails' feet or left on the ground. They are also SA1_DRAW_EFFECT
+                                           (another archive than 0): a host draws them with the character, in first person
+                                           too, whatever it does with effects. Never merged with a draw without the bit,
+                                           never moved with the root. A board task's draws are left out until it was held
+                                           once (its first pairs at the SA1 origin): presentation only */
 
 typedef struct sa1_draw {
     uint32_t prim;                  /* SA1_PRIM_* */
@@ -1041,6 +1067,18 @@ SA1_API sa1_status sa1_character_state_ex(const sa1_context *ctx, sa1_character_
                                             the underside of a slab thinner than a sphere's reach (a thin roof, a plank):
                                             a ceiling from below, absent from above. Ignored with DOUBLE_SIDED or CURVED;
                                             left out with SA1_GRID_UNDERSIDES_DROP */
+/* round 0.9.5 (SA1_API_BOARD; sadc docs/research/gsa1_095_plan.md 5.3 with its Review R.1): host-only kinds, never a COL bit
+ * of the static segment (sa1ca_surface_to_col leaves them out of every COL word); GRID input and moving objects */
+#define SA1_SURFACE_BOARD_SNOW  0x100000u /* COL 0x8 (Ice Cap's snow, weight 0.15) only in the world of a character whose
+                                             player 0 rides a board, while he rides; nothing on foot, nothing in any other
+                                             world */
+#define SA1_SURFACE_BOARD_SAND  0x200000u /* ... COL 0x10 (Sand Hill's sand, weight 0.5) */
+/* (review R.1) the game's land attribute is per COL entry, not per triangle: GRID keys its objects by (cell, COL word, the two
+ * board bits, orientation) and a moving object its groups by (COL word, board bits), so no object mixes board snow / sand with
+ * other land; libsa1 keeps each object's board bits in a side record of its own (no Ninja material bit, no COL bit), and the
+ * world's window copy (and a moving object's DynamicCOL word, re-registered at the ride's two edges) ORs 0x8 / 0x10 into that
+ * object's attribute while the character rides. A host counts (COL word, board bits) as one surface word against
+ * SA1_MAX_OBJECT_GROUPS. Input without these bits gives the GRID of 0.2.0, byte for byte */
 #define SA1_MAT_FRONT_ONLY      0x00000040u /* collision only: the material bit of a front-only land polygon (a user bit of
                                             the Ninja material word, 0x7F, that no land material of the game's stages
                                             sets: 9 stage landtables measured). GRID and moving-object models carry it for
@@ -2654,6 +2692,13 @@ SA1_API sa1_status sa1_poll_set_events(sa1_context *ctx, sa1_set_event *out, uin
 #define SA1_PREVIEW_ROT_OUTER  1u       /* the record's rotation is the host's outer matrix (RING: only its yaw, which is the
                                            ring's spin start; ITEMBOX_AIR: full, the game's Z, X, Y) */
 #define SA1_PREVIEW_ROT_INNER  2u       /* the rotation is part of the description (O_GRING: the game's own ring layout) */
+/* round 0.9.5 (SA1_API_BOARD; sadc docs/research/gsa1_095_plan.md 5.3, decision 9): the board model alone */
+#define SA1_PREVIEW_BOARD 0x100u        /* sa1_preview_desc.type: kind 0 (params[0] = 0 MIW_B001 / 1 SB_BOARD1) or kind 2
+                                           (MTX_BOARD0): the game's board model with its texture; object space with origin =
+                                           a kept board's model_position and axes = its model_rotation (so a copy drawn at
+                                           that pose is that board); rotation SA1_PREVIEW_ROT_OUTER, settle 0; its draws carry
+                                           SA1_DRAW_BOARD. Not a SET type: sa1_set_add refuses it; 1.0's generated catalogue
+                                           keeps its ids below 0x100 */
 
 typedef struct sa1_preview_type {
     uint32_t struct_size;
@@ -2881,7 +2926,9 @@ typedef struct sa1_emote {
 /* Errors: SA1_ERR_NOT_FOUND (no character), SA1_ERR_UNSUPPORTED (a puppet, Eggman, Tikal; or not standing without
  * SA1_EMOTE_IN_AIR: nothing queued; sa1_last_error says why in plain words: "in the air", "hurt", "carrying something",
  * "on the board", "moving", "busy"; review R.16), SA1_ERR_INVALID_ARGUMENT (an entry not offered for this kind and form),
- * SA1_ERR_LIMIT ("the game's memory is full": the game heap cannot take the queue entries; review R.7) */
+ * SA1_ERR_LIMIT ("the game's memory is full": the game heap cannot take the queue entries; review R.7). Round 0.9.5
+ * (board095_perf.md 4): a refusal of the game's state (SA1_ERR_UNSUPPORTED) is logged at DEBUG, SA1_ERR_LIMIT at WARN;
+ * sa1_last_error is unchanged */
 SA1_API sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_emote *emote);
 #define SA1_EMOTE_STOP_NOW   0u    /* EV_ClrAction at the next pair start: the gameplay pose */
 #define SA1_EMOTE_STOP_BLEND 1u    /* the stand blended in after the current item (a loop finishes its cycle) */
@@ -2916,7 +2963,9 @@ SA1_API sa1_status sa1_character_emote_stop(sa1_context *ctx, sa1_character_id i
 #define SA1_EMOTE_F_NEEDS_PROP  0x1u  /* drawn without its object (held object, stage piece, fishing tasks, water) */
 #define SA1_EMOTE_F_HOLD        0x2u  /* the game holds its last frame (mtnmode 5 / 7); played once */
 #define SA1_EMOTE_F_SUPER_ONLY  0x4u  /* 130-141 */
-#define SA1_EMOTE_F_BOARD       0x8u  /* a board motion (the board is not drawn before 0.9.5) */
+#define SA1_EMOTE_F_BOARD       0x8u  /* a board motion (the emote layer makes no board task: no board is drawn; a board
+                                         task in the world - a kept board - follows the player during such a motion,
+                                         8C0B2F46 holds the board whenever his action is a board action) */
 #define SA1_EMOTE_F_OTHER_OBJECT 0x10u /* not the main body (ball, curled body, Tails' / Knuckles' flight model): never blended
                                            from an entry of another object */
 #define SA1_EMOTE_F_EXTRA       0x20u /* not in the action table (EV_SetMotion on the main body) */
@@ -2934,6 +2983,93 @@ typedef struct sa1_emote_info {
 } sa1_emote_info;
 SA1_API uint32_t   sa1_emote_count(const sa1_context *ctx, int32_t kind, uint32_t form);   /* 0 without a disc */
 SA1_API sa1_status sa1_emote_get(const sa1_context *ctx, int32_t kind, uint32_t form, uint32_t i, sa1_emote_info *out);
+
+/* ---- the board (SA1_API_BOARD, round 0.9.5; sadc docs/research/gsa1_095_plan.md 5.3, board095_lib.md 4) -----------------
+ * Sonic's and Tails' sand / snow board by the game's own code: what the stage code does (SBOARD 0C9031AE, STG08 0C90EA14):
+ * SetInputP(0, 44) and CreateElementalTask(3, 2, 8C0B2EE6 Sonic / 8C0BF7CE Tails) in the world, between ticks; the order
+ * handler (8C0AFF1A / 8C0BBDD6 case 44) puts player 0 on the board at its next step; the board task follows him while his
+ * action is a board action (Sonic 102-124, Tails 107-127) and is the game's free object (8C05872A) otherwise. Off: SetInputP(0,
+ * 24) as Ice Cap's goal 0C90E900 does. Host deviations, each named by its flag or rule: a new board on every ON (the game's
+ * re-entry: SA1_BOARD_REUSE_KEPT), the terrain overrides, the board-time surface kinds, the start push (SA1_BOARD_START_PUSH)
+ * and again on request (SA1_BOARD_PUSH), Tails' jump restore, a fallen kept board freed, the host's free (SA1_BOARD_FREE), the
+ * board not drawn before it was first held, Sonic's board pick (the game's pick by frame parity alternates here: libsa1's
+ * frame counter moves by 2 a pair; sa1_world_board.c WB_RANDOM_PICK). The reference worlds never call any of it.
+ * Also in this round, in their own sections: SA1_DRAW_BOARD (draws), SA1_SURFACE_BOARD_SNOW / _SAND (surface kinds),
+ * SA1_PREVIEW_BOARD (object previews), SA1_INPUT_HOST_CAMERA (sa1_input). */
+#define SA1_API_BOARD 1
+
+#define SA1_BOARD_OFF   0   /* sa1_board_desc.on: riding -> order 24; else SA1_OK, nothing posted */
+#define SA1_BOARD_ON    1   /* not riding -> order 44 (+ a new board task, rule 4a); riding -> only terrain / flags change */
+#define SA1_BOARD_PUSH  2   /* riding on the ground (Sonic modes 62 / 64, Tails 48 / 50): the start push again */
+#define SA1_BOARD_FREE  3   /* not riding, a kept board in the world: FreeTask it now (the host's own copy takes over) */
+
+#define SA1_BOARD_TERRAIN_MAP   0u  /* the land's own words (and the SA1_SURFACE_BOARD_* kinds while riding) */
+#define SA1_BOARD_TERRAIN_SNOW  1u  /* while riding: every land word of THIS world's collision window and moving objects gets the
+                                       class bits 0x9C replaced by 0x8 (Ice Cap's snow, weight 0.15) */
+#define SA1_BOARD_TERRAIN_SAND  2u  /* ... by 0x10 (Sand Hill's sand, weight 0.5) */
+
+#define SA1_BOARD_START_PUSH     0x01u  /* at the get-on: STG08's start push 0C90E810 (decompiled) as a world task: players 0 AND
+                                           1 spd.x >= 4.0 every step for 102 steps, then FreeTask */
+/* (review R.2) the push task belongs to the ride: libsa1 frees it (FreeTask) in the step the board mode ends (any cause) and
+   when ON is refused (SA1_BOARD_EV_REFUSED); without that rule an OFF at board pair 20 leaves Sonic on foot held at spd.x
+   4.000 with a neutral stick for the rest of the 102 steps (measured) */
+#define SA1_BOARD_REMOVE_ON_EXIT 0x02u  /* the kept board is freed in the step the board mode ends (default: it stays) */
+/* (review R.5) REMOVE_ON_EXIT is read at ON and at OFF (an OFF with it frees the board in the exit step, EV_FREED arg 0): the
+   host decides when the rider gets off */
+#define SA1_BOARD_FAITHFUL_EXIT  0x04u  /* Tails: keep the game's jmp_y_spd x1.2 per ride (it compounds); default: restored */
+#define SA1_BOARD_KEEP_FALLEN    0x08u  /* a kept board that fell out of the land lives on (the game's); default: freed 128 units
+                                           below the last height where it stood */
+#define SA1_BOARD_REUSE_KEPT     0x10u  /* ON with a kept board: post 44 only; the game's board task takes the player again
+                                           (Ice Cap's re-entry 0C90DFE0 state 7; it snaps back from wherever it lies). Default:
+                                           the kept board is freed (SA1_BOARD_EV_FREED arg 2) and a new one is made */
+#define SA1_BOARD_KNOWN_FLAGS    0x1Fu
+
+typedef struct sa1_board_desc {
+    uint32_t struct_size;           /* must cover flags (the 0.9.5 size); later fields are read only when covered */
+    int32_t  on;                    /* SA1_BOARD_OFF / ON / PUSH / FREE */
+    uint32_t terrain;               /* SA1_BOARD_TERRAIN_* (ON; in force until the board mode ends) */
+    uint32_t flags;                 /* SA1_BOARD_* (ON; OFF reads REMOVE_ON_EXIT only: review R.5) */
+} sa1_board_desc;
+/* Between ticks, on the ticking thread. SA1_OK; SA1_ERR_UNSUPPORTED with plain words in sa1_last_error, logged at DEBUG (not
+ * Sonic 0 / Tails 2 - Super Sonic 8 included -, PUSH not riding on the ground, FREE while riding or without a kept board);
+ * SA1_ERR_NOT_LOADED (the world image lacks S_SBMOT / M_SBMOT); SA1_ERR_INVALID_ARGUMENT (struct_size, on, terrain, unknown
+ * flags; a terrain other than MAP in a DISC / FAITHFUL world); a faulted world's status. A character without a world gets it
+ * built (as sa1_character_order). Whether the game TOOK the order shows after the next pair (SA1_BOARD_EV_ON / _REFUSED). */
+SA1_API sa1_status sa1_character_board(sa1_context *ctx, sa1_character_id id, const sa1_board_desc *d);
+
+#define SA1_STATE_ON_BOARD 0x10u    /* sa1_state.flags: player 0 is in a board mode (Sonic 62-68, Tails 48-54) */
+
+#define SA1_EVENT_BOARD 15          /* sa1_event: id = SA1_BOARD_EV_*, position = the character (FREED: the board), arg below */
+#define SA1_BOARD_EV_ON      1u     /* the game took order 44 (arg = the board mode) */
+#define SA1_BOARD_EV_OFF     2u     /* the board mode ended (arg = the new mode; bank 0 order 24, 1 order 19, 2 other) */
+#define SA1_BOARD_EV_REFUSED 3u     /* order 44 was not taken after one pair (arg = the mode that did not take it); the board
+                                       task this call made was freed */
+#define SA1_BOARD_EV_FREED   4u     /* libsa1 freed a board task (arg 0 REMOVE_ON_EXIT, 1 fell, 2 replaced by a new ON, 3 FREE) */
+#define SA1_BOARD_EV_PUSH    5u     /* a start push began (arg 0 at the get-on, 1 SA1_BOARD_PUSH) */
+
+typedef struct sa1_board_state {
+    uint32_t struct_size;
+    uint32_t flags;                 /* SA1_BSTATE_* */
+    uint32_t terrain;               /* in force (MAP when not riding) */
+    uint32_t board_task;            /* guest address of the world's board task (0: none) */
+    uint32_t push_steps;            /* steps the running start push still has (0: none) */
+    float    saved_jmp_y_spd;       /* Tails: the value restored at the end of the ride (0: none saved) */
+    int32_t  board_kind;            /* SA1_CHAR_SONIC / SA1_CHAR_TAILS: whose board it is; -1 none */
+    uint32_t board_variant;         /* Sonic: 0 MIW_B001, 1 SB_BOARD1 (the game's pick at 8C0B2EE6); Tails: 0 (MTX_BOARD0) */
+    float    model_position[3];     /* host space: the origin of the board's model as the game drew it in the last pair
+                                       (the task's pos, its Z / X / Y rotation, then 8C0B3068's -5.22 drop when not held);
+                                       0 without a task */
+    float    model_rotation[9];     /* host space, row-major, host axes: that model's rotation (identity without a task) */
+    uint32_t still_steps;           /* steps a kept board has rested (taskwk flag & 1 set and its position unchanged); 0 held */
+} sa1_board_state;
+#define SA1_BSTATE_ON      0x01u    /* = SA1_STATE_ON_BOARD */
+#define SA1_BSTATE_PENDING 0x02u    /* order 44 posted, not answered yet (until the next pair) */
+#define SA1_BSTATE_HELD    0x04u    /* the board task follows the player (his action is a board action) */
+#define SA1_BSTATE_KEPT    0x08u    /* a board task lives and is not held (left behind) */
+#define SA1_BSTATE_SETTLED 0x10u    /* KEPT and still_steps >= SA1_BOARD_SETTLE_STEPS */
+#define SA1_BOARD_SETTLE_STEPS 30u
+/* filled up to the smaller struct_size; SA1_ERR_NOT_FOUND for an unknown id */
+SA1_API sa1_status sa1_character_board_state(const sa1_context *ctx, sa1_character_id id, sa1_board_state *out);
 
 #ifdef __cplusplus
 }

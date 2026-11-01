@@ -592,6 +592,12 @@ static void sa1g_world_fn_images(sa1g_world *w, const sa1g_image *img)
     if (n < SA1G_FN_ACTIVE_MAX) {
         w->fn_images[n++] = &sa1g_hostobj_image;
     }
+    /* round 0.9.5 (the board, sa1_world_board.c): libsa1's board execs (0x7F010100.., SH-4 area 7). SA1G_FN_ACTIVE_MAX (4)
+       holds an overlay with a code map (B_CHAOS7, STG01 / STG05 / STG08, TIKAL_PROG: one per world image), LIBSA1_HOST and
+       LIBSA1_BOARD */
+    if (n < SA1G_FN_ACTIVE_MAX) {
+        w->fn_images[n++] = &sa1g_board_image;
+    }
     w->num_fn_images = n;
 }
 

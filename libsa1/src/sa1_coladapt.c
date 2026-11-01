@@ -794,6 +794,9 @@ typedef char ca_layout_hash_fits[(6u * CA_OBJ_MAX_TRIS <= CA_LAYOUT_HASH && 6u *
 #define CA_GT_DROP          0x4u        /* c2: an underside within reach, removed before the objects are made */
 #define CA_GT_CURVED        0x8u        /* (round 0.9.3, LOOP-L1) a piece of a SA1_SURFACE_CURVED triangle (split / cut pieces
                                            inherit it): c2 keeps it as it is */
+#define CA_GT_BSNOW         0x10u       /* (round 0.9.5, review R.1) SA1_SURFACE_BOARD_SNOW: part of the object key */
+#define CA_GT_BSAND         0x20u       /* (round 0.9.5) SA1_SURFACE_BOARD_SAND */
+#define CA_GT_BOARD         (CA_GT_BSNOW | CA_GT_BSAND)
 #define CA_UNDER_FLAT_NY    (-0.97)     /* (round 0.9.3, FIX-C2) c2: an underside within reach this flat (unit normal y at most
                                            this: within 14 degrees of level) becomes front-only instead of being dropped. The doc's
                                            -0.9 (25.8 degrees) let a runner at dash-panel speed dip under thin plank ramps of 20-25
@@ -884,6 +887,7 @@ typedef struct ca_gobj {
     uint32_t col, kill;
     float pos[3], r;
     float lo[3], hi[3];         /* box of the points (world space, rounded outward) */
+    uint32_t board;             /* round 0.9.5: the pieces' board bits (CA_GT_BOARD >> 4: 1 snow, 2 sand) */
 } ca_gobj;
 
 typedef struct ca_gb {
@@ -1720,13 +1724,18 @@ static int ca_frag_cmp(const void *pa, const void *pb)
     if (a->ori != c->ori) {
         return a->ori < c->ori ? -1 : 1;    /* F2: floor, wall, ceiling objects of one cell and word */
     }
+    if ((a->flags & CA_GT_BOARD) != (c->flags & CA_GT_BOARD)) {
+        /* round 0.9.5 (review R.1): board snow / sand never share an object with other land */
+        return (a->flags & CA_GT_BOARD) < (c->flags & CA_GT_BOARD) ? -1 : 1;
+    }
     return a->seq < c->seq ? -1 : (a->seq > c->seq ? 1 : 0);
 }
 
 static int ca_same_object(const ca_frag *a, const ca_frag *c)
 {
     return (a->flags & CA_GT_KILL) == (c->flags & CA_GT_KILL) && a->key[0] == c->key[0] && a->key[1] == c->key[1]
-           && a->key[2] == c->key[2] && a->col == c->col && a->ori == c->ori;
+           && a->key[2] == c->key[2] && a->col == c->col && a->ori == c->ori
+           && (a->flags & CA_GT_BOARD) == (c->flags & CA_GT_BOARD);
 }
 
 /* the largest float ulp of |x| over a range */
@@ -2004,7 +2013,7 @@ static uint32_t ca_grid_merge(ca_gb *b, const ca_src *src, uint32_t first, uint3
         b->dropped += i - first;    /* a water surface keeps its upward faces only (ca_grid_tri) */
         return i - first;
     }
-    ca_grid_place(b, p, n, col, mat, flags & CA_GT_CURVED, 0);
+    ca_grid_place(b, p, n, col, mat, flags & (CA_GT_CURVED | CA_GT_BOARD), 0);
     b->split += longs;
     b->merged += i - first;
     return i - first;
@@ -2051,6 +2060,7 @@ static void ca_grid_input(ca_gb *b, const sa1ca_static *s)
             uint32_t col = sa1ca_surface_col(ft->surface), mat = sa1ca_surface_material(ft->surface), used = 0;
             int kill = (ft->surface & SA1_SURFACE_KILL) != 0;
             gt = (ft->surface & SA1_SURFACE_CURVED) ? CA_GT_CURVED : 0u;    /* a merged face: one surface word */
+            gt |= sa1ca_surface_board(ft->surface) << 4;                    /* round 0.9.5: the board kinds */
             if (!kill && (col & SA1CA_COL_COLLIDABLE) != 0 && ca_merge_possible(b, &src, i, s->num_flat, &nl)) {
                 used = ca_grid_merge(b, &src, i, s->num_flat, col, mat, gt, 1);
             }
@@ -2073,6 +2083,7 @@ static void ca_grid_input(ca_gb *b, const sa1ca_static *s)
                     && g->scl[1] == 1.0f && g->scl[2] == 1.0f;
         src.gmat = g->raw ? 0u : sa1ca_surface_material(g->surface);
         gt = !g->raw && (g->surface & SA1_SURFACE_CURVED) ? CA_GT_CURVED : 0u;
+        gt |= !g->raw ? sa1ca_surface_board(g->surface) << 4 : 0u;     /* round 0.9.5: the board kinds */
         if ((g->col_flags & SA1CA_COL_COLLIDABLE) == 0 && !kill) {
             continue;
         }
@@ -2447,7 +2458,8 @@ sa1_status sa1ca_build_grid(sa1_context *ctx, const sa1ca_static *s, sa1ca_alloc
     ca_gb b;
     uint32_t *hash = NULL, i, k, nland = 0, nkill = 0, ncolumns = 0, hsize = 0;
     uint32_t base, off, o_lt, o_cols, o_polys, o_boxes, o_hash, o_acts = 0, o_dz = 0, o_objs, mesh_ms = 0, mesh_mat = 0;
-    size_t total, j;
+    size_t total, j, bsize = 0;
+    uint32_t nboard = 0;      /* round 0.9.5: land objects with board bits */
     uint8_t *host = NULL;
     float maxr = 0.0f;
     sa1_status st = SA1_OK;
@@ -2517,6 +2529,7 @@ sa1_status sa1ca_build_grid(sa1_context *ctx, const sa1ca_static *s, sa1ca_alloc
             o->count = (uint32_t)(e - a);
             o->col = b.fr[a].col;
             o->kill = (b.fr[a].flags & CA_GT_KILL) != 0;
+            o->board = o->kill ? 0u : (b.fr[a].flags & CA_GT_BOARD) >> 4;
             st = ca_grid_layout_object(&b, o, hash);
             if (st != SA1_OK) {
                 st = sa1_fail(ctx, st, "collision adapter: GRID object with too many points or materials");
@@ -2568,13 +2581,20 @@ sa1_status sa1ca_build_grid(sa1_context *ctx, const sa1ca_static *s, sa1ca_alloc
             goto done;
         }
     }
-    base = alloc(user, total, 16, (void **)&host);
+    /* round 0.9.5 (review R.1): the land objects' board bits, one byte per COL entry after the objects, only when some
+       object has them (else the allocation and every byte of it are 0.2.0's) */
+    nboard = 0;
+    for (i = 0; i < b.nobj; i++) {
+        nboard += !b.obj[i].kill && b.obj[i].board != 0;
+    }
+    bsize = nboard ? (((size_t)nland + 3u) & ~(size_t)3u) : 0u;
+    base = alloc(user, total + bsize, 16, (void **)&host);
     if (base == 0 || host == NULL) {
         st = sa1_fail(ctx, SA1_ERR_OUT_OF_MEMORY, "collision adapter: no room for %u bytes of GRID collision",
-                      (unsigned)total);
+                      (unsigned)(total + bsize));
         goto done;
     }
-    memset(host, 0, total);
+    memset(host, 0, total + bsize);
     /* objects, COL entries, polygon counts, DEATHZONE list */
     off = o_objs;
     {
@@ -2594,6 +2614,9 @@ sa1_status sa1ca_build_grid(sa1_context *ctx, const sa1ca_static *s, sa1ca_alloc
                 ca_wrf(col + 0x0C, o->r + SA1CA_GRID_COL_PAD);
                 ca_wr32(col + 0x18, base + off);
                 ca_wr32(col + 0x20, o->col);
+                if (bsize) {
+                    host[total + li] = (uint8_t)o->board;
+                }
                 ca_wr32(host + o_polys + 4u * li, o->count);
                 for (k = 0; k < 3; k++) {
                     ca_wrf(host + o_boxes + 24u * li + 4u * k, o->lo[k]);
@@ -2649,6 +2672,8 @@ sa1_status sa1ca_build_grid(sa1_context *ctx, const sa1ca_static *s, sa1ca_alloc
     /* the full landtable (information) */
     ca_wr16(host + o_lt, nland > 32767u ? 32767u : nland);
     ca_wr32(host + o_lt + 0x0C, nland ? base + o_cols : 0u);
+    out->board = bsize ? base + (uint32_t)total : 0u;
+    out->board_objects = nboard;
     /* header */
     out->token = ca_token_next(s->generation);
     ca_wr32(host + SA1CA_GH_MAGIC, SA1CA_GRID_MAGIC);

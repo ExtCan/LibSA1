@@ -219,6 +219,17 @@ sa1_status sa1_fail(sa1_context *ctx, sa1_status st, const char *fmt, ...)
     return st;
 }
 
+/* round 0.9.5 (board095_perf.md 4): ctx->error exactly as sa1_fail writes it, logged at the caller's level */
+sa1_status sa1_refuse(sa1_context *ctx, sa1_status st, int32_t level, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(ctx->error, sizeof ctx->error, fmt, ap);
+    va_end(ap);
+    sa1_log(ctx, level, "%s", ctx->error);
+    return st;
+}
+
 const char *sa1_last_error(const sa1_context *ctx)
 {
     return ctx ? ctx->error : "no context";

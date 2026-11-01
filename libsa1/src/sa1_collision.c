@@ -446,7 +446,7 @@ static sa1_status obj_create(sa1_context *ctx, const sa1_collision_tri *in, uint
 {
     sa1_collision_tri *conv, *dst;
     sa1ca_objx *x;
-    uint32_t i, k, g, ng = 0, cols[SA1_MAX_OBJECT_GROUPS], pos[SA1_MAX_OBJECT_GROUPS + 1u];
+    uint32_t i, k, g, ng = 0, cols[SA1_MAX_OBJECT_GROUPS], bds[SA1_MAX_OBJECT_GROUPS], pos[SA1_MAX_OBJECT_GROUPS + 1u];
     double best = 0.0;
     sa1_status st;
     *out = NULL;
@@ -463,9 +463,11 @@ static sa1_status obj_create(sa1_context *ctx, const sa1_collision_tri *in, uint
                        + (double)conv[i].v[k][2] * conv[i].v[k][2];
             best = d > best ? d : best;
         }
+        uint32_t bd = sa1ca_surface_board(conv[i].surface);
         if (!(col & SA1CA_COL_COLLIDABLE))
             continue;
-        for (g = 0; g < ng && cols[g] != col; g++) {
+        /* round 0.9.5 (review R.1): a group is one (COL word, board bits): the world ORs the riding bit into a group */
+        for (g = 0; g < ng && !(cols[g] == col && bds[g] == bd); g++) {
         }
         if (g == ng) {
             if (ng == SA1_MAX_OBJECT_GROUPS) {
@@ -473,6 +475,7 @@ static sa1_status obj_create(sa1_context *ctx, const sa1_collision_tri *in, uint
                 return sa1_fail(ctx, SA1_ERR_LIMIT, "collision object: more than %u collidable surface kinds",
                                 (unsigned)SA1_MAX_OBJECT_GROUPS);
             }
+            bds[ng] = bd;
             cols[ng++] = col;
         }
     }
@@ -494,8 +497,8 @@ static sa1_status obj_create(sa1_context *ctx, const sa1_collision_tri *in, uint
     /* stable counting sort: group 0, 1, ..., then the triangles that are not land (ignored by the worlds) */
     memset(pos, 0, sizeof pos);
     for (i = 0; i < n; i++) {
-        uint32_t col = sa1ca_surface_col(conv[i].surface);
-        for (g = 0; g < ng && !((col & SA1CA_COL_COLLIDABLE) && cols[g] == col); g++) {
+        uint32_t col = sa1ca_surface_col(conv[i].surface), bd = sa1ca_surface_board(conv[i].surface);
+        for (g = 0; g < ng && !((col & SA1CA_COL_COLLIDABLE) && cols[g] == col && bds[g] == bd); g++) {
         }
         pos[g]++;
     }
@@ -503,6 +506,7 @@ static sa1_status obj_create(sa1_context *ctx, const sa1_collision_tri *in, uint
         uint32_t c = pos[g];
         if (g < ng) {
             x->group_col[g] = cols[g];
+            x->group_board[g] = bds[g];
             x->group_first[g] = k;
             x->group_count[g] = c;
         }
@@ -510,8 +514,8 @@ static sa1_status obj_create(sa1_context *ctx, const sa1_collision_tri *in, uint
         k += c;
     }
     for (i = 0; i < n; i++) {
-        uint32_t col = sa1ca_surface_col(conv[i].surface);
-        for (g = 0; g < ng && !((col & SA1CA_COL_COLLIDABLE) && cols[g] == col); g++) {
+        uint32_t col = sa1ca_surface_col(conv[i].surface), bd = sa1ca_surface_board(conv[i].surface);
+        for (g = 0; g < ng && !((col & SA1CA_COL_COLLIDABLE) && cols[g] == col && bds[g] == bd); g++) {
         }
         dst[pos[g]++] = conv[i];
     }

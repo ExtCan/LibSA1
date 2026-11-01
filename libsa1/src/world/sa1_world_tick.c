@@ -32,13 +32,15 @@
  * camera adapter's position, which sa1g_camera_refresh then copies into the taskwk - this step's eye, so the game code
  * that reads camera_twp->pos (the SET spawner 8C091380 while Big's lure is in the water, Tails' head look 8C0BE558, Big's
  * line 8C0EC212 ...) sees the world's virtual camera instead of the SA1 origin. Replay steps are unchanged (they inject the
- * record's camera blob).
+ * record's camera blob). Round 0.9.5 (SA1_INPUT_HOST_CAMERA, board095_cam.md 5.3): when the tick's input gave the host's
+ * view, sa1g_camera_host puts the host's eye there instead (XMTRX stays the virtual view).
  *
  * Round 0.9.4 also runs the SET layer's hooks (src/world/sa1_world_set.c) of attached character worlds: w->set_pre right
  * after hostobj_pre, w->set_post right after hostobj_post; NULL otherwise.
  */
 #include "sa1_world.h"
 #include "sa1_coladapt.h"
+#include "sa1_api_world.h"     /* round 0.9.5: sa1w_set_point (the host camera's conversion) */
 #include "pc/sh4_fpmodel.h"
 
 #include <stddef.h>
@@ -129,6 +131,27 @@ static void sa1g_camera_view(sa1g_world *w)
     }
 }
 
+/* Round 0.9.5 (SA1_INPUT_HOST_CAMERA; sadc docs/research/board095_cam.md 5.3 item 3): the host's eye of this tick into the
+ * camera adapter's position, between sa1g_camera_view (XMTRX and the virtual eye: unchanged, the game's visibility tests
+ * keep the virtual view) and sa1g_camera_refresh (the copy into the taskwk). Converted with the SET layer's own arithmetic
+ * (sa1w_set_point: s = A^T h / scale, single precision) here, inside the world's FP mode (MXCSR 0xFFC0), so x86 and x64 give
+ * the same bits. Not in replays, not with set_no_eye; a world without the latch (every reference replay, test, preview
+ * world, a host without the bit) does one flag test. It does not depend on player 0 (unlike the virtual eye). */
+static void sa1g_camera_host(sa1g_world *w)
+{
+    sa1_coords co;
+    float s[3];
+    if (w->replay || !w->camera.host || w->set_no_eye) {
+        return;
+    }
+    memset(&co, 0, sizeof co);
+    co.struct_size = sizeof co;
+    co.scale = w->camera.co_scale;
+    memcpy(co.axis, w->camera.co_axis, sizeof co.axis);
+    sa1w_set_point(&co, w->camera.host_pos, s);
+    memcpy(w->camera.pos, s, sizeof w->camera.pos);
+}
+
 /* replay mode: what the pad update computed, then the record's values over it (6.6) */
 static void sa1g_inject_pad(sa1g_world *w)
 {
@@ -182,6 +205,7 @@ void sa1g_step_game(sa1g_world *w, int32_t sub, void *user)
     (void)user;
     sa1ca_world_step_begin(w);              /* host worlds: a matrix push 8C029B00 left behind is undone (PC only) */
     sa1g_camera_view(w);                    /* round 0.9.4: first, so its eye is this step's camera position */
+    sa1g_camera_host(w);                    /* round 0.9.5: the host's eye instead, when the tick latched one */
     sa1g_camera_refresh(w);
     sa1g_call_dc(SA1G_FN_PAD_UPDATE);       /* rt pdGetPeripheral, then the analog conversion 8C05117E */
     if (w->replay) {
@@ -198,6 +222,9 @@ void sa1g_step_game(sa1g_world *w, int32_t sub, void *user)
     }
     if (w->emote.pre != NULL) {
         w->emote.pre(w, sub, w->user);      /* round 0.9.4a: emote start / input cancel (sa1_world_emote.c) */
+    }
+    if (w->board.pre != NULL) {
+        w->board.pre(w, sub, w->user);      /* round 0.9.5: the latched board request (sa1_world_board.c) */
     }
     /* 8C099A50 (event coroutines) and 8C06C182 (debug timer) are skipped */
     if (w->replay || w->num_xhooks != 0 || w->freeze_unknown) {
@@ -217,6 +244,9 @@ void sa1g_step_game(sa1g_world *w, int32_t sub, void *user)
     }
     if (w->face.post != NULL) {
         w->face.post(w, sub, w->user);      /* round 0.9.4a (unused today; kept symmetric) */
+    }
+    if (w->board.post != NULL) {
+        w->board.post(w, sub, w->user);     /* round 0.9.5: edges, the kept board, the riding word (sa1_world_board.c) */
     }
     /* the particle manager, after CCL as in 8C04E714 (its debug print of tcrf_SprTaskDisplayMode and the timer
      * resets 8C06C182 around it are left out; the manager's own timer reads are the emulated TMU's) */
