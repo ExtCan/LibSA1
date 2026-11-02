@@ -7,6 +7,7 @@
  * running anything (sa1g_game_ready).
  */
 #include "sa1_world.h"
+#include "sa1_world_lookup.h"
 
 void *sa1_fn(sa1_gfn g, uint32_t sig)
 {
@@ -43,6 +44,16 @@ const sa1g_fnent *sa1g_fn_image_lookup(uint32_t g)
 {
     (void)g;
     return NULL;
+}
+
+const sa1g_fnent *sa1g_fn_lookup_base(uint32_t g)
+{
+    (void)g;
+    return NULL;
+}
+
+void sa1g_fn_addr_build(void)
+{
 }
 
 uint32_t sa1g_pcd_size(void)

@@ -82,6 +82,7 @@
  */
 #include "rt.h"
 #include "task.h"
+#include "rt_frontend.h"
 
 extern Uint32 B_8C88F62C;              /* control-3D flags (bit 0x4000 picks the material word order below) */
 extern Uint32 B_8C88F660;               /* constant attribute AND mask */
@@ -157,6 +158,8 @@ extern TaskFuncPtr D_8C1C1D40;          /* the exec the task executor runs (8C09
                                    8C60E49A's node draw 8C621574 (round 0.9.2a FX3: the power-up models) */
 #define RT_CAP_DEBUG    12      /* 8C6215D6: collision / debug display object (recorded, not walked) */
 #define RT_CAP_POLY2D   13      /* round 0.9.1 (HUD): njDrawPolygon2D 8C63EBC8 (rt_cap_poly2d) */
+#define RT_CAP_TEX2D    14      /* round 0.9.8 (the front end): njDrawTexture 8C63ED08 (rt_cap_vtx2d); record layout and version unchanged */
+#define RT_CAP_POLY2D_V 15      /* round 0.9.8: njDrawPolygon 8C63EC58 (rt_cap_vtx2d) */
 #define RT_CAP_KINDS    16
 
 /* round 0.9.1 (the HUD: sadc docs/research/gsa1_070_hud.md F2 with its Review R.5.3): the 2D draws keep what the 3D
@@ -426,6 +429,41 @@ static void rt_cap_poly2d(NJS_POINT2COL *p, Int n, Float pri, Uint32 attr)
             rt_cap_copy(q, p->tex, 4u * num);
     }
 }
+
+/* round 0.9.8 (sadc docs/research/charsel098.md 5.3, the game's own front end): njDrawTexture's and njDrawPolygon's vertices as they are at
+ * the draw (the 2D library's buffers are reused), the running exec and njColorBlendingMode's modes are the record's. Payload (sa1_capture.h
+ * SA1_CAP_VTX2D_HEAD): +0x00 u32 vertices kept (the call's n, at most RT_CAP_MAXPTS), +0x04 the global index (0 for a polygon), +0x08 u32 trans;
+ * then the vertices (0x18 bytes each: x, y, z = 1 / pri, u, v, ARGB; a polygon's 0x10: x, y, z, ARGB). Recording only, its state lies in the
+ * world's capture block (E-102's effect display 8C050540 reaches 8C63ED08 on a pool worker in a follower's world): no game-visible word. */
+#if !defined(TARGET_PC_HARNESS)
+#define RT_CAP_VTX2D_HEAD 0x0Cu
+static void rt_cap_vtx2d(Uint32 kind, const void *vtx, Int n, Uint32 stride, Uint32 gbix, Int trans)
+{
+    RT_CAP_REC *r;
+    Uint8 *q;
+    Uint32 num;
+
+    if (rt_cap.on == 0 || vtx == NULL)
+        return;
+    r = rt_cap_new(kind);
+    if (r == NULL)
+        return;
+    r->obj = vtx;
+    r->n = (Uint32)n;
+    r->attr = (Uint32)trans;
+    num = n > 0 ? (Uint32)n : 0u;
+    if (num > RT_CAP_MAXPTS)
+        num = RT_CAP_MAXPTS;
+    q = rt_cap_payload(r, RT_CAP_VTX2D_HEAD + num * stride);
+    if (q == NULL)
+        return;
+    rt_cap_put32(q, num);
+    rt_cap_put32(q + 4, gbix);
+    rt_cap_put32(q + 8, (Uint32)trans);
+    if (num != 0)
+        rt_cap_copy(q + RT_CAP_VTX2D_HEAD, vtx, num * stride);
+}
+#endif
 
 /* v2: a point list draw (njDrawLine3D, the 3D triangle / polygon draws): u32 points kept, u32 has colours, u32 has
  * uvs, u32 p->num, then the points (12 bytes each), the colours (NJS_COLOR) and the uvs (NJS_TEX) as they are at the
@@ -722,6 +760,21 @@ void func_8C63EBC8(NJS_POINT2COL *p, Sint32 n, Float pri, Uint32 attr)
 {
     RT_CAP_POLY2D_PRI(p, n, pri, attr);
 }
+
+/* 8C63ED08 njDrawTexture, 8C63EC58 njDrawPolygon (round 0.9.8; boundary stubs before: void, none. sadc docs/research/charsel098.md 5.3,
+ * the 2D library of the menus and E-102's effect display 8C050540). Renderer state only, as the other draws: nothing outside a capture
+ * window, in one a record (kinds 14, 15). The harness keeps the original draws */
+#if !defined(TARGET_PC_HARNESS)
+void func_8C63ED08(void *vtx, Sint32 n, Sint32 tex, Sint32 trans)
+{
+    rt_cap_vtx2d(RT_CAP_TEX2D, vtx, n, 0x18u, (Uint32)tex, trans);
+}
+
+void func_8C63EC58(void *vtx, Sint32 n, Sint32 trans)
+{
+    rt_cap_vtx2d(RT_CAP_POLY2D_V, vtx, n, 0x10u, 0u, trans);
+}
+#endif
 
 /* 8C63EF74 njDrawSprite3D */
 void njDrawSprite3D(NJS_SPRITE *sp, Int n, Uint32 attr)

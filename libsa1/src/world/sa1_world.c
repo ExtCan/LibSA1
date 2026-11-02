@@ -8,6 +8,7 @@
 #endif
 
 #include "sa1_world.h"
+#include "sa1_world_lookup.h"
 #include "sa1g_text.h"
 
 #include <stdarg.h>
@@ -37,28 +38,28 @@
 #endif
 
 /* ---- process globals read by the lowered code (sa1/guest.h, profile ga64) and by rt ------------- */
-uintptr_t sa1g_seg[32];
-uint8_t *sa1g_ram_base;
-float *sa1_rt_xmtrx;                    /* rt.h: the ticking world's XMTRX */
-const sa1g_fnimage *sa1g_fn_active[SA1G_FN_ACTIVE_MAX + 1];    /* the code map's overlay images (2.5) */
-const sa1g_pad *sa1_rt_pad;             /* rt_input.c: the ticking world's RT_PAD[4] (same layout) */
+SA1G_TLS uintptr_t sa1g_seg[32];
+SA1G_TLS uint8_t *sa1g_ram_base;
+SA1G_TLS float *sa1_rt_xmtrx;           /* rt.h: the ticking world's XMTRX */
+SA1G_TLS const sa1g_fnimage *sa1g_fn_active[SA1G_FN_ACTIVE_MAX + 1];    /* the code map's overlay images (2.5) */
+SA1G_TLS const sa1g_pad *sa1_rt_pad;    /* rt_input.c: the ticking world's RT_PAD[4] (same layout) */
 
 _Static_assert(sizeof(sa1g_pad) == 20, "sa1g_pad must keep rt_input.c's RT_PAD layout");
 _Static_assert(offsetof(sa1g_pad, x1) == 12, "sa1g_pad must keep rt_input.c's RT_PAD layout");
 
-static sa1g_world *volatile sa1g_cur;   /* the entered world */
-static volatile int sa1g_armed;         /* an SA1G_WORLD_TRY of sa1g_cur is active */
-static volatile int sa1g_in_handler;    /* the fault handler is running (no nesting) */
+/* round 0.9.8 (T2): the entered world of each thread on the two Windows targets (SA1G_TLS, guest.h); a fault is handled on its own
+ * thread (VEH, SIGSEGV), so the handlers read the faulting thread's state */
+static SA1G_TLS sa1g_world *volatile sa1g_cur;  /* the entered world */
+static SA1G_TLS volatile int sa1g_armed;        /* an SA1G_WORLD_TRY of sa1g_cur is active */
+static SA1G_TLS volatile int sa1g_in_handler;   /* the fault handler is running (no nesting) */
 static int sa1g_refs;                   /* live worlds (process state exists while > 0) */
 static uint8_t *sa1g_trap[32];          /* trap reservation per segment (32-bit: all the same) */
 static uint8_t *sa1g_negtrap;           /* segment 0x13 */
 static uintptr_t sa1g_idle_seg[32];     /* segment table outside worlds: traps only */
 
 #ifdef _WIN32
-static SRWLOCK sa1g_tick_srw = SRWLOCK_INIT;
 static SRWLOCK sa1g_proc_srw = SRWLOCK_INIT;
 static SRWLOCK sa1g_table_srw = SRWLOCK_INIT;
-static volatile DWORD sa1g_tid;
 static PVOID sa1g_veh_handle;
 #else
 static pthread_mutex_t sa1g_tick_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -116,20 +117,18 @@ static void sa1g_vm_release(void *p, size_t n)
 #endif
 
 /* ---- locks --------------------------------------------------------------------------------------- */
+/* round 0.9.8 (T2): on the two Windows targets worlds step at the same time; what stays is the guard of sa1g_world_enter (one world is
+ * entered by one thread at a time, else an abort). x86_64-linux keeps one world at a time (SA1G_TLS empty): the contract does not say */
 void sa1g_tick_lock(void)
 {
-#ifdef _WIN32
-    AcquireSRWLockExclusive(&sa1g_tick_srw);
-#else
+#ifndef _WIN32
     pthread_mutex_lock(&sa1g_tick_mtx);
 #endif
 }
 
 void sa1g_tick_unlock(void)
 {
-#ifdef _WIN32
-    ReleaseSRWLockExclusive(&sa1g_tick_srw);
-#else
+#ifndef _WIN32
     pthread_mutex_unlock(&sa1g_tick_mtx);
 #endif
 }
@@ -152,7 +151,7 @@ void sa1g_table_unlock(void)
 #endif
 }
 
-static void sa1g_proc_lock(void)
+void sa1g_proc_lock(void)
 {
 #ifdef _WIN32
     AcquireSRWLockExclusive(&sa1g_proc_srw);
@@ -161,7 +160,7 @@ static void sa1g_proc_lock(void)
 #endif
 }
 
-static void sa1g_proc_unlock(void)
+void sa1g_proc_unlock(void)
 {
 #ifdef _WIN32
     ReleaseSRWLockExclusive(&sa1g_proc_srw);
@@ -173,7 +172,7 @@ static void sa1g_proc_unlock(void)
 static int sa1g_on_world_thread(void)
 {
 #ifdef _WIN32
-    return GetCurrentThreadId() == sa1g_tid;
+    return 1;       /* sa1g_cur is this thread's */
 #else
     return pthread_equal(pthread_self(), sa1g_tid) != 0;
 #endif
@@ -718,6 +717,7 @@ static void sa1g_handlers_remove(void)
 static void sa1g_process_release(void)
 {
     int s, k;
+    sa1g_pcd_template_free();
     sa1g_handlers_remove();
     for (s = 0; s < 32; s++) {
         uint8_t *t = sa1g_trap[s];
@@ -770,6 +770,9 @@ static int sa1g_process_ref(void)
         } else {
             memcpy(sa1g_seg, sa1g_idle_seg, sizeof sa1g_seg);
             sa1g_ram_base = (uint8_t *)sa1g_idle_seg[SA1G_SEG_ARENA];
+            /* round 0.9.8 (L4, L5, L9): what any thread may ask about the build is resolved here, once, under this lock */
+            sa1g_lookup_resolve();
+            sa1g_fn_addr_build();
         }
     }
     if (rc == 0) {
@@ -1004,14 +1007,18 @@ void sa1g_world_enter(sa1g_world *w)
         fprintf(stderr, "sa1: world %p entered while world %p is active\n", (void *)w, (void *)sa1g_cur);
         abort();
     }
+#ifdef _WIN32
+    if (__atomic_exchange_n(&w->entered, 1, __ATOMIC_ACQ_REL) != 0) {
+        fprintf(stderr, "sa1: world %p entered by two threads at once\n", (void *)w);
+        abort();
+    }
+#endif
     memcpy(sa1g_seg, w->seg, sizeof sa1g_seg);
     sa1g_ram_base = w->ram;
     memcpy((void *)sa1g_fn_active, w->fn_images, sizeof sa1g_fn_active);
     sa1_rt_xmtrx = w->xmtrx;
     sa1_rt_pad = w->pad;                /* replay mode latches the record's raw input there */
-#ifdef _WIN32
-    sa1g_tid = GetCurrentThreadId();
-#else
+#ifndef _WIN32
     sa1g_tid = pthread_self();
 #endif
     w->saved_mxcsr = _mm_getcsr();
@@ -1026,9 +1033,9 @@ void sa1g_world_leave(sa1g_world *w)
         return;
     }
     _mm_setcsr(w->saved_mxcsr);
-    w->entered = 0;
     sa1g_armed = 0;
     sa1g_cur = NULL;
+    __atomic_store_n(&w->entered, 0, __ATOMIC_RELEASE);
     sa1_rt_xmtrx = NULL;
     sa1_rt_pad = NULL;
     memset((void *)sa1g_fn_active, 0, sizeof sa1g_fn_active);

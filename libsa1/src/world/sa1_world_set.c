@@ -89,6 +89,7 @@
  *   live        sa1w_set_world_live: the records whose task lives after the last pair (sa1_set_live, review R.6)
  */
 #include "sa1_world.h"
+#include "sa1_world_lookup.h"
 #include "sa1_internal.h"
 #include "sa1_api_world.h"
 #include "pc/sh4_fpmodel.h"
@@ -620,6 +621,18 @@ static int st_player_pos(const sa1g_world *w, float p[3])
     return p[0] == p[0] && p[1] == p[1] && p[2] == p[2];
 }
 
+/* round 0.9.8: the world's character (slot 1 in a follower world): touches and capacity events. st_player_pos stays player 0: the
+   game's spawner measures its range from player 0, in a follower world the proxy */
+static int st_char_pos(const sa1g_world *w, float p[3])
+{
+    uint32_t twp = st_rd32(w, SA1G_ADDR_PLAYER_TWP + 4u * (uint32_t)w->slot);
+    if (!st_arena(twp)) {
+        return 0;
+    }
+    st_rd3(w, twp + 0x20u, p);
+    return p[0] == p[0] && p[1] == p[1] && p[2] == p[2];
+}
+
 /* ---- slots ----------------------------------------------------------------------------------------------------------- */
 static void st_count_write(sa1g_world *w, st_state *S)
 {
@@ -893,8 +906,15 @@ static void st_window(sa1g_world *w, st_state *S, const sa1set_registry *R)
     uint32_t ring_max = R != NULL ? R->ring_window : 64u, box_max = R != NULL ? R->box_window : 32u;
     uint32_t hold = R != NULL && R->tier_hold >= 0 ? (uint32_t)R->tier_hold : SA1_SET_TIER_HOLD;
     float margin = R != NULL ? R->margin : 100.0f, p[3], range = st_range(R), fwd[3] = { 0.0f, 0.0f, 0.0f };
+    float p1[3];
+    int have_p1 = 0;
     if (!st_player_pos(w, p)) {
         return;                             /* no player 0: the window waits */
+    }
+    if (w->slot != 0) {
+        /* round 0.9.8: a follower world: what the game's own spawner can make: 8C091148 also takes player 1's position within 40
+           units (code_8C090FA0.c:245-271; v1_arch.md review G6) */
+        have_p1 = st_char_pos(w, p1);
     }
     if (range > 0.0f) {
         /* order B: the plane through the camera position - the host's when given (round 0.9.5, sa1g_camera_host), else
@@ -923,7 +943,16 @@ static void st_window(sa1g_world *w, st_state *S, const sa1set_registry *R)
         d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
         r = (range > 0.0f ? range : t->range) + margin;
         if (!(d2 <= r * r)) {
-            continue;                       /* the reach: the record's place, where the spawner tests it */
+            float e1, e2, e3;
+            if (!have_p1) {
+                continue;                   /* the reach: the record's place, where the spawner tests it */
+            }
+            e1 = q[0] - p1[0];
+            e2 = q[1] - p1[1];
+            e3 = q[2] - p1[2];
+            if (!(e1 * e1 + e2 * e2 + e3 * e3 <= (40.0f + margin) * (40.0f + margin))) {
+                continue;
+            }
         }
         S->cand[n].d2 = d2;
         S->cand[n].id = e->id;
@@ -1259,7 +1288,7 @@ static void st_hold(sa1g_world *w, st_state *S)
         }
     }
     if (!S->cap_heap) {
-        st_player_pos(w, p);
+        st_char_pos(w, p);
         sa1g_world_event_push(w, SA1_EVENT_CAPACITY, SA1_CAPACITY_SET_HEAP, 0u, p, largest);
     }
     S->cap_heap = 1;
@@ -1270,7 +1299,8 @@ static void st_pre(sa1g_world *w, int32_t sub, void *user)
     st_state *S = st_state_of(w);
     (void)user;
     if (sub == 0) {
-        const sa1set_registry *R = sa1set_registry_of(w->set_ctx);
+        /* round 0.9.8: SA1_FOLLOW_NO_SET: a follower world that mirrors no record (the egg's 99 worlds) */
+        const sa1set_registry *R = (w->fol.flags & SA1_FOLLOW_NO_SET) ? NULL : sa1set_registry_of(w->set_ctx);
         if (S == NULL && R != NULL && R->count != 0) {
             S = st_state_create(w);         /* NULL: segment 0x18 is full: no SET objects in this world */
         }
@@ -1398,7 +1428,7 @@ static void st_post(sa1g_world *w, int32_t sub, void *user)
     if (S == NULL) {
         return;
     }
-    have_p0 = st_player_pos(w, p0);
+    have_p0 = st_char_pos(w, p0);
     for (k = 0; k < S->hiwater; k++) {
         st_slot *sl = &S->slot[k];
         uint32_t c = st_cond(k), word, cond, bits, tp;
@@ -1470,7 +1500,7 @@ void sa1g_set_attach(sa1_context *ctx, sa1g_world *w)
 
 int sa1w_set_exec_native(uint32_t exec)
 {
-    return sa1g_game_linked() && sa1_fn_name(exec) != NULL;
+    return sa1g_game_linked() && SA1G_FN_NAME_OUTSIDE(exec) != NULL;
 }
 
 uint32_t sa1w_set_world_poll(const sa1_context *ctx, struct sa1g_world *w, sa1_set_event *out, uint32_t cap)

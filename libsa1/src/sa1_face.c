@@ -393,6 +393,9 @@ sa1_status sa1_character_face_mode(sa1_context *ctx, sa1_character_id id, uint32
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
+    if (sa1w_character_is_follower(ctx, id)) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
+    }
     if ((mode & ~(0xFFu | SA1_FACE_PACE_CUTSCENE)) != 0u || (mode & 0xFFu) > SA1_FACE_MODE_EVENT) {
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "%s: mode %#x (SA1_FACE_MODE_GAME / EVENT, | SA1_FACE_PACE_CUTSCENE)",
                         what, (unsigned)mode);
@@ -417,6 +420,9 @@ sa1_status sa1_character_face(sa1_context *ctx, sa1_character_id id, const char 
     sa1_status st;
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
+    }
+    if (sa1w_character_is_follower(ctx, id)) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
     }
     if ((flags & ~(SA1_FACE_NOW | SA1_FACE_LOOP)) != 0u) {
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "%s: flags %#x (SA1_FACE_NOW | SA1_FACE_LOOP)", what,
@@ -474,6 +480,9 @@ sa1_status sa1_character_face_sequence(sa1_context *ctx, sa1_character_id id, co
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
+    if (sa1w_character_is_follower(ctx, id)) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
+    }
     if ((flags & ~SA1_FACE_HOLD_LAST) != 0u) {
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "%s: flags %#x (SA1_FACE_HOLD_LAST)", what, (unsigned)flags);
     }
@@ -523,6 +532,9 @@ sa1_status sa1_character_face_level(sa1_context *ctx, sa1_character_id id, float
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
+    if (sa1w_character_is_follower(ctx, id)) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
+    }
     /* round 0.9.4c: SA1_FACE_SAME_PAIR may be OR'ed into the LADDER style (not TALK); unknown when not built (k_same_pair) */
     if ((style & ~k_same_pair) > SA1_FACE_LEVEL_TALK ||
         (style != (style & ~k_same_pair) && (style & ~k_same_pair) == SA1_FACE_LEVEL_TALK) || level != level) {
@@ -561,6 +573,9 @@ sa1_status sa1_character_face_mouth(sa1_context *ctx, sa1_character_id id, uint3
     sa1_status st;
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
+    }
+    if (sa1w_character_is_follower(ctx, id)) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
     }
     if ((flags & ~k_same_pair) != 0u || weight != weight) {
         return quiet(ctx, SA1_ERR_INVALID_ARGUMENT, "%s: flags %#x (%s), weight %s", what, (unsigned)flags,

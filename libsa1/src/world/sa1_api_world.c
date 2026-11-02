@@ -63,6 +63,14 @@ int sa1w_ready(void)
     return sa1g_game_ready();
 }
 
+/* tests only: F2's boot flag (sa1_api_world.h) */
+static uint32_t g_test_boot_flags;
+
+void sa1w_test_boot_flags(uint32_t flags)
+{
+    g_test_boot_flags = flags;
+}
+
 /* the world state without sa1_fail (any thread) */
 static sa1_status ctx_create_quiet(sa1_context *ctx, const char *gdi, struct sa1w_ctx **out)
 {
@@ -387,8 +395,21 @@ sa1_status sa1w_world_create(struct sa1w_ctx *wc, const sa1w_create *c, struct s
     cfg.seed = c->seed;
     memcpy(cfg.event_flags, c->event_flags, sizeof cfg.event_flags);
     /* the stage start: the land collision cache is first built at the end of step 0 */
-    cfg.flags = SA1G_BOOT_NO_WORLD_UPDATE;
-    if (!(c->flags & SA1W_START_TABLE)) {
+    cfg.flags = SA1G_BOOT_NO_WORLD_UPDATE | g_test_boot_flags;
+    g_test_boot_flags = 0;
+    if (c->flags & SA1W_FOLLOWER) {
+        /* round 0.9.8: CurrentCharacter 0 (Review G9), the proxy's first state: the leader's now, or the host's */
+        cfg.chr = 0;
+        cfg.flags |= SA1G_BOOT_FOLLOWER;
+        cfg.follow.kind = c->kind;
+        cfg.follow.leader_chr = c->follow.leader_kind >= 0 && c->follow.leader_kind < 8 ? c->follow.leader_kind : 0;
+        cfg.follow.flags = c->follow.flags;
+        if (c->follow.test_first != NULL) {
+            cfg.follow.first = *(const sa1g_snap *)c->follow.test_first;
+        } else {
+            sa1g_follow_first(ctx, c->follow.leader_world, &c->follow.host, &cfg.follow.first);
+        }
+    } else if (!(c->flags & SA1W_START_TABLE)) {
         cfg.flags |= SA1G_BOOT_POS;
         for (k = 0; k < 3; k++) {
             cfg.pos[k] = c->pos[k];
@@ -512,6 +533,9 @@ sa1_status sa1w_world_create(struct sa1w_ctx *wc, const sa1w_create *c, struct s
         memcpy(w->start_pos, c->pos, sizeof w->start_pos);
         w->start_ang_y = c->ang[1] & 0xFFFFu;
         st = sa1g_world_boot(w, &cfg);
+        if (st == SA1_OK && (c->flags & SA1W_FOLLOWER)) {
+            sa1wf_set_leader(w, c->follow.leader_world, c->follow.leader);
+        }
         if (st == SA1_OK) {
             /* the collision adapter (design 5.4-5.6; EMPTY landtables only): GRID window, moving objects, kill planes */
             st = sa1ca_world_attach(ctx, w, notes);
@@ -646,6 +670,13 @@ void sa1w_world_input_ex(struct sa1g_world *w, const sa1_input *in, const sa1_co
     sa1g_pad_from_input(in, &pad);
     sa1g_world_set_pad(w, 0, &pad);
     sa1g_world_host_flags(w, in);   /* round 0.9.2 (WTR-A): sa1_input.host_flags for the pairs of this tick */
+    /* round 0.9.8 (SA1_INPUT_GAME_CAMERA; seam S9, fish098.md 3.4): this tick's bit, whatever co is; character worlds only (a
+       follower world's slot is 1: a follower id ignores the bit) */
+    w->camreq.want = in != NULL && in->struct_size >= offsetof(sa1_input, host_flags) + sizeof in->host_flags
+                     && (in->host_flags & SA1_INPUT_GAME_CAMERA) != 0 && w->slot == 0;
+    if (w->camreq.want && w->camreq.pre == NULL) {
+        sa1g_camreq_install(w);
+    }
     if (in != NULL && in->struct_size >= offsetof(sa1_input, camera_yaw) + sizeof(float) && isfinite(in->camera_yaw)) {
         /* 8C05117E: analog ang = atan2(stick y, x) - camera ang.y, and forward (y < 0) is -0x4000, while the
          * player moves along (cos a, 0, sin a) for ang.y = a: a forward stick follows the host camera yaw
@@ -672,6 +703,26 @@ void sa1w_world_input_ex(struct sa1g_world *w, const sa1_input *in, const sa1_co
             w->camera.host = 1;
         }
     }
+}
+
+/* round 0.9.8: NJS_OBJECT: +0x08 pos, +0x14 ang */
+int sa1w_world_node(const struct sa1g_world *w, uint32_t addr, int32_t ang[3], float pos[3])
+{
+    uint32_t g = addr | 0x80000000u, k, v;
+    if (w == NULL || w->ram == NULL || ((g >> 24) & 31u) != SA1G_SEG_ARENA) {
+        return 0;
+    }
+    for (k = 0; k < 3; k++) {
+        if (sa1g_world_rd32(w, g + 0x08u + 4u * k, &v) != 0) {
+            return 0;
+        }
+        memcpy(&pos[k], &v, 4);
+        if (sa1g_world_rd32(w, g + 0x14u + 4u * k, &v) != 0) {
+            return 0;
+        }
+        ang[k] = (int32_t)v;
+    }
+    return 1;
 }
 
 /* arena bytes (zero outside the arena) */
@@ -715,6 +766,9 @@ static void pstate_lanes(const struct sa1g_world *w, sa1w_pstate *o)
     }
     if (w->emote.fill != NULL) {
         w->emote.fill(w, o);
+    }
+    if (w->look.fill != NULL) {
+        w->look.fill(w, o);     /* round 0.9.8 (seam S5): the head look */
     }
 }
 

@@ -191,6 +191,13 @@ void sa1_capture_set_archives(sa1_capture *c, const sa1_charset *cs)
     uint32_t a;
     if (!c || !cs)
         return;
+    /* round 0.9.8: another set on the same capture (the front end's selected kind): the alpha kinds it cached are the old set's */
+    if (c->cs != NULL && c->cs != cs) {
+        for (a = 0; a < SA1_MAX_ARCHIVES; a++) {
+            sa1_mem_free(c->ctx, c->alpha[a]);
+            c->alpha[a] = NULL;
+        }
+    }
     c->cs = cs;
     c->narc = cs->num_archives < SA1_MAX_ARCHIVES ? cs->num_archives : SA1_MAX_ARCHIVES;
     for (a = 0; a < c->narc; a++) {
@@ -1287,6 +1294,8 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
         uint32_t nn0 = b->nn, ns0 = b->nspr, nlv0 = b->nlv, nt0 = b->nt, k;
         if (board && o->board_hide)
             continue;               /* round 0.9.5: a board task not held yet (presentation only) */
+        if (o->only_exec != 0 && (r->exec & 0x1FFFFFFFu) != (o->only_exec & 0x1FFFFFFFu))
+            continue;               /* round 0.9.8: the front end's one pass of the selected character */
         if (!SA1_CAP_IS_MODEL(r->kind)) {
             if (o->only_model || !o->effects ||
                 (r->kind != SA1_CAP_SPRITE3D && r->kind != SA1_CAP_LINE3D && r->kind != SA1_CAP_TRI3D &&

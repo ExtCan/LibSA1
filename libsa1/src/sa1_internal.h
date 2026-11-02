@@ -501,6 +501,14 @@ void       sa1_instance_free(sa1_context *ctx, sa1_instance *inst);
  * instance's geometry. */
 sa1_status sa1_pose_evaluate(sa1_context *ctx, const sa1_charset *cs, sa1_instance *inst, int32_t object,
                              int32_t motion, float frame, uint32_t flags);
+/* round 0.9.8 (look096.md 7.1.6): the same with a node's position and angles from the caller where the motion does not key it */
+typedef struct sa1_pose_override {
+    uint32_t node;
+    int32_t ang[3];
+    float pos[3];
+} sa1_pose_override;
+sa1_status sa1_pose_evaluate_ov(sa1_context *ctx, const sa1_charset *cs, sa1_instance *inst, int32_t object, int32_t motion,
+                                float frame, uint32_t flags, const sa1_pose_override *ov, uint32_t nov);
 
 /* ------------------------------------------------------------------------- */
 /* Context                                                                   */
@@ -542,6 +550,9 @@ struct sa1_context {
     uint32_t           next_col_id;
     sa1_sound_event    sounds[SA1_SOUND_QUEUE];
     uint32_t           sound_head, sound_count;
+    /* round 0.9.8 (SA1_API_FRONTEND; seam S11, zero: nothing loaded, none open): SA1_KIND_FRONTEND's archives, the open front end */
+    sa1_charset        frontend_set;
+    struct sa1_frontend *frontend_open;
 };
 
 void sa1_charset_free(sa1_context *ctx, sa1_charset *cs);

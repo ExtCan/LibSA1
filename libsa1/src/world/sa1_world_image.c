@@ -10,10 +10,12 @@
  * (sa1_manifest.c) at run time.
  */
 #include "sa1_world.h"
+#include "sa1_world_lookup.h"
 #include "sa1_internal.h"
 #include "sa1_coladapt.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* kind -> overlays of its world (2.5). Optional ones are dropped by SA1G_IMAGE_NO_OPTIONAL. */
@@ -33,6 +35,8 @@ static const sa1g_kind_image k_kind_images[] = {
     { SA1_CHAR_BIG, { "B_MOT.PRS", NULL, NULL }, { 0, 0, 0 } },
     { SA1_CHAR_TIKAL, { "TIKAL_PROG.PRS", NULL, NULL }, { 0, 0, 0 } },        /* no S_SBMOT (overlap) */
     { SA1_CHAR_EGGMAN, { NULL, NULL, NULL }, { 0, 0, 0 } },
+    { SA1_KIND_FRONTEND, { "ADVERTISE.PRS", NULL, NULL }, { 0, 0, 0 } },    /* round 0.9.8 (seam S10): nothing composes it until
+                                                                               098-lib-frontend does */
 };
 
 static const sa1g_kind_image *sa1g_kind_image_of(int32_t kind)
@@ -490,6 +494,39 @@ static void sa1g_pcd_init_cb(sa1g_world *w, void *user)
     sa1g_pcd_init();
 }
 
+/* Round 0.9.8 (L6; sadc docs/research/follow096_scale.md 2.4): the lowered code's pcdata addresses (each TU's static sa1g_pcdo[], its
+ * exported sa1g_pcdv_*) are the same for every world, and a running world on another thread reads them. So sa1g_pcd_init runs once per
+ * process, in the first world, under the process lock, and what it wrote into segment 0x18 (guest words only: plain data and encoded
+ * guest addresses, the same for every world) becomes the template of the next worlds. The template lives while worlds live. */
+static uint8_t *sa1g_pcd_template;
+
+void sa1g_pcd_template_free(void)
+{
+    free(sa1g_pcd_template);
+    sa1g_pcd_template = NULL;
+}
+
+static sa1_status sa1g_pcd_place(sa1g_world *w)
+{
+    sa1_status st = SA1_OK;
+    sa1g_proc_lock();
+    if (sa1g_pcd_template != NULL) {
+        memcpy(w->ext, sa1g_pcd_template, w->pcdata_size);
+    } else {
+        st = sa1g_world_call(w, sa1g_pcd_init_cb, NULL);
+        if (st == SA1_OK) {
+            /* no template (out of memory): the next world runs the initialisers again, as before this round */
+            uint8_t *t = (uint8_t *)malloc(w->pcdata_size);
+            if (t != NULL) {
+                memcpy(t, w->ext, w->pcdata_size);
+                sa1g_pcd_template = t;
+            }
+        }
+    }
+    sa1g_proc_unlock();
+    return st;
+}
+
 /* the run state of a rebuilt world: input, events, counters, boot and replay state, faults */
 static void sa1g_world_reset_run(sa1g_world *w)
 {
@@ -625,7 +662,7 @@ sa1_status sa1g_world_apply_ram(sa1g_world *w, const void *ram, size_t n)
     w->patches_applied = 0;
     sa1g_world_reset_run(w);
     if (w->pcdata_size != 0) {
-        return sa1g_world_call(w, sa1g_pcd_init_cb, NULL);
+        return sa1g_pcd_place(w);
     }
     return SA1_OK;
 }
@@ -686,7 +723,7 @@ sa1_status sa1g_world_apply_image(sa1g_world *w, const sa1g_image *img)
     sa1g_world_reset_run(w);
     /* 5: pcdata initial values (pointer initialisers encoded now), inside the world */
     if (w->pcdata_size != 0) {
-        return sa1g_world_call(w, sa1g_pcd_init_cb, NULL);
+        return sa1g_pcd_place(w);
     }
     return SA1_OK;
 }

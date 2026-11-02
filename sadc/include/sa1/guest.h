@@ -86,6 +86,14 @@ SA1G_NORETURN void sa1g_fault_encode(const void *host);      /* encode of a host
 SA1G_NORETURN void sa1g_fault_fn(uint32_t g, uint32_t sig);  /* code-map miss / signature mismatch */
 SA1G_NORETURN void sa1g_unimpl(uint32_t g, const char *name);/* fatal boundary stub (10.5) */
 
+/* ---- the world registers (libsa1 round 0.9.8, T2): per thread on the two Windows targets, so that worlds step at the same time on
+ * different threads. ga32 (the harness) and x86_64-linux: process globals, one world at a time (LIB/src/world/sa1_world.c) ------ */
+#if !defined(SA1_GA32) && defined(_WIN32)
+#define SA1G_TLS _Thread_local
+#else
+#define SA1G_TLS
+#endif
+
 /* ---- decode / encode (2.2) ------------------------------------------------------------------- */
 #if defined(SA1_GA32)
 
@@ -104,8 +112,8 @@ SA1G_INLINE uint32_t sa1_encode(const void *p)
 
 #else /* ga64 */
 
-extern uintptr_t sa1g_seg[32];      /* host base of each 16 MB guest segment ((g >> 24) & 31) */
-extern uint8_t *sa1g_ram_base;      /* host address of guest 0x8C000000 (arena offset 0) */
+extern SA1G_TLS uintptr_t sa1g_seg[32];      /* host base of each 16 MB guest segment ((g >> 24) & 31) */
+extern SA1G_TLS uint8_t *sa1g_ram_base;      /* host address of guest 0x8C000000 (arena offset 0) */
 /* any host address outside the arena: the collision segment, the extension segment, the stack
  * window (sa1g_encode_segment) -- anything else is a world fault (sa1g_fault_encode) */
 uint32_t sa1g_encode_slow(const void *p);
@@ -260,7 +268,7 @@ void sa1g_set_imask(int mask);
 int sa1g_get_imask(void);
 void sa1g_set_gbr(void *p);
 void *sa1g_get_gbr(void);
-extern float *sa1_rt_xmtrx;         /* XMTRX of the ticking world (harness: the interpreter's XF bank) */
+extern SA1G_TLS float *sa1_rt_xmtrx;         /* XMTRX of the ticking world (harness: the interpreter's XF bank) */
 
 /* ---- numerics (R6) --------------------------------------------------------------------------- */
 /* SHC __divls/__divlu/__modls/__modlu (8C10CA5C..8C10CC80): divisor 0 -> 0, no trap;

@@ -13,6 +13,7 @@
  *     not thread-safe; different contexts may be used from different threads.  The
  *     exceptions, callable from host worker threads while the context ticks, are listed
  *     under "Preparation on host threads" (sa1_collision_prepare, sa1_character_prepare).
+ *     See SA1_API_PARALLEL for the calls that may run at the same time on distinct characters of one context.
  *   - Structs that a caller passes in carry a leading `struct_size` field; set it to
  *     sizeof(the struct).  Output structs with struct_size are filled up to the
  *     smaller of the caller's and the library's size.
@@ -105,6 +106,12 @@
  *                    SA1_INPUT_HOST_CAMERA, sa1_character_board / _board_state, SA1_STATE_ON_BOARD, SA1_EVENT_BOARD,
  *                    SA1_DRAW_BOARD, SA1_SURFACE_BOARD_SNOW / _SAND, SA1_PREVIEW_BOARD, the board archives (MIW_B001,
  *                    SB_BOARD1, MTX_BOARD0), stubs.tsv 0C900AE0 void, refusals logged at DEBUG.
+ *   0.4 round 0.9.8 (SA1_VERSION_MINOR 4: SA1_API_FOLLOWER, SA1_API_LOOK, SA1_API_PARALLEL, SA1_API_CAMERA,
+ *                    SA1_API_FRONTEND; gsa1_098_plan.md): sa1_follower_*, sa1_leader_state, sa1_follower_desc, sa1_follower_info,
+ *                    SA1_EVENT_FOLLOW; follower ids in sa1_character_* report and act on slot 1 (the board included);
+ *                    sa1_character_look, sa1_look, SA1_COPT_SUPER_LOOK, the sa1_state_ex look tail; the parallel-tick contract
+ *                    and per-thread sa1_last_error; SA1_INPUT_GAME_CAMERA, sa1_character_camera, sa1_camera_state,
+ *                    SA1_EVENT_CAMERA; sa1_frontend_*, SA1_KIND_FRONTEND, SA1_EVENT_FRONTEND.
  */
 #ifndef LIBSA1_H
 #define LIBSA1_H
@@ -121,7 +128,7 @@ extern "C" {
 /* ------------------------------------------------------------------------- */
 
 #define SA1_VERSION_MAJOR 0
-#define SA1_VERSION_MINOR 3
+#define SA1_VERSION_MINOR 4
 #define SA1_VERSION_PATCH 0
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
@@ -202,7 +209,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.3.0" */
+SA1_API const char *sa1_version_string(void);     /* "0.4.0" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -598,6 +605,8 @@ typedef struct sa1_input {
  * above 1e30 in magnitude, in replays, preview worlds and with set_no_eye. Latched per tick: every step of the tick uses the
  * same camera. */
 #define SA1_INPUT_HOST_CAMERA 0x4u
+/* sa1_input.host_flags 0x8: SA1_INPUT_GAME_CAMERA (round 0.9.8, SA1_API_CAMERA, its own section below): read when struct_size
+ * covers host_flags; the water bits and the host camera above do not change with it. */
 
 /* sa1_state.flags */
 #define SA1_STATE_ON_GROUND  0x01u  /* touching land collision (the game's taskwk.flag & 3) */
@@ -1010,6 +1019,12 @@ typedef struct sa1_state_ex {
     int32_t  emote_row;         /* its action row, -1 for an extra or none */
     int32_t  emote_extra;       /* its extra index (sa1_emote_info.index of an EXTRA entry), -1 for a row or none */
     float    emote_frame;       /* the queue head's frame (eventwk f3C) */
+    /* round 0.9.8 (SA1_API_LOOK), written when struct_size covers them (0 without a world, a look task or a call) */
+    uint32_t look_kind;         /* SA1_LOOK_* in force */
+    uint32_t look_owner;        /* 0: no event look (the game's own turn into curves, or CAMERA), 1: the host's look is in
+                                   the event work, 2: a look the game set (the host's POINT / ANGLES waits for its end) */
+    int32_t  head_angle[2];     /* the look work's head y / z (BAMS; + y = the character's left, + z = down) */
+    int32_t  eye_angle[2];      /* the left eye's y / z (BAMS) */
 } sa1_state_ex;
 
 /* The state after the last tick (a character without a world: its create / last pose position, yaw,
@@ -2993,7 +3008,8 @@ SA1_API sa1_status sa1_emote_get(const sa1_context *ctx, int32_t kind, uint32_t 
  * re-entry: SA1_BOARD_REUSE_KEPT), the terrain overrides, the board-time surface kinds, the start push (SA1_BOARD_START_PUSH)
  * and again on request (SA1_BOARD_PUSH), Tails' jump restore, a fallen kept board freed, the host's free (SA1_BOARD_FREE), the
  * board not drawn before it was first held, Sonic's board pick (the game's pick by frame parity alternates here: libsa1's
- * frame counter moves by 2 a pair; sa1_world_board.c WB_RANDOM_PICK). The reference worlds never call any of it.
+ * frame counter moves by 2 a pair; sa1_world_board.c WB_RANDOM_PICK; on a follower the pick follows that world's own pair
+ * parity). The reference worlds never call any of it.
  * Also in this round, in their own sections: SA1_DRAW_BOARD (draws), SA1_SURFACE_BOARD_SNOW / _SAND (surface kinds),
  * SA1_PREVIEW_BOARD (object previews), SA1_INPUT_HOST_CAMERA (sa1_input). */
 #define SA1_API_BOARD 1
@@ -3034,10 +3050,13 @@ typedef struct sa1_board_desc {
  * Sonic 0 / Tails 2 - Super Sonic 8 included -, PUSH not riding on the ground, FREE while riding or without a kept board);
  * SA1_ERR_NOT_LOADED (the world image lacks S_SBMOT / M_SBMOT); SA1_ERR_INVALID_ARGUMENT (struct_size, on, terrain, unknown
  * flags; a terrain other than MAP in a DISC / FAITHFUL world); a faulted world's status. A character without a world gets it
- * built (as sa1_character_order). Whether the game TOOK the order shows after the next pair (SA1_BOARD_EV_ON / _REFUSED). */
+ * built (as sa1_character_order). Whether the game TOOK the order shows after the next pair (SA1_BOARD_EV_ON / _REFUSED).
+ * On a follower: slot 1 (SetInputP(1, ...), the board task's counter.b[0] = 1); the start push (0C90E810) writes players 0 and
+ * 1, so in a follower world it pushes the follower and the proxy, whose next refresh restores it. */
 SA1_API sa1_status sa1_character_board(sa1_context *ctx, sa1_character_id id, const sa1_board_desc *d);
 
-#define SA1_STATE_ON_BOARD 0x10u    /* sa1_state.flags: player 0 is in a board mode (Sonic 62-68, Tails 48-54) */
+#define SA1_STATE_ON_BOARD 0x10u    /* sa1_state.flags: the character's player (slot 1 in a follower world) is in a board mode
+                                       (Sonic 62-68, Tails 48-54) */
 
 #define SA1_EVENT_BOARD 15          /* sa1_event: id = SA1_BOARD_EV_*, position = the character (FREED: the board), arg below */
 #define SA1_BOARD_EV_ON      1u     /* the game took order 44 (arg = the board mode) */
@@ -3070,6 +3089,276 @@ typedef struct sa1_board_state {
 #define SA1_BOARD_SETTLE_STEPS 30u
 /* filled up to the smaller struct_size; SA1_ERR_NOT_FOUND for an unknown id */
 SA1_API sa1_status sa1_character_board_state(const sa1_context *ctx, sa1_character_id id, sa1_board_state *out);
+
+/* ---- followers (SA1_API_FOLLOWER, round 0.9.8; sadc docs/research/gsa1_098_plan.md 5.3, follow096_lib.md 5) ------------
+ * A follower is a character whose world is the game's own "1.5P" situation: slot 0 holds a PROXY of its leader (an
+ * empty-exec task whose playerwk and csts libsa1 writes at every step), slot 1 the follower, made by the game (Tails:
+ * 8C081AC0; Sonic / Knuckles / E-102: the AI task of 8C081AC0 + 8C083F7C; Amy / Big: the same with their mains), and the
+ * game's AI task 8C081D4E steers slot 1 with synthesised pad input (follow, jump, fly / glide, the respawn above the camera
+ * by distance > 1000 or 300 frames off the leader's camera). The world is Sonic's game (CurrentCharacter 0) on stage 0x0100
+ * with B_8C78B45A = 1, so the game's predicate 8C082820 holds without an override. Every sa1_character_* call on a follower
+ * id reports and acts on slot 1 (state, render, events, the board, the look, host objects, per-character options); emotes,
+ * faces and orders: SA1_ERR_UNSUPPORTED. Host deviations, each behind its flag: the view behind slot 1 for its displays
+ * (SA1_FOLLOW_GAME_VIEW turns it off), the whole position history rewritten at a respawn for followers other than Tails
+ * (SA1_FOLLOW_GAME_HISTORY turns it off). Always (no flag; the proxy is not a character): its csts, its item word 0 (an item
+ * the game gives player 0 is reported as SA1_FOLLOW_EV_ITEM and taken off), the hidden pair drawn at slot 1. The reference
+ * worlds never make a follower. */
+#define SA1_API_FOLLOWER 1
+
+typedef struct sa1_leader_state {       /* a host-fed leader (sa1_follower_feed): a GMod entity, a remote player, a point */
+    uint32_t struct_size;               /* must cover kind */
+    float    position[3];               /* host space */
+    float    velocity[3];               /* host units per second: SA1 speed per step = coords^-1(velocity) / 60; the
+                                           proxy's spd.x = its horizontal length, the facing its direction */
+    float    yaw;                       /* radians (sa1_pose.yaw): the facing while the horizontal speed is below 0.01 */
+    uint32_t flags;                     /* SA1_LEADER_ON_GROUND */
+    int32_t  kind;                      /* SA1_CHAR_* whose physics row gives the jog / run speeds the AI compares; -1: Sonic */
+} sa1_leader_state;
+#define SA1_LEADER_ON_GROUND 0x1u
+
+typedef struct sa1_follower_desc {
+    uint32_t struct_size;               /* must cover num_upgrade_flags (the 0.9.8 size); later fields only when covered */
+    int32_t  kind;                      /* SA1_CHAR_TAILS, _SONIC, _KNUCKLES, _GAMMA, _AMY, _BIG; others SA1_ERR_UNSUPPORTED */
+    sa1_character_id leader;            /* a world character of this context (a follower too: chains), or 0 = host-fed */
+    uint32_t flags;                     /* SA1_FOLLOW_* */
+    uint32_t seed;                      /* SA1_FOLLOW_SEED: srand of the world (else the game's) */
+    sa1_leader_state host_leader;       /* leader 0: the first snapshot (the follower is made 10 units behind it) */
+    uint16_t upgrade_flags[32];         /* SA1_FOLLOW_UPGRADES: the game's event flags of the follower's own upgrades (below 512:
+                                           PInitialize reads them; Sonic 0x8D, 0x8E, 0x9F ...) */
+    uint32_t num_upgrade_flags;
+} sa1_follower_desc;
+#define SA1_FOLLOW_SEED         0x01u
+#define SA1_FOLLOW_UPGRADES     0x02u
+#define SA1_FOLLOW_GAME_VIEW    0x04u   /* slot 1's displays see the leader's virtual camera (the DC's; default: a view behind
+                                           slot 1 is loaded after list 0, so they run their visible path) */
+#define SA1_FOLLOW_GAME_HISTORY 0x08u   /* a respawn rewrites history frame 0 only (the DC's 8C081D4E; default for every kind
+                                           but Tails: frames 0-255, else Knuckles' 8C0C7C26 throws him back by the jump) */
+#define SA1_FOLLOW_NO_SET       0x10u   /* the world mirrors no SET record (rings, boxes); default: the spawner's window */
+#define SA1_FOLLOW_KNOWN_FLAGS  0x1Fu
+
+/* The follower's world is built at once (the leader's current state, or host_leader, is its first snapshot), so it may be
+ * ticked in parallel at once (SA1_API_PARALLEL). SA1_ERR_INVALID_ARGUMENT (struct_size, flags, a leader that is not a world
+ * character of ctx, a host_leader that is not finite), SA1_ERR_UNSUPPORTED (a kind without its bit in sa1_follower_kinds,
+ * with that kind's reason; kind 8; a leader that is a puppet), SA1_ERR_NOT_LOADED (the kind's assets), SA1_ERR_LIMIT
+ * (SA1_FOLLOWER_MAX followers in ctx). A Super Sonic leader (kind 8, or kind 0 while Super) is allowed: the proxy takes his
+ * live jog / run speeds and counter.b[1] = 0. */
+#define SA1_FOLLOWER_MAX 128u
+SA1_API sa1_status sa1_follower_create(sa1_context *ctx, const sa1_follower_desc *d, sa1_character_id *out_id);
+/* The kinds that can follow in this build (bit n = SA1_CHAR n set: its bring-up passed, gsa1_098_plan.md 6.2) and,
+ * for a kind without its bit, a static plain reason ("Big cannot follow yet: ..."); NULL for a kind that can follow. */
+SA1_API uint32_t sa1_follower_kinds(void);
+SA1_API const char *sa1_follower_kind_reason(int32_t kind);
+/* A new leader (0: host-fed, starting from the last snapshot); between ticks. A cycle (A follows B follows A) is refused
+ * (SA1_ERR_INVALID_ARGUMENT, "a follower cannot follow itself or one of its own followers"). */
+SA1_API sa1_status sa1_follower_set_leader(sa1_context *ctx, sa1_character_id f, sa1_character_id leader);
+/* The host-fed leader's state for the follower's next tick (both refreshes of every step use it); a parallel call */
+SA1_API sa1_status sa1_follower_feed(sa1_context *ctx, sa1_character_id f, const sa1_leader_state *s);
+/* The game's own respawn request (8C081C36: order 24, port off, AI mode 2): above the camera at the next step */
+SA1_API sa1_status sa1_follower_respawn(sa1_context *ctx, sa1_character_id f);
+/* The game's hold (B_8C78C24C through 8C082A60(1): the supervisor parks slot 1, AI mode 6); off: 8C082A60(0) and order 24 (the
+ * park's way out, as the AI's mode 8) - the predicate passes again and the AI's mode 0 places slot 1 10 units behind the leader
+ * (8C0826B0), as at a stage start. Between ticks. */
+SA1_API sa1_status sa1_follower_hold(sa1_context *ctx, sa1_character_id f, int on);
+
+typedef struct sa1_follower_info {
+    uint32_t struct_size;
+    sa1_character_id leader;            /* 0: host-fed */
+    uint32_t flags;                     /* SA1_FINFO_* */
+    int32_t  ai_mode;                   /* the AI task's mode: 0 placement, 2 respawn, 4 following, 5 human (never: no
+                                           controller 2), 6 parked (sa1_follower_hold) */
+    int32_t  ai_smode;                  /* steering: 0 wait, 1 on foot, 2 jumping, 3 flying / gliding */
+    uint32_t offscreen_steps;           /* the AI's counter (taskwk +8; respawn above 300; it reads 513 before the first
+                                           respawn test: taskwk +8 overlaps counter.b[0..1], harmless) */
+    float    distance;                  /* host units, slot 1 to the leader (3D), after the last step */
+    uint32_t respawns, respawns_distance, respawns_offscreen;
+    uint32_t steps_behind;              /* a libsa1 leader's steps this follower has not run */
+    uint32_t steps_dropped;             /* leader steps lost because the ring (17) overran */
+    uint32_t hidden_pairs;              /* of the last 300 pairs, those whose game visibility test hid slot 1 (Review G2) */
+} sa1_follower_info;
+#define SA1_FINFO_HOST_FED    0x1u
+#define SA1_FINFO_LEADER_LOST 0x2u      /* the leader was destroyed or faulted: host-fed from its last snapshot */
+#define SA1_FINFO_HELD        0x4u      /* sa1_follower_hold on */
+SA1_API sa1_status sa1_follower_info_get(const sa1_context *ctx, sa1_character_id f, sa1_follower_info *out);
+
+#define SA1_EVENT_FOLLOW 16             /* sa1_event: id = SA1_FOLLOW_EV_*, position = slot 1 */
+#define SA1_FOLLOW_EV_RESPAWN     1u    /* arg: 0 distance > 1000, 1 off the leader's camera 300 frames, 2 sa1_follower_respawn */
+#define SA1_FOLLOW_EV_LEADER_LOST 2u    /* arg: 0 destroyed, 1 faulted, 2 ring overrun (steps_dropped grew) */
+#define SA1_FOLLOW_EV_ITEM        3u    /* a box the follower broke gave player 0 (the leader, on the DC) an item: arg 1
+                                           invincibility, 5 barrier, 8 magnetic barrier (D_8C1B9BA0's kinds); the proxy's copy
+                                           was undone at the next refresh */
+/* sa1_character_tick on a follower id reads only camera_yaw, host_flags' water bits (applied at slot 1's position) and the
+ * host-camera tail (SA1_INPUT_HOST_CAMERA: the respawn point 8C049160 is then 50 units above the host's eye); stick and
+ * buttons are the AI's. A follower of a libsa1 character runs, whatever dt, the leader's steps it has not run yet (at most 16,
+ * the ring), so the host ticks every leader before its followers (chains in order; never at the same time: SA1_API_PARALLEL);
+ * a host-fed follower uses dt and its accumulator. sa1_character_destroy destroys a follower; destroying a leader makes its
+ * followers host-fed from their last snapshot (SA1_FOLLOW_EV_LEADER_LOST arg 0). Every event of a follower world carries the
+ * follower's id. */
+
+/* ---- head look (SA1_API_LOOK, round 0.9.8; gsa1_098_plan.md 5.3, look096.md 7.1) ---------------------------------------
+ * The game's own head / eye look - the look tasks 8C0B28EE Sonic, 8C0BE1CE and 8C0BE558 (flight model) Tails, 8C0C8A80
+ * Knuckles, 8C0DDA00 Amy, 8C0E5DF0 Big, which turn the nodes 22.5 (head) / 11.25 (eyes) degrees per step to the character's
+ * limits - driven the way the game's objects and cutscenes drive it: through the event look of the world's character slot
+ * (the game's setters 8C07C318 / 8C07C34C / 8C07C376), or the pad's Z bit (the look tasks' camera mode). Latched; applied in
+ * every live step of the following ticks right after the pad update, until the next call. A look the game sets itself (an
+ * animal, a hint, an upgrade item, an NPC) wins unless SA1_LOOKF_OVERRIDE_GAME. No game state changes. A world that never
+ * gets a call runs exactly as before; the reference worlds never call it. */
+#define SA1_API_LOOK 1
+#define SA1_LOOK_OFF     0u  /* the host's look ends (8C07C376(slot) when the event look is the host's) */
+#define SA1_LOOK_POINT   1u  /* point[] in host space: 8C07C318(slot, point) every step (the game's event look 2) */
+#define SA1_LOOK_ANGLES  2u  /* yaw / pitch in radians relative to the body (+ yaw = the character's left, + pitch = up):
+                                8C07C34C(slot, (0, -yaw, -pitch) in BAMS) every step (event look 1; the sign: look_test 2) */
+#define SA1_LOOK_CAMERA  3u  /* the game's camera look (the Shinobi pad's Z button): bit 0x100 held in the slot's pad
+                                (B_8C754C08[slot].on) in every step - mode 2 of the look tasks looks at camera_twp->pos,
+                                round 0.9.5's host eye with SA1_INPUT_HOST_CAMERA, else the world's virtual eye; Tails'
+                                flight model looks too (8C0BE558). Only the look tasks read the bit (look096.md 3.3) */
+#define SA1_LOOKF_OVERRIDE_GAME 0x1u  /* POINT / ANGLES: also over a look the game set */
+#define SA1_LOOKF_KNOWN         0x1u
+typedef struct sa1_look {
+    uint32_t struct_size;   /* must cover pitch */
+    uint32_t kind;          /* SA1_LOOK_* */
+    uint32_t flags;         /* SA1_LOOKF_* */
+    float    point[3];      /* POINT: host space (the point looked at: the host picks the eyes / the centre) */
+    float    yaw, pitch;    /* ANGLES */
+} sa1_look;
+/* Between ticks of the character, on its ticking thread. SA1_OK; SA1_ERR_UNSUPPORTED (E-102: the game never creates his
+ * look task; a puppet, replays and preview worlds; plain words in sa1_last_error, logged at DEBUG); SA1_ERR_INVALID_ARGUMENT
+ * (struct_size, kind, unknown flags, OVERRIDE_GAME with OFF or CAMERA, a value not finite or above 1e30 in magnitude);
+ * SA1_ERR_NOT_FOUND; a faulted world's status. A character without a world gets it built (as sa1_character_face). On a
+ * follower id the look is slot 1's (its pad's Z bit survives the AI's read-modify-write, code_8C082160.c:94-96). */
+SA1_API sa1_status sa1_character_look(sa1_context *ctx, sa1_character_id id, const sa1_look *look);
+
+#define SA1_COPT_SUPER_LOOK 7u  /* sa1_character_set_option, kind 8 and super-capable Sonic worlds (round 0.9.8): 1 = the look's
+                                   head / eye angles go onto the Super body's nodes 11 / 21 / 17 after every executor run, as the
+                                   game copies them onto the Light Speed aura's head (8C0B28EE); 0 = the game (Super Sonic's head
+                                   never turns). Render only */
+
+/* ---- parallel ticks (SA1_API_PARALLEL, round 0.9.8; gsa1_098_plan.md 5.3, gsa1_096_plan.md 4.11, follow096_scale.md 5.2 L8) --
+ * Besides the preparation calls of the threads note at the top of this header, these calls on DISTINCT characters of ONE
+ * context may run at the same time on different host threads: sa1_character_tick, sa1_character_state,
+ * sa1_character_state_ex, sa1_character_render, sa1_follower_feed, sa1_follower_info_get - while the host makes no other
+ * call on that context, every one of those characters has its world (created with SA1_CREATE_WORLD, a follower, or ticked
+ * once before), and no follower is ticked at the same time as its leader (a follower reads its leader's step ring: tick
+ * chain level by chain level). The host's log, alloc and file callbacks must then be thread-safe. sa1_last_error(ctx) is the
+ * calling thread's newest message for ctx (the newest of any thread when the calling thread wrote none: 0.3's behaviour for a
+ * single-thread host). Every world call is also safe from several contexts on several threads (libsa1 0.2 / 0.3 could fault
+ * there: the code map's active image list was a process global; sadc docs/research/follow096_scale.md 2.7). Whether the game
+ * steps of such calls run at the same time (per-thread world registers) or one after the other inside libsa1 (a process lock;
+ * the render, state and capture work still runs at the same time) is not part of the contract. Every "between ticks, on the
+ * ticking thread" of this header (the board, the look, previews, orders) means: while none of the context's characters ticks,
+ * one host thread at a time; a host that ticks followers on workers makes those calls on its main thread between the phases
+ * (review R.17). sa1_character_camera and the sa1_frontend_* calls are not parallel calls: game thread, between phases. */
+#define SA1_API_PARALLEL 1
+
+/* ---- the game's camera requests (SA1_API_CAMERA, round 0.9.8; sadc docs/research/fish098.md 3) -------------------------
+ * The game's own push / pop functions run in every world and keep a request (level 2 EVENT, 4 COLI) in the game's control work.
+ * With SA1_INPUT_GAME_CAMERA in sa1_input.host_flags, a live step whose request is a function libsa1 knows runs the game's camera
+ * core on it right before the players: the camera taskwk then IS the game camera (position, ang.x / y / z), so the stick's frame, Big's
+ * line alpha (8C0EC60C), the SET spawner's centre and the head look read it as on the Dreamcast, and camera_yaw and host_cam_pos do not
+ * reach the taskwk. XMTRX stays the virtual view. Without the bit (or for a request libsa1 does not know) nothing differs from 0.3:
+ * the host's camera. The first camera position is whatever the taskwk holds at the push: the host's eye with SA1_INPUT_HOST_CAMERA,
+ * else the virtual eye. Ignored in replays and previews. A follower id ignores the bit. */
+#define SA1_API_CAMERA 1
+#define SA1_INPUT_GAME_CAMERA 0x8u
+
+#define SA1_CAMSTATE_ACTIVE  0x01u  /* a request above level 0 */
+#define SA1_CAMSTATE_KNOWN   0x02u  /* libsa1 can run its function (kind != OTHER) */
+#define SA1_CAMSTATE_RUNNING 0x04u  /* it ran in the last pair: position, forward, target, fov are valid */
+#define SA1_CAMSTATE_CUT     0x08u  /* the request changed with adjust 0 in the last pair and the camera jumped more than the
+                                       lure camera's 40 units a pair: no interpolation; the output is the last pair's */
+#define SA1_CAMKIND_NONE  0u
+#define SA1_CAMKIND_AIM   1u        /* 8C0239C2 FISHING */
+#define SA1_CAMKIND_LURE  2u        /* 8C0EAF28 the lure camera */
+#define SA1_CAMKIND_CATCH 3u        /* 8C0EAA80 the catch shot (needs a fish) */
+#define SA1_CAMKIND_OTHER 4u        /* any other request: the death / Light Speed Attack camera 8C021700, Tails' 8C0213E0, 8C023360,
+                                       the board tricks' 8C01FB98 / 8C01FD6C: reported, not run */
+typedef struct sa1_camera_state {
+    uint32_t struct_size;
+    uint32_t flags;                 /* SA1_CAMSTATE_* */
+    uint32_t kind;                  /* SA1_CAMKIND_* */
+    int32_t  level;                 /* 0 NORMAL, 2 EVENT, 4 COLI */
+    uint32_t adjust;                /* the game's adjust index: 0 NONE, 3 SLOW, ... */
+    uint32_t function;              /* DC address of the mode function (0: none) */
+    float    position[3];           /* host space, interpolated at alpha between the last two drawn pairs */
+    float    forward[3];            /* host space, unit: from the taskwk's ang: (-sin y cos x, sin x, -cos y cos x) converted */
+    float    target[3];             /* host space: the camera work's target (+0x18). During a SLOW blend the view does not point at it yet */
+    float    fov;                   /* radians: B_8C6B7068 (70 degrees, 4:3) */
+} sa1_camera_state;
+/* alpha as sa1_character_render (< 0: the library's accumulator). SA1_ERR_NOT_LOADED without a world. Valid between ticks. */
+SA1_API sa1_status sa1_character_camera(const sa1_context *ctx, sa1_character_id id, float alpha, sa1_camera_state *out);
+
+#define SA1_EVENT_CAMERA 17         /* sa1_event: id = function, arg = level | adjust << 8; a request changed, only in a tick with the bit
+                                       (never in replays and in worlds without it) */
+
+/* ---- the game's own front end (SA1_API_FRONTEND, round 0.9.8; sadc docs/research/charsel098.md) ---------------------------
+ * One private world per open that runs the game's menu overlay ADVERTISE with its character select screen (screen type 1,
+ * the game's direct entry, submode 1, its sequence ended after the first entry), under the host's pad, at the game's 60 Hz.
+ * Output: the 2D draws (sa1_screen), the selected character's 3D draws (sa1_render), the game's sounds (events). The world
+ * holds no land, no collision, no SET layer, no host objects. 16 MB of address space while open. Game thread, between ticks;
+ * never inside a character's tick. Nothing it does touches a character world.
+ * Host deviations, each behind a flag: SA1_FRONTEND_SHOW_DIALOG clear skips the game's dialog (the two words its "Game" leaves). */
+#define SA1_API_FRONTEND 1
+#define SA1_KIND_FRONTEND     32    /* kind argument of sa1_texture_archive / sa1_texture_get: the menu's nine archives, in the
+                                       order of the screen's PVM list. Loaded by the first sa1_frontend_open, kept until the disc
+                                       is unloaded */
+#define SA1_FRONTEND_SLOTS     7u
+#define SA1_FRONTEND_SHOW_DIALOG 0x1u
+#define SA1_FRONTEND_B_LEFT   0x01u
+#define SA1_FRONTEND_B_RIGHT  0x02u
+#define SA1_FRONTEND_B_UP     0x04u
+#define SA1_FRONTEND_B_DOWN   0x08u
+#define SA1_FRONTEND_B_A      0x10u
+#define SA1_FRONTEND_B_B      0x20u
+#define SA1_FRONTEND_B_START  0x40u
+#define SA1_EVENT_FRONTEND 18 /* sa1_event: id = the slot (-1: none), arg = SA1_FRONTEND_EV_* */
+#define SA1_FRONTEND_EV_SELECT 1u   /* the selected slot changed (the ring's slide ended) */
+#define SA1_FRONTEND_EV_PICK   2u   /* a pick: the pose starts (proc 9), the voice next frame */
+#define SA1_FRONTEND_EV_DONE   3u   /* the game's 300 frames ended: the master's result 101 */
+#define SA1_FRONTEND_EV_CANCEL 4u   /* the game left the screen by B (master mode != 1) */
+
+typedef struct sa1_frontend sa1_frontend;
+typedef struct sa1_frontend_desc {
+    uint32_t struct_size;
+    uint32_t flags;             /* SA1_FRONTEND_* */
+    int32_t  language;          /* B_8C754BFC: 0 Japanese, 1 English (the game's 2-4 use the English art) */
+    int32_t  slot;              /* first selected slot 0..6: B_8C78B45D before the screen is made */
+    uint32_t open_slots;        /* (1 << slot) a pick is allowed; ~0u = everything (B_8C78B450 = 1, the game's own switch: 7 slots);
+                                   else the game's flags 0x41-0x47 per slot (without slot 6: a ring of 6) */
+} sa1_frontend_desc;
+typedef struct sa1_frontend_input {
+    uint32_t struct_size;
+    float    stick_x, stick_y;  /* -1..1, as sa1_input */
+    uint32_t buttons;           /* SA1_FRONTEND_B_* held; a press = the game's edge */
+} sa1_frontend_input;
+typedef struct sa1_frontend_state {
+    uint32_t struct_size;
+    int32_t  slot, slots;       /* selected, 6 or 7 */
+    int32_t  phase;             /* 0 idle, 1 sliding, 2 dialog, 3 picked (the pose), 4 leaving */
+    int32_t  frame;             /* 60 Hz frames since the open */
+    int32_t  pose_frames;       /* frames of the pose so far (the game's timer), 300 ends it */
+    int32_t  kind;              /* SA1_CHAR_* of the selected slot; SA1_KIND_FRONTEND for "?" */
+    uint32_t faults;            /* 0, or the world is dead: every call returns SA1_ERR_GAME_FAULT, sa1_last_error names it */
+} sa1_frontend_state;
+
+/* Composes the image (1ST_READ + ADVERTISE.PRS, SHA-1 checked), makes the world, fills the texlists (5.2), runs the menu init
+ * and its 131 frames to the first drawn frame. About 40 ms (30 ms world, the rest init). SA1_ERR_NOT_LOADED without the disc,
+ * SA1_ERR_LIMIT with one already open in this context. */
+SA1_API sa1_status sa1_frontend_open(sa1_context *ctx, const sa1_frontend_desc *d, sa1_frontend **out);
+SA1_API void       sa1_frontend_close(sa1_frontend *fe);
+/* Whole frames of 1/60 s for dt (the rest kept), at most 8; each press in `in` goes to the first of them. */
+SA1_API sa1_status sa1_frontend_tick(sa1_frontend *fe, float dt, const sa1_frontend_input *in, uint32_t *frames_run);
+SA1_API sa1_status sa1_frontend_state_get(const sa1_frontend *fe, sa1_frontend_state *out);
+/* Pops events since the last call: SA1_EVENT_SOUND / VOICE / JINGLE (as a world's, character 0) and SA1_EVENT_FRONTEND */
+SA1_API sa1_status sa1_frontend_poll(sa1_frontend *fe, sa1_event *out, uint32_t capacity, uint32_t *count);
+/* The last frame's 2D draws. Library-owned, valid until the next tick or close. Priority = -pri (more negative behind); a draw in
+ * front of the 3D has priority above SA1_FRONTEND_3D_PRIORITY. Textures: sa1_texture_get(SA1_KIND_FRONTEND, archive, texture). */
+#define SA1_FRONTEND_3D_PRIORITY (-20.0f)
+SA1_API sa1_status sa1_frontend_screen(sa1_frontend *fe, const sa1_screen **out);
+/* The selected slot's 3D draws of the last frame (one pass: 3.3 item 1), positions in host space with the context's coords, no
+ * interpolation. *kind: their sa1_texture_get kind. */
+SA1_API sa1_status sa1_frontend_render(sa1_frontend *fe, const sa1_render **out, int32_t *kind);
+/* The game's view in host space: eye (the SA1 origin), forward (SA1 -z), up (SA1 +y), the horizontal view angle (70 degrees:
+ * 8C640500(0x31C7), screen distance 457.06, 640 x 480). */
+SA1_API sa1_status sa1_frontend_view(const sa1_frontend *fe, float eye[3], float forward[3], float up[3], float *fov_degrees);
 
 #ifdef __cplusplus
 }

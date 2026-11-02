@@ -47,7 +47,8 @@ Tests (--test, runnable targets only: x86_64-windows / x86-windows on Windows, x
                                                V5, V6, DISC, sa1trace.py diffs; with --target all also V7), strict:
                                                every record bit-exact, the gate. Needs SA1_TEST_GDI, the references
                                                (ec1_stand and ec1_run_jump at least) and the landtable dumps
-                                               build/traces/land/L<level>A<act> (.tri/.col)
+                                               build/traces/land/L<level>A<act> (.tri/.col). --test-jobs N (default: every
+                                               core): its replay_test runs and sa1trace.py diffs N at a time
     A test whose inputs are missing is skipped with a message (the build still succeeds); a failing one fails.
 
 Outputs per target in build/<target>/ (build/<target>-debug with --debug):
@@ -103,7 +104,7 @@ WORLD_FP = ["-ffp-contract=off", "-frounding-math", "-fno-builtin"]
 RT_ALWAYS = ["src/rt/rt_fsca_q.c"]
 # what game / runtime objects may import from the C library (design 8.1 post-link check)
 CRT_ALLOWED = {"memcpy", "memmove", "memset", "__chkstk", "___chkstk_ms", "__chkstk_ms", "_alloca", "__alloca",
-               "_chkstk", "__stack_chk_fail", "__stack_chk_guard"}
+               "_chkstk", "__stack_chk_fail", "__stack_chk_guard", "_tls_index", "__tls_index"}
 # inputs of a full lowering (relative to sadc), besides src/rt of libsa1
 LOWER_INPUT_DIRS = ["include", "src/1st_read", "src/overlays", "config/overlays"]
 LOWER_INPUT_FILES = ["tools/pclower.py", "harness/tools/gen_native.py", "tools/pc_cflags.txt", "config/asset_symbols.txt",
@@ -233,7 +234,7 @@ def lower_all(args, sadc, zv):
     else:
         if os.path.exists(stamp):
             os.remove(stamp)
-        cmd = [sys.executable, os.path.join(sadc, "tools", "pclower.py"), "-j", str(max(1, min(args.jobs, 16))),
+        cmd = [sys.executable, os.path.join(sadc, "tools", "pclower.py"), "-j", str(max(1, args.jobs)),
                "--out", out] + opts
         print("== pclower --all (ga64) -> %s" % rel(out))
         # pclower rewrites every output; files whose text did not change keep their time stamp, so only the
@@ -808,7 +809,7 @@ def world_tests(args, sadc, results, game):
         for k in runs:
             print("== tests/build_replay.py --target %s --run %s" % (k, " ".join(sel)))
             x = run_test([sys.executable, os.path.join("tests", "build_replay.py"), "--target", k, "--run",
-                          "--sadc", sadc, "--gdi", gdi] + sel)
+                          "--sadc", sadc, "--gdi", gdi, "-j", str(args.test_jobs)] + sel)
             rc |= note(k, "replay test, strict (%d traces%s)" % (len(have), ", V7" if k == "all" else ""),
                        x.returncode)
     print("== --test: " + "; ".join(summary))
@@ -863,6 +864,8 @@ def main():
     ap.add_argument("--no-link-test", action="store_true", help="skip link_test / link_test_shared and the report")
     ap.add_argument("--test", action="store_true", help="run unit_test and spike_test on runnable targets, and with "
                     "SA1_TEST_GDI and sadc's reference data also world_boot_test, transplant_test and the M1 replay test")
+    ap.add_argument("--test-jobs", type=int, default=os.cpu_count() or 4, metavar="N", help="--test: the replay test's "
+                    "runs and diffs at a time (tests/build_replay.py -j; default: every core)")
     ap.add_argument("--replay-gate-all", action="store_true", help="with --test: kept for old command lines (every "
                     "replay trace of tests/build_replay.py is a strict gate now)")
     ap.add_argument("--rip", nargs=2, metavar=("GDI", "OUTDIR"), help="run rip_test on runnable targets")

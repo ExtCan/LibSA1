@@ -101,6 +101,8 @@ struct sa1g_world;
 #define SA1_CAP_NJMOTION  11u   /* a node model of 8C60E080 / 8C60E49A */
 #define SA1_CAP_DEBUG     12u   /* 8C6215D6 collision / debug display object */
 #define SA1_CAP_POLY2D    13u   /* round 0.9.1: 8C63EBC8 njDrawPolygon2D (rt_draw.c rt_cap_poly2d) */
+#define SA1_CAP_TEX2D     14u   /* round 0.9.8: 8C63ED08 njDrawTexture (rt_draw.c rt_cap_vtx2d; the front end's 2D, E-102's effect display) */
+#define SA1_CAP_POLY2D_V  15u   /* round 0.9.8: 8C63EC58 njDrawPolygon (rt_draw.c rt_cap_vtx2d) */
 #define SA1_CAP_KINDS     16u
 /* Round 0.9.1 (the HUD, sadc docs/research/gsa1_070_hud.md F2 with its Review R.5.3; record layout 0xD0 and version 4
  * unchanged): the 2D payloads (rt_draw.c RT_CAP_SPRITE2D_PAY / RT_CAP_POLY2D_HEAD).
@@ -114,6 +116,14 @@ struct sa1g_world;
  *                     filled (else the outline), 0x40 translucent, 0x80000000 textured (the current texture). */
 #define SA1_CAP_SPRITE2D_PAY 0x40u
 #define SA1_CAP_POLY2D_HEAD  0x1Cu
+/* Round 0.9.8 (the front end; sadc docs/research/charsel098.md 5.3; record layout 0xD4 and version 5 unchanged). The record: attr = trans,
+ * n = the call's n; its blend and exec as every record's. The payload:
+ *   SA1_CAP_TEX2D     +0x00 u32 vertices kept (n, at most 512), +0x04 the global index, +0x08 u32 trans, +0x0C the vertices of 0x18 bytes
+ *                     (float x, y, z = 1 / pri, u, v; ARGB8888)
+ *   SA1_CAP_POLY2D_V  the same with global index 0 and vertices of 0x10 bytes (float x, y, z; ARGB8888). */
+#define SA1_CAP_VTX2D_HEAD   0x0Cu
+#define SA1_CAP_TEX2D_VTX    0x18u
+#define SA1_CAP_POLY2D_V_VTX 0x10u
 /* the kinds that draw a model (emitted) */
 #define SA1_CAP_IS_MODEL(k) ((k) >= SA1_CAP_RENDER && (k) <= SA1_CAP_NJMOTION)
 
@@ -538,6 +548,10 @@ typedef struct sa1_capture_emit_opts {
                                    origin; presentation only) */
     int32_t board_world;        /* 1: the board is a KEPT board: its models get SA1_NODE_OBJECT (interpolated in world
                                    space where the game drew it, never moved with the character's root) */
+    /* round 0.9.8 (the front end; zero: as before). Only the records made by this running exec (guest, compared physically): the rest
+       is left out, exec 0 included: the menu's display walk draws every model a second time with exec 0 (charsel098.md 3.3 item 1), and
+       the other characters draw at their parked place every frame (item 2) */
+    uint32_t only_exec;
 } sa1_capture_emit_opts;
 /* round 0.9.5: 1 when exec is a board task's (8C0B2F46 Sonic, 8C0BF804 Tails; compared physically). 0 is never one */
 int sa1_capture_board_exec(uint32_t exec);

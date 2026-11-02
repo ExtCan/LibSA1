@@ -56,6 +56,8 @@
 #include <stdio.h>
 #include <string.h>
 
+extern void sa1g_camreq_boot(sa1g_world *w);
+
 /* ---- guest memory of the ticking world (arena only; anything else is a world fault) -------------- */
 static uint32_t gr32(sa1g_world *w, uint32_t g)
 {
@@ -484,7 +486,7 @@ static void sa1g_boot_cb(sa1g_world *w, void *user)
     gw32(w, SA1G_ADDR_STEPS_PER_FRAME, 2u);
     gw32(w, SA1G_ADDR_SUB_STEP, 0u);
     sa1g_call_dc(SA1G_FN_GRAVITY);
-    gw16(w, SA1G_ADDR_CUR_CHAR, (uint16_t)c->chr);
+    gw16(w, SA1G_ADDR_CUR_CHAR, (uint16_t)c->chr);      /* a follower world: 0, the kind is in c->follow (Review G9) */
     gw16(w, SA1G_ADDR_CUR_LEVEL, (uint16_t)c->level);
     gw16(w, SA1G_ADDR_CUR_ACT, (uint16_t)c->act);
     gw32(w, SA1G_ADDR_GAME_MODE, 4u);
@@ -510,6 +512,8 @@ static void sa1g_boot_cb(sa1g_world *w, void *user)
         w->camera_twp = gr32(w, w->camera_tp + 0x20u);
         gw32(w, SA1G_ADDR_CAMERA_TWP, w->camera_twp);
     }
+    /* the game's camera state, in every world (the game's pushes and pops run in all of them: sa1_world_camreq.c) */
+    sa1g_camreq_boot(w);
     /* the landtable */
     switch (c->land_mode) {
     case SA1G_LAND_EMPTY:
@@ -543,8 +547,17 @@ static void sa1g_boot_cb(sa1g_world *w, void *user)
     } else if ((c->flags & SA1G_BOOT_STAGE_TASKS) || (c->super & SA1G_SUPER_WORLD)) {
         sa1g_stage_tasks(w);
     }
-    if (!(c->flags & SA1G_BOOT_NO_PLAYER)) {
+    if (c->flags & SA1G_BOOT_FOLLOWER) {
+        sa1g_follower_boot(w, c);   /* round 0.9.8: the proxy in slot 0, the follower in slot 1 (sa1_world_follower.c) */
+    } else if (!(c->flags & SA1G_BOOT_NO_PLAYER)) {
         w->player_tp = sa1g_create_player(w, c);
+        if (c->flags & SA1G_BOOT_FOLLOWER_SAME) {
+            /* tests only (F2): LoadPlayerTask's slot-1 iteration for character 0, the Tails AI follower of the same world.
+               8C07F560, its other half, does nothing for character 0 (the comment in sa1g_create_player) */
+            if (((void *(*)(void *))gfn(0x8C081AC0u))(sa1_decode(w->player_tp)) == NULL) {
+                sa1g_fatal(0x8C081AC0u, "boot: 8C081AC0 made no AI task (the predicate 8C082820)");
+            }
+        }
     }
     sa1g_super_boot(w);     /* round 6a: the revert fix (sa1_world_super.c; nothing in other worlds) */
     if (c->flags & SA1G_BOOT_DEATHZONE) {
@@ -594,12 +607,16 @@ sa1_status sa1g_world_boot(sa1g_world *w, const sa1g_boot_cfg *cfg)
         return SA1_ERR_INVALID_ARGUMENT;
     }
     b.cfg = cfg;
-    w->chr = cfg->chr;
+    w->chr = (cfg->flags & SA1G_BOOT_FOLLOWER) ? cfg->follow.kind : cfg->chr;
     w->level = cfg->level;
     w->act = cfg->act;
     st = sa1g_world_call(w, sa1g_boot_cb, &b);
     if (st == SA1_OK) {
         w->booted = 1;
+        sa1g_ring_note(w, 1);       /* round 0.9.8: the slot's state before the first step (read only) */
+        if (cfg->flags & SA1G_BOOT_FOLLOWER) {
+            st = sa1g_follower_attach(w);
+        }
     }
     return st;
 }
@@ -797,9 +814,72 @@ static void sa1g_player_entry(sa1g_world *w, uint32_t exec)
     sa1g_px_capture(w);
 }
 
+/* round 0.9.8 (F2, F3: tests/follower_replay.c): the record of a NAME.p1.bin at the AI's entry, the first player entry and player
+ * 1's entry (sa1g_follow_inj; gsa1_096_plan.md 6.1 task 2) */
+static void sa1g_follow_entry(sa1g_world *w, uint32_t tp, uint32_t exec)
+{
+    sa1g_follow_inj *fi = w->fol_inj;
+    uint32_t twp;
+    if ((exec & 0x1FFFFFFFu) == (0x8C081D4Eu & 0x1FFFFFFFu)) {
+        if (fi->ai_calls++ == 0) {
+            fi->ai_rand_seen = gr32(w, SA1G_ADDR_RAND);
+            if (fi->ai_on) {
+                memcpy(w->xmtrx, fi->ai_xmtrx, sizeof w->xmtrx);
+                if (sa1g_in_arena(w->camera_twp)) {
+                    memcpy(sa1g_world_ptr(w, w->camera_twp), fi->ai_cam_raw, 0x38u);
+                }
+            }
+        }
+        return;
+    }
+    if (!sa1g_is_main(exec)) {
+        return;
+    }
+    twp = gr32(w, tp + 0x20u);
+    if (!sa1g_in_arena(twp)) {
+        return;
+    }
+    if (fi->first_calls++ == 0) {
+        fi->first_pno = *(const uint8_t *)sa1g_world_ptr(w, twp + 8u);
+        fi->first_rand_seen = gr32(w, SA1G_ADDR_RAND);
+        if (fi->first_on) {
+            gw32(w, SA1G_ADDR_RAND, fi->first_rand);
+        }
+    }
+    if (*(const uint8_t *)sa1g_world_ptr(w, twp + 8u) == 1u && fi->px_calls++ == 0) {
+        uint32_t k;
+        fi->px_exec = exec;
+        if (fi->p1_on) {
+            gw32(w, SA1G_ADDR_RAND, fi->p1_rand);
+            memcpy(w->xmtrx, fi->p1_xmtrx, sizeof w->xmtrx);
+            if (sa1g_in_arena(w->camera_twp)) {
+                memcpy(sa1g_world_ptr(w, w->camera_twp), fi->p1_cam_raw, 0x38u);
+            }
+            gw32(w, SA1G_ADDR_FRAME_COUNTER, fi->p1_frame_counter);
+            gw16(w, SA1G_ADDR_RINGS, (uint16_t)fi->p1_rings);
+        }
+        fi->px_rand = gr32(w, SA1G_ADDR_RAND);
+        fi->px_frame_counter = gr32(w, SA1G_ADDR_FRAME_COUNTER);
+        fi->px_rings = (int16_t)gr16(w, SA1G_ADDR_RINGS);
+        for (k = 0; k < 3; k++) {
+            fi->px_gravity[k] = gr32(w, SA1G_ADDR_GRAVITY + 4u * k);
+        }
+        memcpy(fi->px_xmtrx, w->xmtrx, sizeof fi->px_xmtrx);
+        fi->px_cam_twp = gr32(w, SA1G_ADDR_CAMERA_TWP);
+        if (sa1g_in_arena(fi->px_cam_twp)) {
+            memcpy(fi->px_cam_raw, sa1g_world_ptr(w, fi->px_cam_twp), sizeof fi->px_cam_raw);
+        } else {
+            memset(fi->px_cam_raw, 0, sizeof fi->px_cam_raw);
+        }
+    }
+}
+
 static void sa1g_exec_task(sa1g_world *w, uint32_t tp, uint32_t exec)
 {
     uint32_t i;
+    if (w->fol_inj != NULL) {
+        sa1g_follow_entry(w, tp, exec);
+    }
     if (sa1g_is_player0(w, tp, exec)) {
         sa1g_player_entry(w, exec);
     }
@@ -851,20 +931,30 @@ void sa1g_run_tasks(sa1g_world *w)
     sa1g_run_level(w, 8);
     for (i = 0; i < 7; i++) {
         sa1g_run_level(w, i);
+        if (i == 0 && w->follow_view != NULL) {
+            w->follow_view(w);      /* round 0.9.8: a follower world's view behind slot 1, after the AI's list */
+        }
     }
 }
 
-/* ---- player 0 --------------------------------------------------------------------------------------- */
+/* ---- the character slot (player 0; slot 1 in a follower world: seam S2, gsa1_098_plan.md 5.4) ----------------------- */
 void sa1g_world_player(const sa1g_world *w, sa1g_player_ptrs *out)
 {
+    sa1g_world_slot_player(w, out);
+}
+
+void sa1g_world_slot_player(const sa1g_world *w, sa1g_player_ptrs *out)
+{
+    uint32_t k;
     memset(out, 0, sizeof *out);
     if (w == NULL || w->ram == NULL) {
         return;
     }
-    sa1g_world_rd32(w, SA1G_ADDR_PLAYER_TP, &out->tp);
-    sa1g_world_rd32(w, SA1G_ADDR_PLAYER_TWP, &out->twp);
-    sa1g_world_rd32(w, SA1G_ADDR_PLAYER_MWP, &out->mwp);
-    sa1g_world_rd32(w, SA1G_ADDR_PLAYER_PWP, &out->pwp);
+    k = 4u * (uint32_t)w->slot;
+    sa1g_world_rd32(w, SA1G_ADDR_PLAYER_TP + k, &out->tp);
+    sa1g_world_rd32(w, SA1G_ADDR_PLAYER_TWP + k, &out->twp);
+    sa1g_world_rd32(w, SA1G_ADDR_PLAYER_MWP + k, &out->mwp);
+    sa1g_world_rd32(w, SA1G_ADDR_PLAYER_PWP + k, &out->pwp);
     if (out->tp == 0) {
         out->tp = w->player_tp;
     }

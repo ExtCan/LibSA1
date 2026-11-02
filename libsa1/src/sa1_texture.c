@@ -11,11 +11,12 @@
 static const sa1_archive *get_archive(const sa1_context *ctx, int32_t kind, uint32_t archive, sa1_status *st)
 {
     const sa1_charset *cs;
-    if (!ctx || kind < 0 || kind >= SA1_CHAR_COUNT) {
+    if (!ctx || (kind != SA1_KIND_FRONTEND && (kind < 0 || kind >= SA1_CHAR_COUNT))) {
         *st = SA1_ERR_INVALID_ARGUMENT;
         return NULL;
     }
-    cs = &ctx->chars[kind];
+    /* round 0.9.8: the menu's archives (sa1_frontend_open) */
+    cs = kind == SA1_KIND_FRONTEND ? &ctx->frontend_set : &ctx->chars[kind];
     if (!cs->loaded) {
         *st = SA1_ERR_NOT_LOADED;
         return NULL;
@@ -164,7 +165,7 @@ sa1_status sa1_texture_variant_get(const sa1_context *ctx, int32_t kind, uint32_
     sa1_status st;
     const sa1_archive *ar;
     const sa1_texture *t;
-    if (!ctx || !out || out->struct_size < sizeof(uint32_t) || kind < 0 || kind >= SA1_CHAR_COUNT)
+    if (!ctx || !out || out->struct_size < sizeof(uint32_t) || (kind != SA1_KIND_FRONTEND && (kind < 0 || kind >= SA1_CHAR_COUNT)))
         return SA1_ERR_INVALID_ARGUMENT;
     if (kind != SA1_CHAR_SONIC || variant != SA1_TEXTURE_VARIANT_SUPER_GOLD)
         return SA1_ERR_NOT_FOUND;

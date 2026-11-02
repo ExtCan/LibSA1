@@ -12,7 +12,19 @@ globals visible to the host (everything lives in an `sa1_context`), a flat versi
 `sadc/tools/pclower.py` and run in a Dreamcast-layout arena per character (design:
 `sadc/docs/libsa1_integration.md`).
 
-## Status (0.3.0, 2026-11-01)
+## Status (0.4.0, 2026-11-02)
+
+0.4.0 (round 0.9.8): followers by the game's own 1.5P code, each in its own world, with Sonic's and Tails' boards on slot 1 (`SA1_API_FOLLOWER`); the game's head look (`SA1_API_LOOK`); a written parallel-tick contract, with per-thread registers on the Windows targets (`SA1_API_PARALLEL`); Big's fishing camera by the game's own push, pop and core (`SA1_API_CAMERA`); the game's own Character Select in a private world (`SA1_API_FRONTEND`). The strict replays stay bit-exact (74 traces, V7).
+
+### 0.3.0 (2026-11-01)
+
+Round 0.9.8 in progress (`SA1_VERSION_MINOR` 4 at its release; `gsa1_098_plan.md`). Five new API sections are declared in the header, each with its own feature macro; a call whose feature is not finished yet answers `SA1_ERR_UNSUPPORTED` with "... is not built yet" in the optimised archives:
+
+* **Followers** (`SA1_API_FOLLOWER`): `sa1_follower_create`, `sa1_follower_kinds`, `sa1_follower_kind_reason`, `sa1_follower_set_leader`, `sa1_follower_feed`, `sa1_follower_respawn`, `sa1_follower_hold`, `sa1_follower_info_get`, `sa1_leader_state`, `sa1_follower_desc`, `sa1_follower_info`, `SA1_EVENT_FOLLOW` 16; every `sa1_character_*` call on a follower id reports and acts on slot 1 of its world (the board included).
+* **Head look** (`SA1_API_LOOK`): `sa1_character_look`, `sa1_look`, `SA1_COPT_SUPER_LOOK` 7, the look tail of `sa1_state_ex`.
+* **Parallel ticks** (`SA1_API_PARALLEL`): the calls that may run at the same time on distinct characters of one context, per-thread `sa1_last_error`.
+* **The game's camera requests** (`SA1_API_CAMERA`): `SA1_INPUT_GAME_CAMERA` 0x8, `sa1_character_camera`, `sa1_camera_state`, `SA1_EVENT_CAMERA` 17.
+* **The game's own front end** (`SA1_API_FRONTEND`): `sa1_frontend_open`, `_close`, `_tick`, `_state_get`, `_poll`, `_screen`, `_render`, `_view`, `SA1_KIND_FRONTEND` 32, `SA1_EVENT_FRONTEND` 18.
 
 0.3.0 (round 0.9.5, `SA1_API_BOARD`): Sonic's and Tails' sand / snow board by the game's own code (`sa1_character_board`, `sa1_board_state`, `SA1_EVENT_BOARD`, `SA1_DRAW_BOARD`, `SA1_SURFACE_BOARD_SNOW` / `_SAND`, `SA1_PREVIEW_BOARD`) and the host's camera position for the game's code that looks at the camera (`SA1_INPUT_HOST_CAMERA`); the header's section on the board names every host deviation. The strict replays stay bit-exact (67 traces, V7).
 
@@ -180,6 +192,8 @@ tasks, so they run with `--stage-tolerant` (the ocean and footprint residuals ac
 | `capture_test` | the display capture and the render output (parts 1-9, header of `tests/capture_test.c`; `--part LIST` runs some): capture adds recording only (all ten references replayed with the window open are identical to the runs without it; the displays that ask the visibility test are visible on every sub step 0 from step 2 on), the captured mesh against the CPU pose and the harness's RAM, events, live ticks, textures, materials / eyes / afterimages / effects / interpolation, (part 8) the particle manager in the step over 100,000 steps (the pool never runs out, particles drawn as EFF_REGULAR sprites at their nodes) and Big's fishing displays (lure, target group, line), and (part 9) hidden displays: with the world's own view every pair is visible, with the zero screen every pair is hidden and the mesh is still the character (the CPU pose); (part `alpha`, round 0.9.1) the character renderer's vertex alpha as the game computes it (8C037872: single precision rounding toward zero, FTRC; Amy's hammer ghosts 76 / 51) | GDI, the reference traces and dumps (parts 1-5, 9); parts 3-4 the `--harness DIR` of a pure interpreter run | `tests/build_capture.py --run [--harness DIR]` |
 | `ball_test` | round 0.9.1's render interpolation (header of `tests/ball_test.c`): Tails' curled body stays inside the spin ball and on its line between the pairs (the roots of rigid groups move along the screw; across a fading material the shorter turn), the whole bodies of all six characters between the pairs (spread, feet), Amy's bird interpolated in world space through sharp turns | GDI | `tests/build_ball.py --run` (`tests/build_render_tests.py all --run` with `pairs`, `decal`, `blob`) |
 | `hud_test` | round 0.9.1's HUD and 2D screen output (header of `tests/hud_test.c`): the game's own HUD pass at the game's call site (Sonic: 15 sprites per pair at the game's positions, CON_REGULAR cells; the parts masks; the split leaves guest RAM as the game's single calls for Sonic, Big and a running event; without a pass only the HUD's display words differ and `sa1_render` is unchanged), replays never run it, Big's own HUD task, E-102's clock (the game's time-up, `SA1_COPT_E102_NO_TIME_LIMIT` held through game code and a time bonus, 00:00:00 respawns at 03:00:00), counters across a re-creation, Big's tension bar (`njDrawPolygon2D`) behind the gauge frame, the zero-ring blink and E-102's red timer; part 12 replays the `hud_*` and `big_drown_ec3` references with the pass and compares every 2D draw with the references' `NAME.d2d.txt` (the drowning countdown digits included) | GDI, the references with their `.d2d.txt` sidecars and landtable dumps | `tests/build_hud.py --run` |
+| `follower_test` | round 0.9.8's followers on GRID (header of `tests/follower_test.c`): the game's own AI and player 1 code following a leader in a world of its own, every case of `follow096_lib.md` 5.12 with its pass value: the six kinds' distance tables, respawns by cause, the leader's ring and overrun, chains, hold, hidden pairs and the view, items, boards, the fishing camera in a follower world, memory and cost, determinism between the targets; `--long`: the bring-up courses and 30,000 random-leader pairs per kind (0 faults, 0 unimplemented) | GDI | `tests/build_follower.py --run [--target all] [-- --long]` |
+| `follower_replay` | the two 1.5P configurations against the four `FOLLOW` references (`wv_follow_run`, `wv_follow_pit`, `wv_follow_offscreen`, `sd_follow`): `--same` runs both players in one world by the game's own code, player 1 bit-exact; `--proxy` (the shipped form: slot 0 fed from player 0's records through the proxy, list `FOLLOWC`) bit-exact except the masked fields named in the header of `tests/follower_replay.c` | GDI, the references, their p1 records, the land dump | part of `build.py --test` (`tests/build_replay.py`) |
 | `coladapt_test` | the collision adapter: API validation, the synthesis layout field by field, FAITHFUL and DISC polygon / colobj records bit-identical, the lowered collision code on both landtables | GDI, the `L01A0` dump | `tests/build_coladapt.py [--game]` |
 | `grid_test` | GRID collision through the public API (header of `tests/grid_test.c`): flat, ramps, stairs, walls, water, moving and rotating objects, kill planes, surfaces, capacity, stacked floors and thin roofs, the needle plank, the freespace-like plank, **underside** (the slab ramps that fell in round 4b: none falls; `SA1_GRID_KEEP_UNDERSIDES` reported; the one-way platform as the cost), the PC-only limits, GRID on EC1 against the five reference scripts | GDI, the reference traces and `L01A0` | `tests/build_grid.py --run [--target all]` |
 | `prepare_test` | preparation on host threads (header of `tests/prepare_test.c`): API checks and reference counts, prepared GRID = the old path's synthesis byte for byte and run for run, EC1 FAITHFUL prepared, 8 preparations on 4 threads while the main thread ticks, `sa1_character_prepare` on a thread racing world creation, creation timing (p50 / p90 / max), `sa1_debug_near_polys` | GDI (`faithful`: `L01A0`) | `tests/build_prepare.py --run [--target all]` |
@@ -428,6 +442,17 @@ strictly by `build.py --test`. The game rules behind the results, as the code ha
   the ball with `SA1_HOSTOBJ_LAUNCH_BOUNCE`; a projectile only pops them. The homing attack does not take a target that
   is above the character when it starts (the game's 8C0AF280).
 
+## Followers (`SA1_API_FOLLOWER`, round 0.9.8)
+
+A follower is a character made and moved by the game's own 1.5P code (the AI task 8C081D4E and player 1), in a world of its own: slot 0 of that
+world is a proxy of the leader, written from the leader's snapshots each step and never run as a player; slot 1 is the follower. Make the leader
+first; tick every leader before its followers; a follower of a libsa1 leader runs the leader's steps whatever `dt` says (at most 8 pairs in a
+tick, the rest are dropped and counted), a host-fed follower (`sa1_follower_feed`, leader 0) runs on `dt`. `sa1_character_tick` on a follower reads
+the camera yaw, the water bits and the host camera, never the stick or the buttons. `sa1_follower_kinds` says which kinds can follow,
+`sa1_follower_kind_reason` why the others cannot. The header's section names every host deviation: the view behind the follower (`SA1_FOLLOW_GAME_VIEW` turns it off), the whole position history
+rewritten at a respawn for followers other than Tails (`SA1_FOLLOW_GAME_HISTORY` turns it off), and, always, the proxy's status and item word. With both
+flags on the follower matches the game's own run, except that the two players' CCL never meet (they are in different worlds): `follower_replay`'s masks.
+
 ## Screen / HUD (API 0.4 draft, `SA1_API_SCREEN`, round 0.9.1)
 
 `sa1_character_screen` hands out the game's own 2D draws of a character's world on the Dreamcast's 640 x 480 screen
@@ -670,6 +695,7 @@ src/sa1_ninja.c               NJS_OBJECT/NJS_MODEL/NJS_MOTION/PL_JOIN_VERTEX des
 src/sa1_pvr.c                 PVM parser, PVR decoder
 src/sa1_pose.c                mesh evaluator (matrices, motion sampling, welds, emission)
 src/sa1_character.c           instances, queries, the character tick / state API
+src/sa1_follower.c            the follower API (SA1_API_FOLLOWER): create, leader, feed, respawn, hold, info
 src/sa1_texture.c             texture queries, atlas packer
 src/sa1_collision.c           collision input storage
 src/sa1_coladapt.c/.h         collision adapter: FAITHFUL landtable synthesis, DISC landtables (design 5)
@@ -679,6 +705,7 @@ src/world/sa1_world.c         arena, segment table, extension / collision / stac
 src/world/sa1_world_image.c   world images from the disc, patch list, apply
 src/world/sa1_world_boot.c    boot, player creation, replay executor, RAM transplant
 src/world/sa1_world_tick.c    tick contract (pairs, pad latch, accumulator), default step, events
+src/world/sa1_world_follower.c  a follower world: the proxy of the leader in slot 0, the snapshot ring, the AI hooks
 src/world/sa1_world_intrin.c  SH-4 intrinsics / SR / GBR for lowered code (game text)
 src/world/sa1_api_world.c     the API side of the worlds (images, collision segment, create, tick, state)
 src/world/sa1_world_api.c     internal character entry points over worlds (spike_test)

@@ -1,0 +1,2806 @@
+/*
+ * follower_test.c - the follower API on GRID (SA1_API_FOLLOWER, round 0.9.8; sadc docs/research/gsa1_098_plan.md 5.3, 6.2,
+ * gsa1_096_plan.md 6.1 tasks 9, 10, follow096_lib.md 5.12). Runs on any archive with src/sa1_follower.c's gate open (SA1FO_BUILT 1).
+ *
+ *   py -3.12 tests/build_follower.py --run [--debug] [--target x86_64-windows] [-- --long] [-- --only NAME]
+ *   follower_test [--long] [--only CASE] GDI
+ *
+ * API notes (what a host needs, the header's section says the rest):
+ *   - Make the leader first, sa1_follower_create builds the follower's world at once from the leader's state. Tick every leader before
+ *     its followers (chain order); a follower of a libsa1 leader runs the leader's steps whatever dt says, at most 8 pairs a tick.
+ *   - A host-fed follower (leader 0): sa1_follower_feed every host tick; it runs on dt with its own accumulator.
+ *   - sa1_character_tick on a follower reads camera_yaw, the water bits and the host camera; never stick or buttons.
+ *   - The world is the game's 1.5P: CurrentCharacter 0 on stage 0x0100; slot 0 is the proxy, slot 1 the follower.
+ *   - sa1_follower_kinds() is 0x0ED: Sonic, Tails, Knuckles, Amy, Big, E-102. Eggman, Tikal and Super Sonic answer SA1_ERR_UNSUPPORTED with sa1_follower_kind_reason's text.
+ *   - SA1_FOLLOW_EV_RESPAWN's arg says why: 0 distance > 1000, 1 off the leader's camera 300 frames, 2 sa1_follower_respawn. The point is 50 units above the camera: the host's eye with
+ *     SA1_INPUT_HOST_CAMERA, else the eye 40 behind the leader along camera_yaw. A respawn while riding ends the ride (the board stays kept: the host may ask for ON again).
+ *   - A hold parks slot 1 a million units above the leader (AI mode 6, SA1_FINFO_HELD): do not draw it. Off places it 10 behind the leader. A hold on a rider without an OFF keeps it in the
+ *     board mode up there (FH4): send the OFF first.
+ *   - sa1_character_board on a follower id rides at slot 1; Sonic's board variant is the follower world's own pair parity: read board_variant, never copy the leader's.
+ *   - SA1_FOLLOW_EV_ITEM reports what the game gave player 0 (arg 1 invincibility, 5 barrier, 8 magnetic barrier); speed shoes go to the hitter, slot 1, with no event.
+ *   - Host water reaches slot 1: the air timer runs; a drowning follower is knocked back once (SA1_EVENT_HURT, the game's player-1 rule), never dies. E-102 has no air timer.
+ *   - Emotes, faces and orders on a follower id are refused. SA1_INPUT_GAME_CAMERA on a follower id is ignored; sa1_character_camera on it reports a request made in that world (never RUNNING).
+ *   - With SA1_FOLLOW_GAME_VIEW the game's visibility test hides slot 1 in 194-258 of 600 `run` pairs; the render output is there anyway, the CPU pose at slot 1. Default: 0 hidden.
+ *   - A follower costs about 17.1 MB (64-bit) / 17.5 MB (32-bit) of private memory and about 0.17 ms per pair (-O2, FM2's 99 Knuckles; COST prints the view's share).
+ *
+ * Cases (follow096_lib.md 5.12 with the plan's additions); a pass value is in each case's CHECK:
+ *   FS1 FA1 FA2 FA3 FA4 FW1 FV1 FV2 FT1 FT2 FT3 FP1 FP2 FP3 FC1 FL1 FH1 FH2 FH3 FH4 FD1 FU1 FI1 FN1 FB1 FB2 FB3 FB4 FB5 FB6 FR1 FR2 FR3 FM1 FM2 FX1 FK1 FE1,
+ *   FG1 FG2 (a Big and a Tails follower with the fishing C and the camera bit, gsa1_098_plan.md 6.2), BRINGUP (--long, F4: every kind on
+ *   the bring-up courses), SOAK (--long: 30,000 random-leader pairs per kind), COST (--long: the view's share of the time).
+ */
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#if defined(_WIN32)
+#define PSAPI_VERSION 2 /* K32GetProcessMemoryInfo, in kernel32: build_board.py links no psapi */
+#include <windows.h>
+#include <psapi.h>
+#endif
+
+#include "libsa1.h"
+#include "sa1_internal.h"
+#include "sa1_api_world.h"
+#include "sa1_world.h"
+#include "sa1_capture.h"
+
+static int g_fail, g_long;
+static const char *g_only;
+static sa1_context *g_ctx;
+
+#define CHECK(cond, ...)                                                       \
+    do {                                                                       \
+        if (cond) {                                                            \
+            printf("  ok    ");                                                \
+        } else {                                                               \
+            printf("  FAIL  ");                                                \
+            g_fail++;                                                          \
+        }                                                                      \
+        printf(__VA_ARGS__);                                                   \
+        printf("\n");                                                          \
+        fflush(stdout);                                                        \
+    } while (0)
+
+static int want(const char *name)
+{
+    return g_only == NULL || strcmp(g_only, name) == 0;
+}
+
+static void log_cb(void *user, int32_t level, const char *msg)
+{
+    (void)user;
+    if (level >= SA1_LOG_WARN) {
+        printf("    [libsa1] %s\n", msg);
+    }
+}
+
+/* ---- guest memory --------------------------------------------------------------------------------------------- */
+#define A_PLAYER_TWP   SA1G_ADDR_PLAYER_TWP
+#define A_PLAYER_PWP   SA1G_ADDR_PLAYER_PWP
+
+static uint32_t rd(const sa1g_world *w, uint32_t g)
+{
+    uint32_t v = 0;
+    sa1g_world_rd32(w, g, &v);
+    return v;
+}
+static float rdf(const sa1g_world *w, uint32_t g)
+{
+    uint32_t v = rd(w, g);
+    float f;
+    memcpy(&f, &v, 4);
+    return f;
+}
+static uint8_t rd8(const sa1g_world *w, uint32_t g)
+{
+    return *(const uint8_t *)sa1g_world_ptr(w, g);
+}
+static int in_arena(uint32_t g)
+{
+    return g != 0 && ((g >> 24) & 31u) == SA1G_SEG_ARENA;
+}
+static void *gfn(uint32_t dc)
+{
+    return sa1_fn(SA1_GFN_C(dc), 0u);
+}
+
+/* ---- grounds (SA1 space, the NATIVE coordinates: host units are SA1 units) -------------------------------------- */
+static sa1_collision_tri *g_tris;
+static uint32_t g_ntri, g_cap;
+
+static void tri(const float a[3], const float b[3], const float c[3], uint32_t surface)
+{
+    sa1_collision_tri *t;
+    if (g_ntri >= g_cap) {
+        g_cap = g_cap ? g_cap * 2u : 8192u;
+        g_tris = (sa1_collision_tri *)realloc(g_tris, g_cap * sizeof *g_tris);
+    }
+    t = &g_tris[g_ntri++];
+    memcpy(t->v[0], a, 12);
+    memcpy(t->v[1], b, 12);
+    memcpy(t->v[2], c, 12);
+    t->surface = surface;
+}
+
+static float g_slope_k;
+static float ground_y(float x)
+{
+    return x < 0.0f ? 0.0f : -g_slope_k * x;
+}
+
+static void hquad(float x0, float x1, float z0, float z1, float y_fixed, int use_fixed, uint32_t surface)
+{
+    float y0 = use_fixed ? y_fixed : ground_y(x0), y1 = use_fixed ? y_fixed : ground_y(x1);
+    float a[3] = { x0, y0, z0 }, b[3] = { x0, y0, z1 }, c[3] = { x1, y1, z0 }, d[3] = { x1, y1, z1 };
+    tri(a, b, c, surface);
+    tri(c, b, d, surface);
+}
+
+static void wall(float x0, float z0, float x1, float z1, float y0, float y1, uint32_t surface)
+{
+    float a[3] = { x0, y0, z0 }, b[3] = { x0, y1, z0 }, c[3] = { x1, y0, z1 }, d[3] = { x1, y1, z1 };
+    tri(a, b, c, surface);
+    tri(c, b, d, surface);
+    tri(a, c, b, surface);
+    tri(c, d, b, surface);
+}
+
+enum { G_FLAT, G_LEDGE, G_PIT, G_GAPS, G_WALL, G_VOID_LEDGE, G_POOL };
+
+static void build_ground(int kind)
+{
+    float x, z;
+    g_ntri = 0;
+    g_slope_k = 0.0f;
+    for (x = -4096.0f; x < 4096.0f; x += 128.0f) {
+        for (z = -4096.0f; z < 4096.0f; z += 128.0f) {
+            if (kind == G_LEDGE && x >= 384.0f && x < 640.0f && z >= -256.0f && z < 256.0f) {
+                continue;
+            }
+            if (kind == G_PIT && x >= 256.0f && x < 768.0f && z >= -768.0f && z < 768.0f) {
+                continue;
+            }
+            if (kind == G_GAPS && x >= 128.0f && x < 1536.0f && (((int)((x - 128.0f) / 128.0f) % 6) >= 3)) {
+                continue;
+            }
+            if (kind == G_VOID_LEDGE && !(x < -128.0f)) {
+                continue;
+            }
+            hquad(x, x + 128.0f, z, z + 128.0f, 0.0f, 1, SA1_SURFACE_SOLID);
+        }
+    }
+    if (kind == G_LEDGE) {
+        for (x = 384.0f; x < 640.0f; x += 64.0f) {
+            for (z = -256.0f; z < 256.0f; z += 64.0f) {
+                hquad(x, x + 64.0f, z, z + 64.0f, 60.0f, 1, SA1_SURFACE_SOLID);
+            }
+        }
+        for (z = -256.0f; z < 256.0f; z += 64.0f) {
+            wall(384.0f, z, 384.0f, z + 64.0f, 0.0f, 60.0f, SA1_SURFACE_SOLID);
+            wall(640.0f, z, 640.0f, z + 64.0f, 0.0f, 60.0f, SA1_SURFACE_SOLID);
+        }
+        for (x = 384.0f; x < 640.0f; x += 64.0f) {
+            wall(x, -256.0f, x + 64.0f, -256.0f, 0.0f, 60.0f, SA1_SURFACE_SOLID);
+            wall(x, 256.0f, x + 64.0f, 256.0f, 0.0f, 60.0f, SA1_SURFACE_SOLID);
+        }
+    }
+    if (kind == G_WALL) {
+        for (z = -512.0f; z < 512.0f; z += 64.0f) {
+            wall(256.0f, z, 256.0f, z + 64.0f, 0.0f, 128.0f, SA1_SURFACE_SOLID);
+        }
+    }
+    if (kind == G_POOL) {
+        /* a pool 40 deep: the floor stays at 0 under a water sheet at 40 */
+        for (x = 128.0f; x < 640.0f; x += 64.0f) {
+            for (z = -256.0f; z < 256.0f; z += 64.0f) {
+                hquad(x, x + 64.0f, z, z + 64.0f, 40.0f, 1, SA1_SURFACE_WATER);
+            }
+        }
+    }
+}
+
+static void build_slope(float deg, uint32_t surface)
+{
+    float x, z;
+    g_ntri = 0;
+    g_slope_k = tanf(deg * 3.14159265f / 180.0f);
+    for (x = -512.0f; x < 12288.0f; x += 64.0f) {
+        for (z = -1024.0f; z < 1024.0f; z += 64.0f) {
+            hquad(x, x + 64.0f, z, z + 64.0f, 0.0f, 0, surface);
+        }
+    }
+}
+
+static int set_ground(void)
+{
+    sa1_status st = sa1_collision_set_static(g_ctx, g_tris, g_ntri);
+    if (st != SA1_OK) {
+        printf("  sa1_collision_set_static: %s: %s\n", sa1_status_string(st), sa1_last_error(g_ctx));
+        return -1;
+    }
+    return 0;
+}
+
+/* ---- characters --------------------------------------------------------------------------------------------------- */
+static const int32_t k_kinds[6] = { SA1_CHAR_TAILS, SA1_CHAR_KNUCKLES, SA1_CHAR_SONIC, SA1_CHAR_GAMMA, SA1_CHAR_AMY, SA1_CHAR_BIG };
+
+static const char *kind_name(int32_t k)
+{
+    switch (k) {
+    case SA1_CHAR_SONIC: return "Sonic";
+    case SA1_CHAR_TAILS: return "Tails";
+    case SA1_CHAR_KNUCKLES: return "Knuckles";
+    case SA1_CHAR_AMY: return "Amy";
+    case SA1_CHAR_GAMMA: return "E-102";
+    case SA1_CHAR_BIG: return "Big";
+    default: return "?";
+    }
+}
+
+static sa1_character_id leader_new(int32_t kind, float x, float y, float z)
+{
+    sa1_character_desc d;
+    sa1_character_id id = 0;
+    sa1_input in;
+    sa1_status st;
+    memset(&d, 0, sizeof d);
+    d.struct_size = sizeof d;
+    d.kind = kind;
+    d.flags = SA1_CREATE_WORLD | SA1_CREATE_SA1_SPACE;
+    d.position[0] = x;
+    d.position[1] = y;
+    d.position[2] = z;
+    st = sa1_character_create_ex(g_ctx, &d, &id);
+    if (SA1_FAILED(st)) {
+        printf("  leader: %s: %s\n", sa1_status_string(st), sa1_last_error(g_ctx));
+        return 0;
+    }
+    memset(&in, 0, sizeof in);
+    in.struct_size = sizeof in;
+    sa1_character_tick(g_ctx, id, &in, 0.0f, NULL, NULL);
+    return id;
+}
+
+static sa1_status follower_new_ex(int32_t kind, sa1_character_id leader, uint32_t flags, const sa1_leader_state *host,
+                                  sa1_character_id *out)
+{
+    sa1_follower_desc d;
+    memset(&d, 0, sizeof d);
+    d.struct_size = sizeof d;
+    d.kind = kind;
+    d.leader = leader;
+    d.flags = flags;
+    if (host != NULL) {
+        d.host_leader = *host;
+    }
+    return sa1_follower_create(g_ctx, &d, out);
+}
+
+static sa1_character_id follower_new(int32_t kind, sa1_character_id leader, uint32_t flags)
+{
+    sa1_character_id id = 0;
+    sa1_status st = follower_new_ex(kind, leader, flags, NULL, &id);
+    if (SA1_FAILED(st)) {
+        printf("  sa1_follower_create(%s): %s: %s\n", kind_name(kind), sa1_status_string(st), sa1_last_error(g_ctx));
+        return 0;
+    }
+    return id;
+}
+
+static void host_state(sa1_leader_state *s, float x, float y, float z, float vx_per_step, float vz_per_step)
+{
+    memset(s, 0, sizeof *s);
+    s->struct_size = sizeof *s;
+    s->position[0] = x;
+    s->position[1] = y;
+    s->position[2] = z;
+    s->velocity[0] = vx_per_step * 60.0f;
+    s->velocity[2] = vz_per_step * 60.0f;
+    s->flags = SA1_LEADER_ON_GROUND;
+    s->kind = -1;
+}
+
+typedef struct stats {
+    uint32_t faults, unimpl, respawn[3], lost[3], item[9], sounds, board_on, board_off, board_refused;
+    int first_respawn_step;
+} stats;
+
+static void poll_events(sa1_character_id id, stats *s)
+{
+    sa1_event ev[128];
+    uint32_t n = 0, i;
+    while (sa1_poll_events(g_ctx, ev, 128, &n) == SA1_OK && n) {
+        for (i = 0; i < n; i++) {
+            if (ev[i].type == SA1_EVENT_FAULT && (s != NULL)) {
+                s->faults++;
+                printf("    FAULT event: %08X in %08X (character %d)\n", (unsigned)ev[i].id, (unsigned)ev[i].arg, (int)ev[i].character);
+            }
+            if (ev[i].type == SA1_EVENT_UNIMPLEMENTED && (s != NULL)) {
+                s->unimpl++;
+                printf("    UNIMPLEMENTED event: %08X in %08X (character %d)\n", (unsigned)ev[i].id, (unsigned)ev[i].arg,
+                       (int)ev[i].character);
+            }
+            if (s == NULL || ev[i].character != id) {
+                continue;
+            }
+            if (ev[i].type == SA1_EVENT_FOLLOW) {
+                if (ev[i].id == SA1_FOLLOW_EV_RESPAWN && ev[i].arg < 3u) {
+                    s->respawn[ev[i].arg]++;
+                    if (s->first_respawn_step < 0) {
+                        s->first_respawn_step = (int)ev[i].step;
+                    }
+                } else if (ev[i].id == SA1_FOLLOW_EV_LEADER_LOST && ev[i].arg < 3u) {
+                    s->lost[ev[i].arg]++;
+                } else if (ev[i].id == SA1_FOLLOW_EV_ITEM && ev[i].arg < 9u) {
+                    s->item[ev[i].arg]++;
+                }
+            } else if (ev[i].type == SA1_EVENT_SOUND) {
+                s->sounds++;
+            } else if (ev[i].type == SA1_EVENT_BOARD) {
+                s->board_on += ev[i].id == SA1_BOARD_EV_ON;
+                s->board_off += ev[i].id == SA1_BOARD_EV_OFF;
+                s->board_refused += ev[i].id == SA1_BOARD_EV_REFUSED;
+            }
+        }
+        n = 0;
+    }
+}
+
+static sa1_status tick_input(sa1_character_id id, float sx, float sy, uint32_t buttons, float yaw, float dt)
+{
+    sa1_input in;
+    memset(&in, 0, sizeof in);
+    in.struct_size = sizeof in;
+    in.stick_x = sx;
+    in.stick_y = sy;
+    in.buttons = buttons;
+    in.camera_yaw = yaw;
+    return sa1_character_tick(g_ctx, id, &in, dt, NULL, NULL);
+}
+
+static void state_of(sa1_character_id id, sa1_state *s)
+{
+    memset(s, 0, sizeof *s);
+    s->struct_size = sizeof *s;
+    sa1_character_state(g_ctx, id, s);
+}
+
+static void info_of(sa1_character_id id, sa1_follower_info *o)
+{
+    memset(o, 0, sizeof *o);
+    o->struct_size = sizeof *o;
+    sa1_follower_info_get(g_ctx, id, o);
+}
+
+static float dist_h(const float a[3], const float b[3])
+{
+    float x = a[0] - b[0], z = a[2] - b[2];
+    return sqrtf(x * x + z * z);
+}
+
+static float dist_3(const float a[3], const float b[3])
+{
+    float x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
+    return sqrtf(x * x + y * y + z * z);
+}
+
+/* slot 1's mode, action */
+static int32_t slot_mode(sa1_character_id id)
+{
+    const sa1g_world *w = sa1_character_world(g_ctx, id);
+    uint32_t t = w != NULL ? rd(w, A_PLAYER_TWP + 4u) : 0u;
+    return in_arena(t) ? (int32_t)(int8_t)rd8(w, t) : -1;
+}
+
+/* the centre of the render's triangles (no shadow): 0 no triangles */
+static int render_centre(sa1_character_id id, float c[3])
+{
+    const sa1_render *r = NULL;
+    double sum[3] = { 0, 0, 0 }, n = 0;
+    uint32_t q, t, v;
+    if (sa1_character_render(g_ctx, id, 1.0f, &r) != SA1_OK || r == NULL) {
+        return 0;
+    }
+    for (q = 0; q < r->num_draws; q++) {
+        const sa1_draw *dd = &r->draws[q];
+        if (dd->prim != SA1_PRIM_TRIANGLES || (dd->flags & SA1_DRAW_SHADOW)) {
+            continue;
+        }
+        for (t = dd->first; t < dd->first + dd->count; t++) {
+            for (v = 0; v < 9; v++) {
+                sum[v % 3] += r->positions[9u * t + v];
+            }
+        }
+        n += 3.0 * dd->count;
+    }
+    if (n <= 0) {
+        return 0;
+    }
+    c[0] = (float)(sum[0] / n);
+    c[1] = (float)(sum[1] / n);
+    c[2] = (float)(sum[2] / n);
+    return 1;
+}
+
+/* ---- leader scripts ------------------------------------------------------------------------------------------------ */
+static void script_run(uint32_t p, float *sx, float *sy, uint32_t *b)
+{
+    *sx = *sy = 0.0f;
+    *b = 0;
+    if (p >= 30 && p < 150) {
+        *sy = 1.0f;
+    } else if (p >= 150 && p < 210) {
+        *sy = 1.0f;
+        *sx = 0.6f;
+    } else if (p == 300) {
+        *b = SA1_BUTTON_JUMP;
+    } else if (p >= 360 && p < 450) {
+        *sy = 1.0f;
+        if (p == 380 || p == 381 || p == 420 || p == 421) {
+            *b = SA1_BUTTON_JUMP;
+        }
+    }
+}
+
+static uint32_t g_lcg;
+static uint32_t lcg(void)
+{
+    g_lcg = g_lcg * 1664525u + 1013904223u;
+    return g_lcg >> 8;
+}
+static float g_soak_sx, g_soak_sy;
+static void script_soak(uint32_t p, const float pos[3], float *sx, float *sy, uint32_t *b)
+{
+    if (p % 45u == 0u) {
+        uint32_t r = lcg() % 8u;
+        float a = (float)(lcg() % 6283u) / 1000.0f, mag = r < 2 ? 0.0f : r < 4 ? 0.5f : 1.0f;
+        g_soak_sx = mag * sinf(a);
+        g_soak_sy = mag * cosf(a);
+    }
+    *sx = g_soak_sx;
+    *sy = g_soak_sy;
+    *b = 0;
+    if (pos[0] * pos[0] + pos[2] * pos[2] > 2500.0f * 2500.0f) {
+        float d = sqrtf(pos[0] * pos[0] + pos[2] * pos[2]);
+        *sy = -pos[0] / d;
+        *sx = -pos[2] / d;
+    }
+    if (lcg() % 20u == 0u) {
+        *b = SA1_BUTTON_JUMP;
+    }
+    if (lcg() % 97u == 0u) {
+        *b |= SA1_BUTTON_ACTION;
+    }
+}
+
+/* ---- FS1: the production boot against the probe's conversion ----------------------------------------------------------- */
+typedef struct conv {
+    int32_t kind;
+    const sa1g_world *leader;
+    uint32_t px_twp, px_mwp, px_pwp, px_csts, ai_tp;
+    uint64_t cursor;
+} conv;
+
+static void conv_write(sa1g_world *w, const conv *c, const sa1g_snap *s)
+{
+    uint32_t k, fl;
+    for (k = 0; k < 3; k++) {
+        uint32_t v;
+        memcpy(&v, &s->pos[k], 4);
+        sa1g_world_wr32(w, c->px_twp + 0x20u + 4u * k, v);
+        sa1g_world_wr32(w, c->px_twp + 0x14u + 4u * k, s->ang[k]);
+        memcpy(&v, &s->mspd[k], 4);
+        sa1g_world_wr32(w, c->px_mwp + 4u + 4u * k, v);
+        memcpy(&v, &s->pspd[k], 4);
+        sa1g_world_wr32(w, c->px_pwp + 0x38u + 4u * k, v);
+        memcpy(&v, &s->tnorm[k], 4);
+        sa1g_world_wr32(w, c->px_csts + 0x1Cu + 4u * k, v);
+    }
+    fl = rd(w, c->px_twp + 4u);
+    sa1g_world_wr32(w, c->px_twp + 4u, (fl & ~3u) | (s->flag & 3u));
+}
+
+static void conv_pre(sa1g_world *w, int32_t sub, void *user)
+{
+    conv *c = (conv *)w->emote.ctx;
+    (void)sub;
+    (void)user;
+    conv_write(w, c, &c->leader->ring[c->cursor % SA1G_RING]);
+}
+
+static void conv_post(sa1g_world *w, int32_t sub, void *user)
+{
+    conv *c = (conv *)w->emote.ctx;
+    (void)sub;
+    (void)user;
+    conv_write(w, c, &c->leader->ring[(c->cursor + 1u) % SA1G_RING]);
+    c->cursor++;
+}
+
+static void conv_ai(sa1g_world *w, uint32_t tp, void *user)
+{
+    (void)w;
+    (void)user;
+    ((void (*)(void *))gfn(0x8C081D4Eu))(sa1_decode(tp));
+}
+
+static void conv_cb(sa1g_world *w, void *user)
+{
+    conv *c = (conv *)user;
+    void *(*create)(uint16_t, int32_t, sa1_gfn) = (void *(*)(uint16_t, int32_t, sa1_gfn))gfn(0x8C09852Eu);
+    void *(*calloc_fn)(int32_t, int32_t) = (void *(*)(int32_t, int32_t))gfn(0x8C098B0Cu);
+    uint32_t tp = w->player_tp, twp = rd(w, tp + 0x20u), mwp = rd(w, tp + 0x24u), pwp, k;
+    uint8_t *pp;
+    sa1g_snap first;
+    sa1g_world_wr32(w, tp + 0x10u, 0x8C098440u);
+    pwp = sa1_encode(calloc_fn(1, 0x200));
+    pp = (uint8_t *)sa1g_world_ptr(w, pwp);
+    for (k = 0; k < 0x84u; k += 4u) {
+        memcpy(pp + 0x9Cu + k, sa1g_world_ptr(w, 0x8C1BDFE4u + k), 4);
+    }
+    sa1g_world_wr32(w, mwp, pwp);
+    c->px_csts = sa1_encode(calloc_fn(1, 0x84));
+    sa1g_world_wr32(w, pwp + 0x64u, c->px_csts);
+    *(uint8_t *)sa1g_world_ptr(w, twp + 8u) = 0;
+    *(uint8_t *)sa1g_world_ptr(w, twp + 9u) = 0;
+    sa1g_world_wr32(w, SA1G_ADDR_PLAYER_TP, tp);
+    sa1g_world_wr32(w, A_PLAYER_TWP, twp);
+    sa1g_world_wr32(w, SA1G_ADDR_PLAYER_MWP, mwp);
+    sa1g_world_wr32(w, A_PLAYER_PWP, pwp);
+    c->px_twp = twp;
+    c->px_mwp = mwp;
+    c->px_pwp = pwp;
+    first = c->leader->ring[0];
+    conv_write(w, c, &first);
+    *(int16_t *)sa1g_world_ptr(w, SA1G_ADDR_CUR_CHAR) = 0;
+    *(int8_t *)sa1g_world_ptr(w, 0x8C78B45Au) = 1;
+    if (c->kind == SA1_CHAR_TAILS) {
+        void *ai = ((void *(*)(void *))gfn(0x8C081AC0u))(sa1_decode(tp));
+        c->ai_tp = ai ? sa1_encode(ai) : 0u;
+    } else {
+        void *ai = create(2, 0, SA1_GFN_C(0x8C081D4Eu)), *ftp;
+        uint32_t atp = ai ? sa1_encode(ai) : 0u, atwp, req;
+        if (!atp) {
+            return;
+        }
+        atwp = rd(w, atp + 0x20u);
+        sa1g_world_wr32(w, 0x8C78C248u, atp);
+        *(uint8_t *)sa1g_world_ptr(w, atwp + 9u) = 2;
+        *(uint8_t *)sa1g_world_ptr(w, atwp + 8u) = 1;
+        sa1g_world_wr32(w, atp + 0x18u, 0x8C081B66u);
+        req = sa1_encode(calloc_fn(1, 12));
+        sa1g_world_wr32(w, req, c->kind == SA1_CHAR_SONIC ? 0u : c->kind == SA1_CHAR_KNUCKLES ? 2u : 4u);
+        ftp = ((void *(*)(void *))gfn(0x8C083F7Cu))(sa1g_world_ptr(w, req));
+        if (ftp) {
+            uint32_t ftwp = rd(w, sa1_encode(ftp) + 0x20u);
+            ((void (*)(void *, void *, float))gfn(0x8C0826B0u))(sa1g_world_ptr(w, twp), sa1g_world_ptr(w, ftwp + 0x20u), 10.0f);
+        }
+        *(uint8_t *)sa1g_world_ptr(w, atwp) = 0;
+        sa1g_world_wr32(w, 0x8C78C24Cu, 0u);
+        c->ai_tp = atp;
+    }
+}
+
+static int g_fs_soak;
+
+static void test_fs1(void)
+{
+    static const int32_t kinds[4] = { SA1_CHAR_TAILS, SA1_CHAR_KNUCKLES, SA1_CHAR_SONIC, SA1_CHAR_GAMMA };
+    int ki;
+    printf("FS1 the production boot against the probe's conversion (600 pairs of `run`, slot 1's state pair for pair):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 4; ki++) {
+        conv c;
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f), F, P = 0;
+        sa1_character_desc d;
+        sa1g_world *pw;
+        uint32_t p, bad = 0;
+        int first = -1;
+        F = follower_new(kinds[ki], L, SA1_FOLLOW_GAME_VIEW | SA1_FOLLOW_GAME_HISTORY | SA1_FOLLOW_NO_SET);
+        memset(&c, 0, sizeof c);
+        c.kind = kinds[ki];
+        c.leader = sa1_character_world(g_ctx, L);
+        memset(&d, 0, sizeof d);
+        d.struct_size = sizeof d;
+        d.kind = kinds[ki];
+        d.flags = SA1_CREATE_WORLD | SA1_CREATE_SA1_SPACE;
+        memcpy(d.position, c.leader->ring[0].pos, sizeof d.position);
+        if (SA1_FAILED(sa1_character_create_ex(g_ctx, &d, &P))) {
+            CHECK(0, "FS1 the probe's world: %s", sa1_last_error(g_ctx));
+            continue;
+        }
+        pw = sa1_character_world(g_ctx, P);
+        sa1g_world_call(pw, conv_cb, &c);
+        pw->emote.ctx = (sa1_context *)&c;
+        pw->emote.pre = conv_pre;
+        pw->emote.post = conv_post;
+        sa1g_world_xhook(pw, 0x8C081D4Eu, conv_ai, NULL);
+        g_lcg = 0x12345678u;
+        g_soak_sx = g_soak_sy = 0.0f;
+        for (p = 0; p < (g_fs_soak ? 30000u : 600u); p++) {
+            float sx, sy;
+            uint32_t b, k;
+            sa1g_player_ptrs a, q;
+            sa1_status s1;
+            if (g_fs_soak) {
+                sa1_state ls;
+                state_of(L, &ls);
+                script_soak(p, ls.position, &sx, &sy, &b);
+            } else {
+                script_run(p, &sx, &sy, &b);
+            }
+            tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            s1 = tick_input(P, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            if (s1 != SA1_OK) {
+                printf("    probe's world: %s\n", sa1_last_error(g_ctx));
+                break;
+            }
+            {
+                const sa1g_world *fw = sa1_character_world(g_ctx, F);
+                memset(&a, 0, sizeof a);
+                a.twp = rd(fw, A_PLAYER_TWP + 4u);
+                memset(&q, 0, sizeof q);
+                q.twp = rd(pw, A_PLAYER_TWP + 4u);
+                if (in_arena(a.twp) && in_arena(q.twp)) {
+                    for (k = 0; k < 0x2Cu; k += 4u) {
+                        if (k >= 8 && k < 0x14) {
+                            continue;   /* counter, timer, unions */
+                        }
+                        if (rd(fw, a.twp + k) != rd(pw, q.twp + k)) {
+                            if (bad++ == 0) {
+                                first = (int)p;
+                                printf("      first difference: pair %u taskwk +0x%02X: production %08X, conversion %08X\n", (unsigned)p,
+                                       (unsigned)k, (unsigned)rd(fw, a.twp + k), (unsigned)rd(pw, q.twp + k));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            poll_events(0, NULL);
+        }
+        CHECK(bad == 0, "FS1 %s: %u of 600 pairs differ (first: %d)", kind_name(kinds[ki]), (unsigned)bad, first);
+        sa1_character_destroy(g_ctx, P);
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+/* ---- FA1, FA2: following a live Sonic -------------------------------------------------------------------------------- */
+static void test_fa1(void)
+{
+    /* follow096_lib.md 3.1, re-measured on 0.3.0 (prep098/recheck/followlib/out/run_all_030.txt) */
+    static const struct { int32_t kind; float mean_dh; uint32_t respawns; } tbl[6] = {
+        { SA1_CHAR_TAILS, 61.3f, 1 }, { SA1_CHAR_KNUCKLES, 54.2f, 0 }, { SA1_CHAR_SONIC, 53.5f, 0 },
+        { SA1_CHAR_GAMMA, 97.1f, 1 }, { SA1_CHAR_AMY, 131.2f, 1 }, { SA1_CHAR_BIG, 131.1f, 1 },
+    };
+    int ki;
+    printf("FA1 `run`, each kind behind a live Sonic, 600 pairs, the game's view and history (the numbers of follow096_lib.md 3.1):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        sa1_character_id F = follower_new(tbl[ki].kind, L, SA1_FOLLOW_GAME_VIEW | SA1_FOLLOW_GAME_HISTORY);
+        stats s;
+        double sum = 0.0;
+        float maxd = 0.0f;
+        uint32_t p;
+        sa1_follower_info oi;
+        memset(&s, 0, sizeof s);
+        s.first_respawn_step = -1;
+        for (p = 0; p < 600u; p++) {
+            float sx, sy, d;
+            uint32_t b;
+            sa1_state ls, fs;
+            script_run(p, &sx, &sy, &b);
+            tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+            state_of(L, &ls);
+            state_of(F, &fs);
+            d = dist_h(ls.position, fs.position);
+            sum += d;
+            maxd = d > maxd ? d : maxd;
+        }
+        info_of(F, &oi);
+        CHECK(s.faults == 0 && s.unimpl == 0, "FA1 %s: 0 faults and unimplemented (%u, %u); sounds %u; AI mode %d", kind_name(tbl[ki].kind),
+              (unsigned)s.faults, (unsigned)s.unimpl, (unsigned)s.sounds, (int)oi.ai_mode);
+        CHECK(fabs(sum / 600.0 - tbl[ki].mean_dh) <= 0.10 * tbl[ki].mean_dh, "FA1 %s: mean dh %.1f (table %.1f +- 10 %%), max %.1f",
+              kind_name(tbl[ki].kind), sum / 600.0, (double)tbl[ki].mean_dh, (double)maxd);
+        CHECK(oi.respawns == tbl[ki].respawns, "FA1 %s: respawns %u (distance %u, off-screen %u; table %u)", kind_name(tbl[ki].kind),
+              (unsigned)oi.respawns, (unsigned)oi.respawns_distance, (unsigned)oi.respawns_offscreen, (unsigned)tbl[ki].respawns);
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+static void test_fa2(void)
+{
+    sa1_character_id L, F;
+    stats s;
+    uint32_t p;
+    sa1_status st = SA1_OK;
+    printf("FA2 a Sonic follower's first 10 pairs (without the proxy's csts: a fault in step 2):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_SONIC, L, 0);
+    memset(&s, 0, sizeof s);
+    for (p = 0; p < 10u && st == SA1_OK; p++) {
+        tick_input(L, 0, 1.0f, 0, 0.0f, 1.0f / 30.0f);
+        st = tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+    }
+    CHECK(st == SA1_OK && s.faults == 0, "FA2: %s, %u faults", sa1_status_string(st), (unsigned)s.faults);
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+/* ---- FA3, FA4: the Knuckles loop (--long) ------------------------------------------------------------------------------- */
+static void soak_run(int32_t kind, uint32_t flags, uint32_t pairs, stats *s, float *mean, float *maxd, uint32_t *hidden)
+{
+    sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    sa1_character_id F = follower_new(kind, L, flags);
+    float lp[3] = { 0.0f, 12.0f, 0.0f };
+    double sum = 0.0;
+    uint32_t p;
+    sa1_follower_info oi;
+    memset(s, 0, sizeof *s);
+    s->first_respawn_step = -1;
+    *maxd = 0.0f;
+    *hidden = 0;
+    g_lcg = 0x12345678u;
+    g_soak_sx = g_soak_sy = 0.0f;
+    for (p = 0; p < pairs; p++) {
+        float sx, sy, d;
+        uint32_t b;
+        sa1_state ls, fs;
+        script_soak(p, lp, &sx, &sy, &b);
+        tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, s);
+        state_of(L, &ls);
+        state_of(F, &fs);
+        memcpy(lp, ls.position, sizeof lp);
+        d = dist_h(ls.position, fs.position);
+        sum += d;
+        *maxd = d > *maxd ? d : *maxd;
+        if (p % 300u == 299u) {
+            info_of(F, &oi);
+            *hidden += oi.hidden_pairs;
+        }
+    }
+    *mean = (float)(sum / pairs);
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+static void test_fa3(void)
+{
+    stats s;
+    float mean, maxd;
+    uint32_t hidden;
+    printf("FA3, FA4 Knuckles' soak, 30,000 pairs (before: 3,841 respawns; with the rewrite 18):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    soak_run(SA1_CHAR_KNUCKLES, 0, 30000u, &s, &mean, &maxd, &hidden);
+    CHECK(s.respawn[0] + s.respawn[1] <= 50u && s.faults == 0 && s.unimpl == 0, "FA3: respawns %u (distance %u, off-screen %u), mean dh %.1f, max %.1f, %u faults",
+          (unsigned)(s.respawn[0] + s.respawn[1]), (unsigned)s.respawn[0], (unsigned)s.respawn[1], (double)mean, (double)maxd, (unsigned)s.faults);
+    /* The loop needs the ground gone at the old place too: with the window on slot 1 it does not come back on flat ground (reported). FA4 below
+       tests the flag itself */
+    soak_run(SA1_CHAR_KNUCKLES, SA1_FOLLOW_GAME_HISTORY | SA1_FOLLOW_GAME_VIEW, 30000u, &s, &mean, &maxd, &hidden);
+    printf("    the same soak with SA1_FOLLOW_GAME_HISTORY | SA1_FOLLOW_GAME_VIEW: respawns %u, mean dh %.1f, max %.1f (the probe, with the window on the proxy: 3,841)\n",
+           (unsigned)(s.respawn[0] + s.respawn[1]), (double)mean, (double)maxd);
+}
+
+/* the position history a respawn leaves: frame n of slot 1 (func_8C07CE82's arrays B_8C78C688, B_8C78C690) */
+static void history_of(const sa1g_world *w, uint32_t frame, float p[3])
+{
+    uint32_t ring = rd8(w, 0x8C78C688u + 1u), idx = (ring - frame) & 255u, g = 0x8C78C690u + idx * 0x60u + 12u;
+    p[0] = rdf(w, g);
+    p[1] = rdf(w, g + 4u);
+    p[2] = rdf(w, g + 8u);
+}
+
+static void test_fa4(void)
+{
+    static const uint32_t flags[2] = { 0u, SA1_FOLLOW_GAME_HISTORY };
+    int fi;
+    printf("FA4 the history a respawn leaves: every frame at the new place by default, frame 0 only with SA1_FOLLOW_GAME_HISTORY (Knuckles):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (fi = 0; fi < 2; fi++) {
+        sa1_leader_state hs;
+        sa1_character_id F = 0;
+        uint32_t p;
+        stats s;
+        memset(&s, 0, sizeof s);
+        host_state(&hs, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        follower_new_ex(SA1_CHAR_KNUCKLES, 0, flags[fi], &hs, &F);
+        for (p = 0; p < 60u; p++) {
+            sa1_follower_feed(g_ctx, F, &hs);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        host_state(&hs, 1500.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        sa1_follower_feed(g_ctx, F, &hs);
+        for (p = 0; p < 2u && s.respawn[0] == 0u; p++) {
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        {
+            const sa1g_world *w = sa1_character_world(g_ctx, F);
+            float h[3];
+            history_of(w, 100u, h);
+            if (fi == 0) {
+                CHECK(s.respawn[0] == 1u && h[1] > 40.0f, "FA4 default: EV_RESPAWN x%u, history frame 100 at y %.1f (the new place: 57)", (unsigned)s.respawn[0], (double)h[1]);
+            } else {
+                CHECK(s.respawn[0] == 1u && h[1] < 20.0f, "FA4 SA1_FOLLOW_GAME_HISTORY: EV_RESPAWN x%u, history frame 100 at y %.1f (the old place: the ground)", (unsigned)s.respawn[0], (double)h[1]);
+            }
+        }
+        sa1_character_destroy(g_ctx, F);
+    }
+}
+
+/* ---- FW1: the window on slot 1 ------------------------------------------------------------------------------------------ */
+static void test_fw1(void)
+{
+    static const int32_t kinds[2] = { SA1_CHAR_TAILS, SA1_CHAR_KNUCKLES };
+    int ki;
+    printf("FW1 `outrun` (a host-fed leader at 6 units per step): the ground stays under slot 1 (before: it ended at dh 531 / 529):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 2; ki++) {
+        sa1_leader_state hs;
+        sa1_character_id F = 0;
+        uint32_t p, below = 0;
+        float at_dh = 0.0f, maxdh = 0.0f;
+        host_state(&hs, -3500.0f, 0.0f, 0.0f, 6.0f, 0.0f);
+        follower_new_ex(kinds[ki], 0, 0, &hs, &F);
+        for (p = 0; p < 300u; p++) {
+            sa1_state fs;
+            float d;
+            host_state(&hs, -3500.0f + 6.0f * 2.0f * (float)p, 0.0f, 0.0f, 6.0f, 0.0f);
+            sa1_follower_feed(g_ctx, F, &hs);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+            state_of(F, &fs);
+            d = dist_h(hs.position, fs.position);
+            maxdh = d > maxdh ? d : maxdh;
+            if (fs.position[1] < -1.0f && d < 1000.0f && below++ == 0) {
+                at_dh = d;
+            }
+        }
+        CHECK(below == 0, "FW1 %s: pairs below y -1 while dh < 1,000: %u (first at dh %.1f); max dh %.1f", kind_name(kinds[ki]), (unsigned)below,
+              (double)at_dh, (double)maxdh);
+        sa1_character_destroy(g_ctx, F);
+    }
+}
+
+/* ---- FV1, FV2: the render at slot 1 ------------------------------------------------------------------------------------- */
+static void test_fv(uint32_t flags, const char *name)
+{
+    static const int32_t kinds[4] = { SA1_CHAR_TAILS, SA1_CHAR_SONIC, SA1_CHAR_KNUCKLES, SA1_CHAR_BIG };
+    int ki;
+    printf("%s `run`: the follower id's render at slot 1 in every pair (before: at the leader in 258 / 194 / 219 / 230 of 600):\n", name);
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 4; ki++) {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        sa1_character_id F = follower_new(kinds[ki], L, flags);
+        uint32_t p, at_f = 0, other = 0, none = 0, state_bad = 0, hidden = 0;
+        for (p = 0; p < 600u; p++) {
+            float sx, sy, c[3];
+            uint32_t b, tw;
+            sa1_state fs;
+            const sa1g_world *w;
+            sa1_follower_info oi;
+            script_run(p, &sx, &sy, &b);
+            tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+            state_of(F, &fs);
+            w = sa1_character_world(g_ctx, F);
+            tw = rd(w, A_PLAYER_TWP + 4u);
+            if (in_arena(tw) && (rdf(w, tw + 0x20u) != fs.position[0] || rdf(w, tw + 0x28u) != fs.position[2])) {
+                state_bad++;
+            }
+            if (render_centre(F, c)) {
+                if (dist_3(c, fs.position) < 30.0f) {
+                    at_f++;
+                } else {
+                    other++;
+                }
+            } else {
+                none++;
+            }
+            if (p % 300u == 299u) {
+                info_of(F, &oi);
+                hidden += oi.hidden_pairs;
+            }
+        }
+        /* a respawn's pair: the body was drawn at sub step 0, the state stands at the new place */
+        {
+            sa1_follower_info fi;
+            info_of(F, &fi);
+            CHECK(at_f + fi.respawns >= 600u && state_bad == 0,
+                  "%s %s: render at slot 1 %u, elsewhere %u (respawns %u), none %u; sa1_character_state = slot 1 (%u differ); hidden pairs %u", name,
+                  kind_name(kinds[ki]), (unsigned)at_f, (unsigned)other, (unsigned)fi.respawns, (unsigned)none, (unsigned)state_bad, (unsigned)hidden);
+        }
+        if (!(flags & SA1_FOLLOW_GAME_VIEW)) {
+            CHECK(hidden == 0, "%s %s: the view behind slot 1: 0 hidden pairs (%u)", name, kind_name(kinds[ki]), (unsigned)hidden);
+        }
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+/* ---- FT1, FT2, FT3 ---------------------------------------------------------------------------------------------------------- */
+static void test_ft1(void)
+{
+    int ki;
+    printf("FT1 the leader teleports by 1,510 units at pair 60:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        sa1_leader_state hs;
+        sa1_character_id F = 0;
+        stats s;
+        uint32_t p;
+        int ev_pair = -1;
+        float py = 0.0f;
+        int32_t mode_after = -1;
+        memset(&s, 0, sizeof s);
+        s.first_respawn_step = -1;
+        host_state(&hs, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        follower_new_ex(k_kinds[ki], 0, 0, &hs, &F);
+        for (p = 0; p < 100u; p++) {
+            uint32_t before = s.respawn[0];
+            sa1_state fs;
+            host_state(&hs, p < 60u ? 0.0f : 1500.0f, 0.0f, p < 60u ? 0.0f : 0.0f, 0.0f, 0.0f);
+            sa1_follower_feed(g_ctx, F, &hs);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+            state_of(F, &fs);
+            if (before == 0u && s.respawn[0] != 0u) {
+                ev_pair = (int)p;
+                py = fs.position[1];
+                mode_after = slot_mode(F);
+            }
+        }
+        CHECK(s.respawn[0] == 1u && ev_pair >= 60 && ev_pair <= 61 && fabsf(py - 57.0f) < 8.0f,
+              "FT1 %s: EV_RESPAWN arg 0 x%u at pair %d (the teleport at 60); y %.1f (camera + 50 = 57); mode %d", kind_name(k_kinds[ki]),
+              (unsigned)s.respawn[0], ev_pair, (double)py, (int)mode_after);
+        if (k_kinds[ki] == SA1_CHAR_TAILS) {
+            CHECK(mode_after == 15, "FT1 Tails flies in: mode %d", (int)mode_after);
+        }
+        sa1_character_destroy(g_ctx, F);
+    }
+}
+
+static void test_ft23(void)
+{
+    static const int32_t kinds[3] = { SA1_CHAR_TAILS, SA1_CHAR_SONIC, SA1_CHAR_KNUCKLES };
+    int ki;
+    printf("FT2, FT3 the leader on a 60-unit block (Tails flies up, the others by the off-screen respawn):\n");
+    build_ground(G_LEDGE);
+    set_ground();
+    for (ki = 0; ki < 3; ki++) {
+        sa1_leader_state hs;
+        sa1_character_id F = 0;
+        stats s;
+        uint32_t p;
+        int on_top = -1;
+        memset(&s, 0, sizeof s);
+        s.first_respawn_step = -1;
+        host_state(&hs, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        follower_new_ex(kinds[ki], 0, 0, &hs, &F);
+        for (p = 0; p < 300u; p++) {
+            sa1_state fs;
+            host_state(&hs, p < 30u ? 0.0f : 512.0f, p < 30u ? 0.0f : 60.0f, 0.0f, 0.0f, 0.0f);
+            sa1_follower_feed(g_ctx, F, &hs);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+            state_of(F, &fs);
+            if (on_top < 0 && fs.position[1] > 55.0f && fs.position[1] < 70.0f && dist_h(fs.position, hs.position) < 40.0f
+                && (fs.flags & SA1_STATE_ON_GROUND)) {
+                on_top = (int)p - 30;
+            }
+        }
+        if (kinds[ki] == SA1_CHAR_TAILS) {
+            CHECK(s.respawn[0] + s.respawn[1] == 0u && on_top >= 0 && on_top <= 120, "FT2 Tails: no respawn (%u), on the top after %d pairs (at most 120)",
+                  (unsigned)(s.respawn[0] + s.respawn[1]), on_top);
+        } else {
+            CHECK(s.respawn[1] == 1u && on_top >= 0 && on_top <= 200, "FT3 %s: EV_RESPAWN arg 1 x%u, on the top after %d pairs (at most 200)", kind_name(kinds[ki]),
+                  (unsigned)s.respawn[1], on_top);
+        }
+        sa1_character_destroy(g_ctx, F);
+    }
+}
+
+/* ---- FP1, FP2, FP3 -------------------------------------------------------------------------------------------------------- */
+static uint64_t world_steps(sa1_character_id id)
+{
+    const sa1g_world *w = sa1_character_world(g_ctx, id);
+    return w != NULL ? w->steps : 0u;
+}
+
+static void test_fp(void)
+{
+    sa1_character_id L, F;
+    stats s;
+    sa1_follower_info oi;
+    static const float dts[4] = { 0.0f, 1.0f / 30.0f, 4.0f / 30.0f, 9.0f / 30.0f };
+    uint32_t i, bad = 0;
+    printf("FP1 pairs slaved (the leader with dt 0, 1/30, 4/30, 9/30; the follower with arbitrary dt):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, 0);
+    memset(&s, 0, sizeof s);
+    for (i = 0; i < 40u; i++) {
+        uint64_t l0 = world_steps(L), f0 = world_steps(F), dl, df;
+        tick_input(L, 0, 1.0f, 0, 0.0f, dts[i % 4u]);
+        tick_input(F, 0, 0, 0, 0.0f, (float)(i % 3u) * 0.05f);
+        dl = world_steps(L) - l0;
+        df = world_steps(F) - f0;
+        if (dl != df) {
+            bad++;
+        }
+        poll_events(F, &s);
+    }
+    info_of(F, &oi);
+    CHECK(bad == 0 && oi.steps_behind == 0u && oi.steps_dropped == 0u && s.lost[2] == 0u, "FP1: the follower's steps = the leader's in %u of 40 ticks, behind %u, dropped %u",
+          (unsigned)(40u - bad), (unsigned)oi.steps_behind, (unsigned)oi.steps_dropped);
+    /* the backlog: the leader 3 ticks of 8 pairs with no follower tick: the ring (16 steps) overruns */
+    tick_input(L, 0, 1.0f, 0, 0.0f, 8.0f / 30.0f);
+    tick_input(L, 0, 1.0f, 0, 0.0f, 8.0f / 30.0f);
+    tick_input(L, 0, 1.0f, 0, 0.0f, 8.0f / 30.0f);
+    {
+        uint64_t f0 = world_steps(F);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+        info_of(F, &oi);
+        CHECK(world_steps(F) - f0 == 16u && oi.steps_dropped == 32u && oi.steps_behind == 0u && s.lost[2] == 1u,
+              "FP1 overrun: 16 steps run, %u dropped, EV_LEADER_LOST arg 2 x%u, behind %u", (unsigned)oi.steps_dropped, (unsigned)s.lost[2], (unsigned)oi.steps_behind);
+    }
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+
+    printf("FP2 the follower ticked before its leader in every frame:\n");
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, 0);
+    memset(&s, 0, sizeof s);
+    bad = 0;
+    for (i = 0; i < 60u; i++) {
+        uint64_t f0 = world_steps(F), df;
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(L, 0, 1.0f, 0, 0.0f, 1.0f / 30.0f);
+        df = world_steps(F) - f0;
+        if ((i == 0u && df != 0u) || (i > 0u && df != 2u)) {
+            bad++;
+        }
+        poll_events(F, &s);
+    }
+    info_of(F, &oi);
+    CHECK(bad == 0 && oi.steps_dropped == 0u && oi.steps_behind == 2u && s.lost[2] == 0u, "FP2: one pair late, never a drop or a doubled step (%u wrong ticks, %u dropped, behind %u)",
+          (unsigned)bad, (unsigned)oi.steps_dropped, (unsigned)oi.steps_behind);
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+
+    printf("FP3 sa1_follower_set_leader to a leader made in the same frame (review R.16):\n");
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, 0);
+    memset(&s, 0, sizeof s);
+    for (i = 0; i < 30u; i++) {
+        tick_input(L, 0, 1.0f, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    }
+    poll_events(F, &s);
+    {
+        sa1_character_id L2 = leader_new(SA1_CHAR_KNUCKLES, 0.0f, 12.0f, 40.0f);
+        uint64_t f0;
+        sa1_status st = sa1_follower_set_leader(g_ctx, F, L2);
+        tick_input(L2, 0, 1.0f, 0, 0.0f, 1.0f / 30.0f);
+        f0 = world_steps(F);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+        info_of(F, &oi);
+        CHECK(st == SA1_OK && s.lost[0] + s.lost[1] + s.lost[2] == 0u && oi.steps_dropped == 0u && world_steps(F) - f0 == 2u && oi.leader == L2,
+              "FP3: no EV_LEADER_LOST (%u), dropped %u, the first pair ran (%u steps), leader %d", (unsigned)(s.lost[0] + s.lost[1] + s.lost[2]), (unsigned)oi.steps_dropped,
+              (unsigned)(world_steps(F) - f0), (int)oi.leader);
+        sa1_character_destroy(g_ctx, L2);
+    }
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+/* ---- FC1, FL1 ------------------------------------------------------------------------------------------------------------- */
+static void test_fc1(void)
+{
+    sa1_character_id L, K, T;
+    stats s;
+    uint32_t p;
+    float mk = 0.0f, mt = 0.0f;
+    printf("FC1 a chain: Tails follows a Knuckles follower that follows Sonic:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    K = follower_new(SA1_CHAR_KNUCKLES, L, 0);
+    T = follower_new(SA1_CHAR_TAILS, K, 0);
+    memset(&s, 0, sizeof s);
+    for (p = 0; p < 400u; p++) {
+        float sx, sy;
+        uint32_t b;
+        sa1_state ls, ks, ts;
+        script_run(p, &sx, &sy, &b);
+        tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+        tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(T, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(T, &s);
+        state_of(L, &ls);
+        state_of(K, &ks);
+        state_of(T, &ts);
+        mk += dist_h(ls.position, ks.position);
+        mt += dist_h(ks.position, ts.position);
+    }
+    CHECK(s.faults == 0 && mk / 400.0f < 200.0f && mt / 400.0f < 200.0f, "FC1: both follow: mean dh Knuckles-Sonic %.1f, Tails-Knuckles %.1f; %u faults", (double)(mk / 400.0f),
+          (double)(mt / 400.0f), (unsigned)s.faults);
+    {
+        sa1_status st = sa1_follower_set_leader(g_ctx, K, T);
+        CHECK(st == SA1_ERR_INVALID_ARGUMENT, "FC1 a cycle is refused: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
+        st = sa1_follower_set_leader(g_ctx, K, K);
+        CHECK(st == SA1_ERR_INVALID_ARGUMENT, "FC1 itself is refused: %s", sa1_status_string(st));
+    }
+    sa1_character_destroy(g_ctx, T);
+    sa1_character_destroy(g_ctx, K);
+    sa1_character_destroy(g_ctx, L);
+}
+
+static void fatal_cb(sa1g_world *w, void *user)
+{
+    (void)w;
+    (void)user;
+    sa1g_fatal(0, "follower_test: this world dies here");
+}
+
+static void test_fl1(void)
+{
+    sa1_character_id L, F;
+    stats s;
+    sa1_follower_info oi;
+    sa1_state a, b;
+    uint32_t i;
+    printf("FL1 the leader destroyed, faulted:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, 0);
+    memset(&s, 0, sizeof s);
+    for (i = 0; i < 60u; i++) {
+        tick_input(L, 0, 1.0f, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    }
+    state_of(L, &a);
+    sa1_character_destroy(g_ctx, L);
+    for (i = 0; i < 150u; i++) {
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+    }
+    info_of(F, &oi);
+    state_of(F, &b);
+    CHECK(s.lost[0] == 1u && (oi.flags & SA1_FINFO_LEADER_LOST) && (oi.flags & SA1_FINFO_HOST_FED) && oi.leader == 0 && dist_h(a.position, b.position) < 30.0f,
+          "FL1 destroyed: EV_LEADER_LOST arg 0 x%u, flags %X, the follower stands %.1f units from the last snapshot", (unsigned)s.lost[0], (unsigned)oi.flags,
+          (double)dist_h(a.position, b.position));
+    sa1_character_destroy(g_ctx, F);
+
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, 0);
+    memset(&s, 0, sizeof s);
+    for (i = 0; i < 30u; i++) {
+        tick_input(L, 0, 1.0f, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    }
+    sa1g_world_call(sa1_character_world(g_ctx, L), fatal_cb, NULL);
+    for (i = 0; i < 10u; i++) {
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+    }
+    info_of(F, &oi);
+    CHECK(s.lost[1] == 1u && (oi.flags & SA1_FINFO_LEADER_LOST), "FL1 faulted: EV_LEADER_LOST arg 1 x%u, flags %X", (unsigned)s.lost[1], (unsigned)oi.flags);
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+/* ---- FH1: host-fed against the internal feed ----------------------------------------------------------------------------- */
+static void test_fh1(void)
+{
+    sa1_leader_state hs;
+    sa1_character_id A = 0, B = 0;
+    uint32_t p;
+    float worst = 0.0f;
+    printf("FH1 host-fed through sa1_follower_feed along `outrun`, against the same path written to the proxy directly:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    host_state(&hs, -3500.0f, 0.0f, 0.0f, 3.0f, 0.0f);
+    follower_new_ex(SA1_CHAR_TAILS, 0, 0, &hs, &A);
+    follower_new_ex(SA1_CHAR_TAILS, 0, 0, &hs, &B);
+    for (p = 0; p < 300u; p++) {
+        sa1g_world *bw = sa1_character_world(g_ctx, B);
+        sa1_state a, b;
+        float d;
+        sa1g_snap sn;
+        uint32_t k;
+        host_state(&hs, -3500.0f + 3.0f * 2.0f * (float)p, 0.0f, 0.0f, 3.0f, 0.0f);
+        sa1_follower_feed(g_ctx, A, &hs);
+        memset(&sn, 0, sizeof sn);
+        for (k = 0; k < 3; k++) {
+            sn.pos[k] = hs.position[k];
+            sn.mspd[k] = hs.velocity[k] / 60.0f;
+        }
+        sn.pspd[0] = 3.0f;
+        sn.flag = 1;
+        sn.tnorm[1] = 1.0f;
+        sn.jog_speed = rdf(bw, 0x8C1BDFE4u + 0x24u);
+        sn.run_speed = rdf(bw, 0x8C1BDFE4u + 0x28u);
+        sn.valid = 1;
+        bw->fol.host_pre = sn;
+        bw->fol.host_mid = sn;
+        tick_input(A, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(B, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+        state_of(A, &a);
+        state_of(B, &b);
+        d = dist_3(a.position, b.position);
+        worst = d > worst ? d : worst;
+    }
+    CHECK(worst <= 0.01f, "FH1: slot 1 within 0.01 units over 300 pairs: worst %.4f", (double)worst);
+    sa1_character_destroy(g_ctx, A);
+    sa1_character_destroy(g_ctx, B);
+}
+
+/* ---- FH2, FH4: the hold ------------------------------------------------------------------------------------------------------- */
+static void test_fh2(void)
+{
+    sa1_character_id L, F;
+    uint32_t i;
+    sa1_follower_info oi;
+    sa1_state fs, ls;
+    int mode6_at = -1, mode4 = 0;
+    printf("FH2 sa1_follower_hold on / off, and the follower follows again (review R.5):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, 0);
+    for (i = 0; i < 30u; i++) {
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+    }
+    CHECK(sa1_follower_hold(g_ctx, F, 1) == SA1_OK, "FH2 hold on");
+    for (i = 0; i < 4u; i++) {
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+        info_of(F, &oi);
+        if (oi.ai_mode == 6 && mode6_at < 0) {
+            mode6_at = (int)i + 1;
+        }
+    }
+    CHECK(mode6_at >= 1 && mode6_at <= 2 && (oi.flags & SA1_FINFO_HELD), "FH2 AI mode 6 after %d pairs (at most 2), SA1_FINFO_HELD %X", mode6_at, (unsigned)oi.flags);
+    state_of(F, &fs);
+    state_of(L, &ls);
+    printf("    held: slot 1 stands %.0f above its leader (review R.15: the host draws it elsewhere)\n", (double)(fs.position[1] - ls.position[1]));
+    CHECK(sa1_follower_hold(g_ctx, F, 0) == SA1_OK, "FH2 hold off");
+    for (i = 0; i < 2u; i++) {
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+    }
+    info_of(F, &oi);
+    state_of(F, &fs);
+    state_of(L, &ls);
+    CHECK(!(oi.flags & SA1_FINFO_HELD) && dist_h(fs.position, ls.position) <= 12.0f && fabsf(fs.position[1] - ls.position[1]) < 40.0f,
+          "FH2 off: within 12 units of the point behind the leader: dh %.1f, dy %.1f, AI mode %d", (double)dist_h(fs.position, ls.position),
+          (double)(fs.position[1] - ls.position[1]), (int)oi.ai_mode);
+    for (i = 0; i < 120u; i++) {
+        tick_input(L, 0, 1.0f, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+        info_of(F, &oi);
+        mode4 += oi.ai_mode == 4;
+    }
+    state_of(F, &fs);
+    state_of(L, &ls);
+    CHECK(oi.ai_mode == 4 && dist_h(fs.position, ls.position) < 400.0f, "FH2 follows again: AI mode %d (%d of 120 pairs in 4), dh %.1f", (int)oi.ai_mode, mode4,
+          (double)dist_h(fs.position, ls.position));
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+/* ---- FR1, FR2, FR3 ---------------------------------------------------------------------------------------------------------- */
+static void test_fr(void)
+{
+    sa1_leader_state hs;
+    sa1_character_id F = 0;
+    stats s;
+    uint32_t i;
+    sa1_state fs;
+    static const float yaws[3] = { 0.0f, 1.5707963f, 3.1415927f };
+    int y;
+    printf("FR1, FR2, FR3 the game's respawn request, the camera yaw, the host camera:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    host_state(&hs, 100.0f, 0.0f, 200.0f, 0.0f, 0.0f);
+    follower_new_ex(SA1_CHAR_TAILS, 0, 0, &hs, &F);
+    memset(&s, 0, sizeof s);
+    for (i = 0; i < 20u; i++) {
+        sa1_follower_feed(g_ctx, F, &hs);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+    }
+    CHECK(sa1_follower_respawn(g_ctx, F) == SA1_OK, "FR1 sa1_follower_respawn");
+    tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    poll_events(F, &s);
+    state_of(F, &fs);
+    CHECK(s.respawn[2] == 1u && fs.position[1] > 40.0f, "FR1: EV_RESPAWN arg 2 x%u, y %.1f (above the camera)", (unsigned)s.respawn[2], (double)fs.position[1]);
+    for (y = 0; y < 3; y++) {
+        for (i = 0; i < 20u; i++) {
+            sa1_follower_feed(g_ctx, F, &hs);
+            tick_input(F, 0, 0, 0, yaws[y], 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        sa1_follower_respawn(g_ctx, F);
+        tick_input(F, 0, 0, 0, yaws[y], 1.0f / 30.0f);
+        poll_events(F, &s);
+        state_of(F, &fs);
+        {
+            /* the eye 40 behind the proxy along the camera's forward (sa1_world_tick.c: forward = (-sin c, 0, -cos c), c = yaw - 0x4000 in BAMS: (cos yaw, 0, -sin yaw)) */
+            float ex = hs.position[0] - 40.0f * cosf(yaws[y]), ez = hs.position[2] + 40.0f * sinf(yaws[y]);
+            float dx = fs.position[0] - ex, dz = fs.position[2] - ez, d = sqrtf(dx * dx + dz * dz);
+            CHECK(d < 6.0f, "FR2 yaw %.0f degrees: the respawn point is %.1f units from the eye 40 behind the leader along it", (double)yaws[y] * 57.29578, (double)d);
+        }
+    }
+    {
+        sa1_input in;
+        memset(&in, 0, sizeof in);
+        in.struct_size = sizeof in;
+        in.host_flags = SA1_INPUT_HOST_CAMERA;
+        in.host_cam_pos[0] = 300.0f;
+        in.host_cam_pos[1] = 25.0f;
+        in.host_cam_pos[2] = -150.0f;
+        for (i = 0; i < 20u; i++) {
+            sa1_follower_feed(g_ctx, F, &hs);
+            sa1_character_tick(g_ctx, F, &in, 1.0f / 30.0f, NULL, NULL);
+            poll_events(F, &s);
+        }
+        sa1_follower_respawn(g_ctx, F);
+        sa1_character_tick(g_ctx, F, &in, 1.0f / 30.0f, NULL, NULL);
+        poll_events(F, &s);
+        state_of(F, &fs);
+        CHECK(fabsf(fs.position[0] - 300.0f) < 6.0f && fabsf(fs.position[1] - 75.0f) < 6.0f && fabsf(fs.position[2] + 150.0f) < 6.0f,
+              "FR3 the host camera: the respawn point (%.1f %.1f %.1f) = the camera + 50 Y (300 75 -150)", (double)fs.position[0], (double)fs.position[1], (double)fs.position[2]);
+    }
+    sa1_character_destroy(g_ctx, F);
+}
+
+/* ---- FK1, FE1 --------------------------------------------------------------------------------------------------------------- */
+static void test_fk_fe(void)
+{
+    uint32_t kinds = sa1_follower_kinds();
+    int32_t k;
+    sa1_character_id L, F, x = 0;
+    sa1_status st;
+    sa1_emote em;
+    sa1_state a, b;
+    printf("FK1, FE1 the kinds mask, the refusals:\n");
+    for (k = 0; k < SA1_CHAR_COUNT; k++) {
+        int on = (kinds >> k) & 1;
+        const char *why = sa1_follower_kind_reason(k);
+        CHECK(on ? why == NULL : why != NULL, "FK1 kind %d: bit %d, reason %s", (int)k, on, why ? why : "(none)");
+    }
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    st = follower_new_ex(SA1_CHAR_SUPER_SONIC, L, 0, NULL, &x);
+    CHECK(st == SA1_ERR_UNSUPPORTED && x == 0, "FK1 kind 8: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
+    st = follower_new_ex(SA1_CHAR_EGGMAN, L, 0, NULL, &x);
+    CHECK(st == SA1_ERR_UNSUPPORTED && x == 0, "FK1 Eggman: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
+    F = follower_new(SA1_CHAR_SONIC, L, 0);
+    tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    state_of(F, &a);
+    memset(&em, 0, sizeof em);
+    em.struct_size = sizeof em;
+    st = sa1_character_emote(g_ctx, F, &em);
+    CHECK(st == SA1_ERR_UNSUPPORTED && strstr(sa1_last_error(g_ctx), "followers do not take") != NULL, "FE1 emote: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
+    st = sa1_character_emote_stop(g_ctx, F, SA1_EMOTE_STOP_NOW);
+    CHECK(st == SA1_ERR_UNSUPPORTED, "FE1 emote stop: %s", sa1_status_string(st));
+    st = sa1_character_face(g_ctx, F, "A", 0u);
+    CHECK(st == SA1_ERR_UNSUPPORTED, "FE1 face: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
+    st = sa1_character_face_mode(g_ctx, F, 1u);
+    CHECK(st == SA1_ERR_UNSUPPORTED, "FE1 face mode: %s", sa1_status_string(st));
+    st = sa1_character_face_level(g_ctx, F, 0.5f, 0u);
+    CHECK(st == SA1_ERR_UNSUPPORTED, "FE1 face level: %s", sa1_status_string(st));
+    st = sa1_character_order(g_ctx, F, SA1_ORDER_SUPER);
+    CHECK(st == SA1_ERR_UNSUPPORTED && strstr(sa1_last_error(g_ctx), "followers do not take") != NULL, "FE1 order: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
+    state_of(F, &b);
+    CHECK(memcmp(&a, &b, sizeof a) == 0, "FE1 the world is unchanged");
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+/* ---- FD1, FU1 ------------------------------------------------------------------------------------------------------------------ */
+static void test_fd1(void)
+{
+    sa1_character_id L, F;
+    sa1_damage dm;
+    uint32_t i, hurt = 0, n = 0;
+    sa1_event ev[64];
+    const sa1g_world *w;
+    uint32_t t1, wt = 0;
+    int32_t m;
+    printf("FD1 sa1_character_damage on a follower hits slot 1 (the game's player-1 rule: knocked back, no ring scatter):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, 0);
+    for (i = 0; i < 40u; i++) {
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+    }
+    memset(&dm, 0, sizeof dm);
+    dm.struct_size = sizeof dm;
+    dm.object = 777u;
+    CHECK(sa1_character_damage(g_ctx, F, &dm) == SA1_OK, "FD1 the request");
+    tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    while (sa1_poll_events(g_ctx, ev, 64u, &n) == SA1_OK && n) {
+        for (i = 0; i < n; i++) {
+            hurt += ev[i].type == SA1_EVENT_HURT && ev[i].character == F;
+        }
+        n = 0;
+    }
+    w = sa1_character_world(g_ctx, F);
+    t1 = rd(w, A_PLAYER_TWP + 4u);
+    m = slot_mode(F);
+    if (in_arena(t1)) {
+        wt = rd(w, t1 + 4u) >> 16;
+    }
+    CHECK(hurt == 1u && wt > 100u && m == 13, "FD1: HURT of the follower's id x%u, slot 1 mode %d (13), wtimer %u", (unsigned)hurt, (int)m, (unsigned)wt);
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+static void test_fu1(void)
+{
+    sa1_character_id L;
+    uint32_t eq = 0;
+    printf("FU1 SA1_FOLLOW_SEED and SA1_FOLLOW_UPGRADES reach the world:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    {
+        sa1_follower_desc d;
+        sa1_character_id F = 0;
+        const sa1g_world *w;
+        memset(&d, 0, sizeof d);
+        d.struct_size = sizeof d;
+        d.kind = SA1_CHAR_TAILS;
+        d.leader = L;
+        d.flags = SA1_FOLLOW_SEED;
+        d.seed = 0x12345u;
+        sa1_follower_create(g_ctx, &d, &F);
+        w = sa1_character_world(g_ctx, F);
+        CHECK(w != NULL && rd(w, SA1G_ADDR_RAND) == 0x12345u, "FU1 the seed: rand state %X after the boot", (unsigned)(w != NULL ? rd(w, SA1G_ADDR_RAND) : 0u));
+        sa1_character_destroy(g_ctx, F);
+    }
+    {
+        sa1_follower_desc d;
+        sa1_character_id F = 0;
+        const sa1g_world *w;
+        uint32_t pw, p;
+        memset(&d, 0, sizeof d);
+        d.struct_size = sizeof d;
+        d.kind = SA1_CHAR_SONIC;
+        d.leader = L;
+        d.flags = SA1_FOLLOW_UPGRADES | SA1_FOLLOW_NO_SET;
+        d.upgrade_flags[0] = 0x8Du;     /* Sonic's light shoes: equipment 2 (PInitialize, code_8C06C300.c:83) */
+        d.num_upgrade_flags = 1u;
+        sa1_follower_create(g_ctx, &d, &F);
+        for (p = 0; p < 2u; p++) {
+            tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        }
+        poll_events(0, NULL);
+        w = sa1_character_world(g_ctx, F);
+        pw = rd(w, A_PLAYER_PWP + 4u);
+        if (in_arena(pw)) {
+            eq = rd(w, pw + 4u) & 0xFFFFu;
+        }
+        sa1_character_destroy(g_ctx, F);
+    }
+    CHECK(eq == 2u, "FU1 event flag 0x8D gives slot 1 the equipment %X (2)", (unsigned)eq);
+    sa1_character_destroy(g_ctx, L);
+}
+
+/* ---- FN1, FI1: the game's objects -------------------------------------------------------------------------------------------- */
+static uint32_t add_record(uint32_t type, float x, float y, float z, float p0)
+{
+    sa1_set_record r;
+    uint32_t id = 0;
+    memset(&r, 0, sizeof r);
+    r.struct_size = sizeof r;
+    r.type = type;
+    r.position[0] = x;
+    r.position[1] = y;
+    r.position[2] = z;
+    r.params[0] = p0;
+    if (sa1_set_add(g_ctx, &r, &id) != SA1_OK) {
+        printf("  sa1_set_add: %s\n", sa1_last_error(g_ctx));
+    }
+    return id;
+}
+
+static void test_fn1(void)
+{
+    sa1_character_id L, F;
+    uint32_t i, recs[32], live = 0, n = 0;
+    printf("FN1 SA1_FOLLOW_NO_SET with 32 rings round the follower:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (i = 0; i < 32u; i++) {
+        recs[i] = add_record(SA1_OBJTYPE_RING, 30.0f * cosf((float)i * 0.19635f), 8.0f, 30.0f * sinf((float)i * 0.19635f), 0.0f);
+    }
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, SA1_FOLLOW_NO_SET);
+    for (i = 0; i < 20u; i++) {
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+    }
+    {
+        uint32_t tmp[64];
+        n = 0;
+        sa1_set_live(g_ctx, F, tmp, 64u, &n);
+        live = n;
+        n = 0;
+        sa1_set_live(g_ctx, L, tmp, 64u, &n);
+    }
+    CHECK(live == 0u && n > 0u, "FN1: the follower's world holds %u records (the leader's %u)", (unsigned)live, (unsigned)n);
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+    for (i = 0; i < 32u; i++) {
+        sa1_set_remove(g_ctx, recs[i]);
+    }
+}
+
+/* the first task of the world running exec (0: none) */
+static uint32_t find_task(const sa1g_world *w, uint32_t exec)
+{
+    uint32_t l;
+    for (l = 0; l < 8u; l++) {
+        uint32_t tp = rd(w, SA1G_ADDR_TASK_LISTS + 4u * l), guard = 0;
+        while (tp != 0u && guard++ < 0x1000u) {
+            if ((rd(w, tp + 0x10u) & 0x1FFFFFFFu) == (exec & 0x1FFFFFFFu)) {
+                return tp;
+            }
+            tp = rd(w, tp);
+        }
+    }
+    return 0u;
+}
+
+static void test_fi1(void)
+{
+    /* D_8C1B9BA0's kinds: 0 speed shoes, 5 barrier (itembox_test.c). A host-fed leader in the air right above the box: the AI jumps after
+       him and the Sonic follower's jump ball breaks the box */
+    static const struct { uint32_t kind; const char *name; } boxes[2] = { { 5u, "barrier" }, { 0u, "speed shoes" } };
+    int bi;
+    printf("FI1 a box broken by a Sonic follower:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (bi = 0; bi < 2; bi++) {
+        sa1_leader_state hs;
+        sa1_character_id F = 0;
+        uint32_t rec, i, item_after = 0xFFFFu, broke = 0, shoes_pno = 0xFFu, after_draws = 0;
+        stats s;
+        const sa1g_world *w;
+        sa1_set_event se[32];
+        rec = add_record(SA1_OBJTYPE_ITEMBOX, 30.0f, 0.0f, 0.0f, (float)boxes[bi].kind);
+        memset(&s, 0, sizeof s);
+        host_state(&hs, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        follower_new_ex(SA1_CHAR_SONIC, 0, 0, &hs, &F);
+        w = sa1_character_world(g_ctx, F);
+        for (i = 0; i < 600u && s.faults == 0u; i++) {
+            uint32_t n = 0, k;
+            host_state(&hs, i < 30u ? 0.0f : 34.0f, i < 30u ? 0.0f : 24.0f, 0.0f, 0.0f, 0.0f);
+            hs.flags = i < 30u ? SA1_LEADER_ON_GROUND : 0u;
+            sa1_follower_feed(g_ctx, F, &hs);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+            sa1_poll_set_events(g_ctx, se, 32u, &n);
+            for (k = 0; k < n; k++) {
+                broke += se[k].type == SA1_SET_EVENT_BROKEN && se[k].character == F;
+            }
+            if (s.item[5] != 0u && item_after == 0xFFFFu) {
+                /* the refresh that reported it took it off */
+                uint32_t pw = rd(w, A_PLAYER_PWP);
+                item_after = in_arena(pw) ? (rd(w, pw + 4u) >> 16) & 0xFFFFu : 0xFFFFu;
+            }
+            if (bi == 1 && shoes_pno == 0xFFu) {
+                /* 8C07D3A0(pno): the speed-up task (8C07D2DA, then its exec 8C07D274) with the hitter's number in its awp (task +0x2C) */
+                uint32_t tp = find_task(w, 0x8C07D274u);
+                uint32_t awp = tp ? rd(w, tp + 0x2Cu) : 0u;
+                shoes_pno = in_arena(awp) ? rd8(w, awp) : 0xFFu;
+            }
+            if (broke != 0u && i > 40u && (bi == 1 ? shoes_pno != 0xFFu : s.item[5] != 0u)) {
+                uint32_t q;
+                /* the next pairs: no draw at the leader's place (the barrier's display frees itself when the bit is clear) */
+                for (q = 0; q < 8u; q++) {
+                    const sa1_render *r = NULL;
+                    uint32_t d;
+                    sa1_follower_feed(g_ctx, F, &hs);
+                    tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                    poll_events(F, &s);
+                    if (sa1_character_render(g_ctx, F, 1.0f, &r) == SA1_OK && r != NULL) {
+                        sa1_state fs;
+                        state_of(F, &fs);
+                        for (d = 0; d < r->num_draws; d++) {
+                            const sa1_draw *dd = &r->draws[d];
+                            if (dd->prim == SA1_PRIM_TRIANGLES && dd->count != 0u) {
+                                float c[3];
+                                memcpy(c, r->positions + 9u * dd->first, sizeof c);
+                                if (dist_3(c, hs.position) < 12.0f && dist_3(c, fs.position) > 15.0f) {
+                                    after_draws++;
+                                }
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        printf("    %s: broke after %u pairs (%u events), EV_ITEM arg 5 x%u, the proxy's item word %X, the speed-up task's player %u, draws at the leader's place after it %u\n",
+               boxes[bi].name, (unsigned)i, (unsigned)broke, (unsigned)s.item[5], (unsigned)item_after, (unsigned)shoes_pno, (unsigned)after_draws);
+        CHECK(s.faults == 0u, "FI1 %s: %u faults", boxes[bi].name, (unsigned)s.faults);
+        CHECK(broke != 0u, "FI1 %s: the follower broke the box", boxes[bi].name);
+        if (bi == 0) {
+            CHECK(s.item[5] == 1u && item_after == 0u && after_draws == 0u, "FI1 barrier: EV_ITEM arg 5 x%u, the proxy's item taken off: %X, no barrier draw at the leader (%u)",
+                  (unsigned)s.item[5], (unsigned)item_after, (unsigned)after_draws);
+        } else {
+            CHECK(s.item[1] + s.item[5] + s.item[8] == 0u && shoes_pno == 1u, "FI1 speed shoes: no EV_ITEM: they go to the hitter, slot 1 (the task's player %u)", (unsigned)shoes_pno);
+        }
+        sa1_character_destroy(g_ctx, F);
+        sa1_set_remove(g_ctx, rec);
+    }
+}
+
+/* ---- the board on slot 1 ----------------------------------------------------------------------------------------------------- */
+static sa1_status board_of(sa1_character_id id, int32_t on, uint32_t terrain, uint32_t flags)
+{
+    sa1_board_desc d;
+    memset(&d, 0, sizeof d);
+    d.struct_size = sizeof d;
+    d.on = on;
+    d.terrain = terrain;
+    d.flags = flags;
+    return sa1_character_board(g_ctx, id, &d);
+}
+
+static void bstate_of(sa1_character_id id, sa1_board_state *b)
+{
+    memset(b, 0, sizeof *b);
+    b->struct_size = sizeof *b;
+    sa1_character_board_state(g_ctx, id, b);
+}
+
+static int board_draws(sa1_character_id id, uint32_t *arch)
+{
+    const sa1_render *r = NULL;
+    uint32_t q;
+    int n = 0;
+    if (sa1_character_render(g_ctx, id, 1.0f, &r) != SA1_OK || r == NULL) {
+        return 0;
+    }
+    for (q = 0; q < r->num_draws; q++) {
+        if (r->draws[q].flags & SA1_DRAW_BOARD) {
+            n++;
+            if (arch != NULL) {
+                *arch = (uint32_t)r->draws[q].archive;
+            }
+        }
+    }
+    return n;
+}
+
+static int riding_mode(int32_t kind, int32_t mode)
+{
+    return kind == SA1_CHAR_TAILS ? (mode >= 48 && mode <= 54) : (mode >= 62 && mode <= 68);
+}
+
+static void test_fb1(void)
+{
+    static const int32_t kinds[2] = { SA1_CHAR_TAILS, SA1_CHAR_SONIC };
+    int ki;
+    printf("FB1 a Tails / Sonic follower gets on a board on a 15-degree snow slope behind a riding leader (U1, U2, U6, Row 16):\n");
+    build_slope(15.0f, SA1_SURFACE_SOLID | SA1_SURFACE_SNOW);
+    set_ground();
+    for (ki = 0; ki < 2; ki++) {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        sa1_character_id F = follower_new(kinds[ki], L, 0);
+        stats s;
+        uint32_t p, ride = 0, held = 0, board_pairs = 0, arch = 0, counter = 0xFFu;
+        int mode_after = -1;
+        sa1_status st;
+        sa1_board_state bs;
+        memset(&s, 0, sizeof s);
+        for (p = 0; p < 300u; p++) {
+            sa1_state ls;
+            float yaw;
+            state_of(L, &ls);
+            yaw = p ? ls.yaw : 0.0f;
+            if (p == 10u) {
+                board_of(L, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, 0);
+                st = board_of(F, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, 0);
+                CHECK(st == SA1_OK, "FB1 %s: sa1_character_board(ON): %s %s", kind_name(kinds[ki]), sa1_status_string(st), st == SA1_OK ? "" : sa1_last_error(g_ctx));
+            }
+            tick_input(L, 0, p >= 10u ? 1.0f : 0.0f, 0, yaw, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, yaw, 1.0f / 30.0f);
+            poll_events(F, &s);
+            if (p == 10u) {
+                mode_after = slot_mode(F);
+            }
+            if (p > 10u) {
+                ride += riding_mode(kinds[ki], slot_mode(F));
+                bstate_of(F, &bs);
+                held += (bs.flags & SA1_BSTATE_HELD) != 0;
+                if (board_draws(F, &arch)) {
+                    board_pairs++;
+                }
+                if (p == 12u && bs.board_task != 0) {
+                    const sa1g_world *w = sa1_character_world(g_ctx, F);
+                    counter = rd8(w, rd(w, bs.board_task + 0x20u) + 8u);
+                }
+            }
+        }
+        bstate_of(F, &bs);
+        CHECK(riding_mode(kinds[ki], mode_after) && s.board_on >= 1u, "FB1 %s: in a board mode after 1 pair (mode %d), EV_ON x%u", kind_name(kinds[ki]), (int)mode_after, (unsigned)s.board_on);
+        CHECK(counter == 1u, "FB1 %s: the board task's counter.b[0] = %u", kind_name(kinds[ki]), (unsigned)counter);
+        CHECK(held >= 240u, "FB1 %s: held %u pairs, in a board mode %u (of 289; the probe's 278, 286 of 300)", kind_name(kinds[ki]), (unsigned)held, (unsigned)ride);
+        {
+            const char *an = NULL;
+            uint32_t ant = 0;
+            sa1_texture_archive(g_ctx, kinds[ki], arch, &an, &ant);
+            /* U6, Row 16: the draws carry the archive board_variant says, never asserted to be variant 0 */
+            CHECK(board_pairs >= 200u && an != NULL && strcmp(an, kinds[ki] == SA1_CHAR_TAILS ? "MTX_BOARD0" : bs.board_variant ? "SB_BOARD1" : "MIW_B001") == 0,
+                  "FB1 %s: board draws in %u pairs, archive %u (%s); variant %u (the world's own pair parity)", kind_name(kinds[ki]), (unsigned)board_pairs, (unsigned)arch,
+                  an != NULL ? an : "?", (unsigned)bs.board_variant);
+        }
+        CHECK(s.faults == 0u, "FB1 %s: 0 faults (%u); mean: AI steers it through the analog record", kind_name(kinds[ki]), (unsigned)s.faults);
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+static void test_fb2_6(void)
+{
+    sa1_character_id L, F;
+    stats s;
+    uint32_t p, variants = 0, r;
+    sa1_board_state bs;
+    sa1_status st;
+    printf("FB2 OFF, kept board, FREE, re-entry on a follower; one ride per parity (Row 16):\n");
+    build_slope(15.0f, SA1_SURFACE_SOLID | SA1_SURFACE_SNOW);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_SONIC, L, 0);
+    memset(&s, 0, sizeof s);
+    for (p = 0; p < 10u; p++) {
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+    }
+    for (r = 0; r < 4u; r++) {
+        board_of(F, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, 0);
+        for (p = 0; p < 21u + r; p++) {
+            tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        bstate_of(F, &bs);
+        if (bs.flags & SA1_BSTATE_ON) {
+            variants |= 1u << bs.board_variant;
+        }
+        board_of(F, SA1_BOARD_OFF, 0, 0);
+        for (p = 0; p < 6u; p++) {
+            tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        bstate_of(F, &bs);
+        CHECK(!(bs.flags & SA1_BSTATE_ON) && (bs.flags & SA1_BSTATE_KEPT), "FB2 ride %u: off, a kept board (flags %X)", (unsigned)r, (unsigned)bs.flags);
+    }
+    CHECK(s.board_on == 4u && s.board_off == 4u, "FB2: EV_ON x%u, EV_OFF x%u", (unsigned)s.board_on, (unsigned)s.board_off);
+    CHECK(variants == 3u, "FB2: one ride per parity gives both variants on a Sonic follower (mask %u)", (unsigned)variants);
+    /* the game's re-entry: the kept board takes the rider again (board_test (j) on slot 1) */
+    board_of(F, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, SA1_BOARD_REUSE_KEPT);
+    for (p = 0; p < 4u; p++) {
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+    }
+    bstate_of(F, &bs);
+    CHECK((bs.flags & SA1_BSTATE_ON) && s.board_on == 5u, "FB2 re-entry with SA1_BOARD_REUSE_KEPT: flags %X, EV_ON x%u", (unsigned)bs.flags, (unsigned)s.board_on);
+    board_of(F, SA1_BOARD_OFF, 0, 0);
+    for (p = 0; p < 6u; p++) {
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+    }
+    st = board_of(F, SA1_BOARD_FREE, 0, 0);
+    tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    poll_events(F, &s);
+    bstate_of(F, &bs);
+    CHECK(st == SA1_OK && !(bs.flags & SA1_BSTATE_KEPT), "FB2 FREE: %s, flags %X", sa1_status_string(st), (unsigned)bs.flags);
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+
+    printf("FB3 a respawn while riding (the AI's order 24), and the long slope of recheck 3.5:\n");
+    {
+        sa1_leader_state hs;
+        sa1_character_id K = 0;
+        int mode_after;
+        memset(&s, 0, sizeof s);
+        host_state(&hs, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        follower_new_ex(SA1_CHAR_TAILS, 0, 0, &hs, &K);
+        for (p = 0; p < 10u; p++) {
+            sa1_follower_feed(g_ctx, K, &hs);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(K, &s);
+        }
+        board_of(K, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, 0);
+        for (p = 0; p < 20u; p++) {
+            sa1_follower_feed(g_ctx, K, &hs);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(K, &s);
+        }
+        sa1_follower_respawn(g_ctx, K);
+        sa1_follower_feed(g_ctx, K, &hs);
+        tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(K, &s);
+        mode_after = slot_mode(K);
+        bstate_of(K, &bs);
+        CHECK(s.board_off == 1u && (bs.flags & SA1_BSTATE_KEPT) && mode_after == 15, "FB3: EV_OFF x%u, a kept board (flags %X), Tails flies (mode %d)", (unsigned)s.board_off,
+              (unsigned)bs.flags, (int)mode_after);
+        sa1_character_destroy(g_ctx, K);
+
+        /* the owner's board went 7,800 HU in 38 s: 4.4 units per step: a host-fed leader pulling away down the slope */
+        memset(&s, 0, sizeof s);
+        host_state(&hs, 0.0f, 0.0f, 0.0f, 4.4f, 0.0f);
+        follower_new_ex(SA1_CHAR_TAILS, 0, 0, &hs, &K);
+        for (p = 0; p < 10u; p++) {
+            sa1_follower_feed(g_ctx, K, &hs);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(K, &s);
+        }
+        board_of(K, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, 0);
+        for (p = 0; p < 1140u; p++) {
+            float x = 4.4f * 2.0f * (float)p;
+            host_state(&hs, x, ground_y(x), 0.0f, 4.4f, 0.0f);
+            sa1_follower_feed(g_ctx, K, &hs);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(K, &s);
+        }
+        printf("    the long slope: 1,140 pairs behind a leader at 4.4 units per step: respawns %u + %u, EV_ON x%u, EV_OFF x%u, faults %u\n", (unsigned)s.respawn[0], (unsigned)s.respawn[1],
+               (unsigned)s.board_on, (unsigned)s.board_off, (unsigned)s.faults);
+        CHECK(s.faults == 0u && s.board_off <= s.respawn[0] + s.respawn[1], "FB3 the long slope: a respawn ends the ride, nothing else: %u faults, EV_OFF %u, respawns %u", (unsigned)s.faults,
+              (unsigned)s.board_off, (unsigned)(s.respawn[0] + s.respawn[1]));
+        sa1_character_destroy(g_ctx, K);
+    }
+
+    printf("FB4 ON with SA1_BOARD_START_PUSH in a follower world:\n");
+    {
+        sa1_leader_state hs;
+        sa1_character_id K = 0;
+        uint32_t fast = 0;
+        host_state(&hs, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        follower_new_ex(SA1_CHAR_SONIC, 0, 0, &hs, &K);
+        for (p = 0; p < 10u; p++) {
+            sa1_follower_feed(g_ctx, K, &hs);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+        }
+        board_of(K, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, SA1_BOARD_START_PUSH);
+        tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        for (p = 0; p < 40u; p++) {
+            const sa1g_world *w = sa1_character_world(g_ctx, K);
+            uint32_t pw1, pw0;
+            sa1_follower_feed(g_ctx, K, &hs);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+            pw1 = rd(w, A_PLAYER_PWP + 4u);
+            pw0 = rd(w, A_PLAYER_PWP);
+            if (in_arena(pw1) && rdf(w, pw1 + 0x38u) >= 4.0f && in_arena(pw0) && rdf(w, pw0 + 0x38u) == 0.0f) {
+                fast++;
+            }
+        }
+        CHECK(fast >= 40u, "FB4: slot 1 at >= 4.0 per step, the proxy restored by its refresh, in %u of 40 pairs", (unsigned)fast);
+        sa1_character_destroy(g_ctx, K);
+    }
+
+    printf("FB5 riding on SA1_SURFACE_BOARD_SNOW: attr & 0x8 in the follower's world only (U3):\n");
+    build_slope(15.0f, SA1_SURFACE_SOLID | SA1_SURFACE_BOARD_SNOW);
+    set_ground();
+    {
+        sa1_character_id L2 = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 40.0f);
+        sa1_character_id K = follower_new(SA1_CHAR_TAILS, L2, 0);
+        sa1_state_ex xs;
+        uint32_t f_on = 0, f_walk = 0, l_on = 0;
+        for (p = 0; p < 150u; p++) {
+            if (p == 60u) {
+                board_of(K, SA1_BOARD_ON, SA1_BOARD_TERRAIN_MAP, 0);
+            }
+            tick_input(L2, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+            memset(&xs, 0, sizeof xs);
+            xs.struct_size = sizeof xs;
+            sa1_character_state_ex(g_ctx, K, &xs);
+            if (xs.flags & SA1_STATE_ON_GROUND) {
+                if (p < 60u) {
+                    f_walk += (xs.attr & 0x8u) != 0u;
+                } else if (riding_mode(SA1_CHAR_TAILS, slot_mode(K))) {
+                    f_on += (xs.attr & 0x8u) != 0u;
+                }
+            }
+            sa1_character_state_ex(g_ctx, L2, &xs);
+            if (xs.flags & SA1_STATE_ON_GROUND) {
+                l_on += (xs.attr & 0x8u) != 0u;
+            }
+        }
+        CHECK(f_on > 30u && f_walk == 0u && l_on == 0u, "FB5: attr & 8 on the follower riding %u pairs, on foot %u, the leader %u", (unsigned)f_on, (unsigned)f_walk, (unsigned)l_on);
+        sa1_character_destroy(g_ctx, K);
+        sa1_character_destroy(g_ctx, L2);
+    }
+
+    printf("FB6 a Knuckles follower refused; a Sonic follower of a Super leader:\n");
+    build_slope(15.0f, SA1_SURFACE_SOLID | SA1_SURFACE_SNOW);
+    set_ground();
+    {
+        sa1_character_id L2 = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        sa1_character_id K = follower_new(SA1_CHAR_KNUCKLES, L2, 0);
+        st = board_of(K, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, 0);
+        CHECK(st == SA1_ERR_UNSUPPORTED, "FB6 Knuckles: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
+        sa1_character_destroy(g_ctx, K);
+        sa1_character_destroy(g_ctx, L2);
+        L2 = leader_new(SA1_CHAR_SUPER_SONIC, 0.0f, 12.0f, 0.0f);
+        if (L2 != 0) {
+            K = follower_new(SA1_CHAR_SONIC, L2, 0);
+            st = board_of(K, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, 0);
+            CHECK(st == SA1_OK, "FB6 a Sonic follower of a Super leader: %s (the follower is not Super)", sa1_status_string(st));
+            for (p = 0; p < 10u; p++) {
+                tick_input(L2, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                poll_events(0, NULL);
+            }
+            CHECK(riding_mode(SA1_CHAR_SONIC, slot_mode(K)), "FB6 it rides: mode %d", (int)slot_mode(K));
+            sa1_character_destroy(g_ctx, K);
+            sa1_character_destroy(g_ctx, L2);
+        } else {
+            CHECK(0, "FB6: no Super leader: %s", sa1_last_error(g_ctx));
+        }
+    }
+
+    printf("FH4 (reported, not gated: review R.5) a hold on a riding Tails follower without an OFF, 60 pairs:\n");
+    {
+        sa1_character_id L2 = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        sa1_character_id K = follower_new(SA1_CHAR_TAILS, L2, 0);
+        board_of(K, SA1_BOARD_ON, SA1_BOARD_TERRAIN_SNOW, 0);
+        for (p = 0; p < 10u; p++) {
+            tick_input(L2, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+        }
+        sa1_follower_hold(g_ctx, K, 1);
+        for (p = 0; p < 60u; p++) {
+            sa1_state fs;
+            sa1_follower_info fi;
+            tick_input(L2, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(K, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+            if (p % 20u == 0u || p == 59u) {
+                state_of(K, &fs);
+                info_of(K, &fi);
+                bstate_of(K, &bs);
+                printf("    pair %2u: AI mode %d, slot 1 mode %d, board flags %X, y %.0f\n", (unsigned)p, (int)fi.ai_mode, (int)slot_mode(K), (unsigned)bs.flags, (double)fs.position[1]);
+            }
+        }
+        sa1_character_destroy(g_ctx, K);
+        sa1_character_destroy(g_ctx, L2);
+    }
+}
+
+/* ---- FG1, FG2: the fishing C and the camera bit in follower worlds (recheck 4.5 items 1, 2) -------------------------------------- */
+static void push_cb(sa1g_world *w, void *user)
+{
+    (void)w;
+    (void)user;
+    /* 8C01AD2C: the EVENT level's push: mode function, adjust, kind (fish098.md 2.1) */
+    ((void (*)(sa1_gfn, int8_t, int8_t))gfn(0x8C01AD2Cu))(SA1_GFN_C(0x8C0239C2u), 3, 2);
+}
+
+static void test_fg(void)
+{
+    sa1_character_id L, F;
+    stats s;
+    uint32_t p;
+    sa1_input in;
+    printf("FG1 a Big follower: a request made in its world is reported for that id only; the camera bit on a follower id is ignored, 600 pairs:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_BIG, L, 0);
+    memset(&s, 0, sizeof s);
+    memset(&in, 0, sizeof in);
+    in.struct_size = sizeof in;
+    in.host_flags = SA1_INPUT_GAME_CAMERA;
+    for (p = 0; p < 600u; p++) {
+        float sx, sy;
+        uint32_t b;
+        script_run(p, &sx, &sy, &b);
+        tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+        sa1_character_tick(g_ctx, F, &in, 1.0f / 30.0f, NULL, NULL);
+        poll_events(F, &s);
+    }
+    {
+        sa1g_world *w = sa1_character_world(g_ctx, F);
+        sa1_camera_state cf, cl;
+        sa1_status sf, sl;
+        CHECK(s.faults == 0u && w->camreq.want == 0 && w->camreq.pre == NULL && w->camreq.running == 0, "FG1: 0 faults (%u); want %d, pre %s, running %d",
+              (unsigned)s.faults, (int)w->camreq.want, w->camreq.pre ? "set" : "NULL", (int)w->camreq.running);
+        /* a request in this world: the game's push of the FISHING mode (8C01AD2C(fn, adjust, kind), as Big's cast makes it) */
+        sa1g_world_call(w, push_cb, NULL);
+        memset(&cf, 0, sizeof cf);
+        cf.struct_size = sizeof cf;
+        memset(&cl, 0, sizeof cl);
+        cl.struct_size = sizeof cl;
+        sf = sa1_character_camera(g_ctx, F, 1.0f, &cf);
+        sl = sa1_character_camera(g_ctx, L, 1.0f, &cl);
+        if (sf == SA1_ERR_UNSUPPORTED) {
+            printf("    sa1_character_camera is not built yet in this archive: the report is not checked here (098-lib-lookcam's camreq_test)\n");
+        } else {
+            CHECK(sf == SA1_OK && (cf.flags & SA1_CAMSTATE_ACTIVE) && !(cf.flags & SA1_CAMSTATE_RUNNING) && sl == SA1_OK && cl.flags == 0u,
+                  "FG1: the follower's world reports ACTIVE, not RUNNING (flags %X); the leader's nothing (%X)", (unsigned)cf.flags, (unsigned)cl.flags);
+        }
+        tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        sa1_character_tick(g_ctx, F, &in, 1.0f / 30.0f, NULL, NULL);
+        poll_events(F, &s);
+        CHECK(s.faults == 0u && w->camreq.running == 0, "FG1: after the request 0 faults (%u), not running (%d)", (unsigned)s.faults, (int)w->camreq.running);
+    }
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+
+    printf("FG2 a Tails follower's real pushes of the camera functions (2 requests in 300 pairs on the probe): 0 faults:\n");
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, 0);
+    memset(&s, 0, sizeof s);
+    for (p = 0; p < 600u; p++) {
+        float sx, sy;
+        uint32_t b;
+        script_run(p, &sx, &sy, &b);
+        tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+    }
+    CHECK(s.faults == 0u && s.unimpl == 0u, "FG2: %u faults, %u unimplemented", (unsigned)s.faults, (unsigned)s.unimpl);
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+/* ---- FH3: the hidden pair's head ------------------------------------------------------------------------------------------------ */
+static void look_cb(sa1g_world *w, void *user)
+{
+    (void)w;
+    /* the game's own setter of the event look, player 0 */
+    ((void (*)(uint8_t, void *))gfn(0x8C07C318u))(0, user);
+}
+
+/* the zero screen (tests/world_replay.c wr_screen_of): the sphere visibility test never passes: every pair from here on is hidden */
+static void screen_off(sa1g_world *w)
+{
+    static const uint32_t words[] = { 0x8C88F5E4u, 0x8C88F5E8u, 0x8C88F5ECu, 0x8C88F600u, 0x8C88F604u, 0x8C88F608u, 0x8C88F60Cu,
+                                      0x8C88F618u, 0x8C88F61Cu, 0x8C88F620u, 0x8C88F624u, 0x8C88F628u, 0x8C88F644u, 0x8C88F648u };
+    size_t i;
+    for (i = 0; i < sizeof words / sizeof words[0]; i++) {
+        sa1g_world_wr32(w, words[i], 0u);
+    }
+}
+
+/* the triangles of the render as a copy (no shadow draws): 9 floats each */
+static float *render_copy(sa1_character_id id, uint32_t *n)
+{
+    const sa1_render *r = NULL;
+    float *o;
+    uint32_t q, m = 0;
+    *n = 0;
+    if (sa1_character_render(g_ctx, id, 1.0f, &r) != SA1_OK || r == NULL) {
+        return NULL;
+    }
+    o = (float *)malloc(9u * sizeof(float) * (r->num_triangles + 1u));
+    for (q = 0; q < r->num_draws; q++) {
+        const sa1_draw *dd = &r->draws[q];
+        if (dd->prim == SA1_PRIM_TRIANGLES && !(dd->flags & SA1_DRAW_SHADOW)) {
+            memcpy(o + 9u * m, r->positions + 9u * dd->first, 9u * sizeof(float) * dd->count);
+            m += dd->count;
+        }
+    }
+    *n = m;
+    return o;
+}
+
+/* the triangles that differ by more than 0.5 units, their count and centre (in a) */
+static uint32_t moved_set(const float *a, const float *b, uint32_t n, float c[3])
+{
+    uint32_t t, v, m = 0;
+    double s[3] = { 0, 0, 0 };
+    for (t = 0; t < n; t++) {
+        float d = 0.0f;
+        for (v = 0; v < 9; v++) {
+            float x = a[9u * t + v] - b[9u * t + v];
+            d += x * x;
+        }
+        if (d > 0.25f) {
+            for (v = 0; v < 9; v++) {
+                s[v % 3] += a[9u * t + v];
+            }
+            m++;
+        }
+    }
+    if (m != 0u) {
+        c[0] = (float)(s[0] / (3.0 * m));
+        c[1] = (float)(s[1] / (3.0 * m));
+        c[2] = (float)(s[2] / (3.0 * m));
+    }
+    return m;
+}
+
+static void test_fh3(void)
+{
+    sa1_character_id A, B;
+    sa1g_world *wa, *wb;
+    float pt[3] = { 0.0f, 20.0f, 100.0f };
+    uint32_t p, nd_a = 0, nd_b = 0, np_a = 0, np_b = 0, md, mp;
+    float *da, *db, *pa, *pb, cd[3] = { 0, 0, 0 }, cp[3] = { 0, 0, 0 };
+    printf("FH3 the hidden pair's head: a Knuckles world looking left through the game's own setter, the pair forced hidden:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    A = leader_new(SA1_CHAR_KNUCKLES, 0.0f, 12.0f, 0.0f);
+    B = leader_new(SA1_CHAR_KNUCKLES, 0.0f, 12.0f, 0.0f);
+    wa = sa1_character_world(g_ctx, A);
+    wb = sa1_character_world(g_ctx, B);
+    for (p = 0; p < 30u; p++) {
+        tick_input(A, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(B, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    }
+    for (p = 0; p < 16u; p++) {
+        sa1g_world_call(wa, look_cb, pt);
+        tick_input(A, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(B, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    }
+    poll_events(0, NULL);
+    da = render_copy(A, &nd_a);
+    db = render_copy(B, &nd_b);
+    screen_off(wa);
+    screen_off(wb);
+    sa1g_world_call(wa, look_cb, pt);
+    tick_input(A, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    tick_input(B, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+    poll_events(0, NULL);
+    pa = render_copy(A, &np_a);
+    pb = render_copy(B, &np_b);
+    md = da != NULL && db != NULL && nd_a == nd_b ? moved_set(da, db, nd_a, cd) : 0u;
+    mp = pa != NULL && pb != NULL && np_a == np_b ? moved_set(pa, pb, np_a, cp) : 0u;
+    {
+        float dx = cd[0] - cp[0], dy = cd[1] - cp[1], dz = cd[2] - cp[2], d = sqrtf(dx * dx + dy * dy + dz * dz);
+        printf("    drawn: %u triangles, %u moved by the look; the CPU pose: %u triangles, %u moved; hidden %d; the moved centre %.3f units apart\n", (unsigned)nd_a, (unsigned)md,
+               (unsigned)np_a, (unsigned)mp, sa1_capture_hidden(sa1_character_capture(g_ctx, A)), (double)d);
+        CHECK(sa1_capture_hidden(sa1_character_capture(g_ctx, A)) && md >= 300u && mp >= 300u, "FH3: the look moves the head in the hidden pair too: %u triangles (drawn %u), not at rest", (unsigned)mp, (unsigned)md);
+        CHECK(d <= 0.125f, "FH3: the CPU pose's head stands where it was drawn: %.3f units (0.5 HU at the Source scale is 0.125 units)", (double)d);
+    }
+    free(da);
+    free(db);
+    free(pa);
+    free(pb);
+    sa1_character_destroy(g_ctx, A);
+    sa1_character_destroy(g_ctx, B);
+}
+
+/* ---- FM1, FM2, FX1 -------------------------------------------------------------------------------------------------------------- */
+static double private_mb(void)
+{
+#if defined(_WIN32)
+    PROCESS_MEMORY_COUNTERS_EX pmc;
+    memset(&pmc, 0, sizeof pmc);
+    pmc.cb = sizeof pmc;
+    GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&pmc, sizeof pmc);
+    return (double)pmc.PrivateUsage / (1024.0 * 1024.0);
+#else
+    return 0.0;
+#endif
+}
+
+static double now_ms(void)
+{
+#if defined(_WIN32)
+    static LARGE_INTEGER f;
+    LARGE_INTEGER t;
+    if (!f.QuadPart) {
+        QueryPerformanceFrequency(&f);
+    }
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart * 1000.0 / (double)f.QuadPart;
+#else
+    return 0.0;
+#endif
+}
+
+static void test_fm1(void)
+{
+    double m1 = 0.0, m = 0.0;
+    uint32_t c, p;
+    printf("FM1 12 create / tick / destroy cycles:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (c = 0; c < 12u; c++) {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        sa1_character_id F = follower_new(SA1_CHAR_KNUCKLES, L, 0);
+        for (p = 0; p < 30u; p++) {
+            tick_input(L, 0, 1.0f, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+        }
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+        m = private_mb();
+        if (c == 0u) {
+            m1 = m;
+        }
+    }
+    CHECK(m - m1 <= 0.5, "FM1: no growth: private memory after cycle 1 %.2f MB, after cycle 12 %.2f MB", m1, m);
+}
+
+static void test_fm2(void)
+{
+    uint32_t n = sizeof(void *) == 8 ? 99u : 32u, i, p, faults = 0, tickerr = 0;
+    static sa1_character_id F[128];
+    sa1_character_id L;
+    double m0, m1, t0, sum = 0.0;
+    stats s;
+    printf("FM2 %u Knuckles, 600 pairs (review R.10: 32 on the 32-bit target):\n", (unsigned)n);
+    build_ground(G_FLAT);
+    set_ground();
+    m0 = private_mb();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    for (i = 0; i < n; i++) {
+        F[i] = follower_new(SA1_CHAR_KNUCKLES, L, SA1_FOLLOW_NO_SET);
+        if (F[i] == 0) {
+            n = i;
+            break;
+        }
+    }
+    m1 = private_mb();
+    memset(&s, 0, sizeof s);
+    for (p = 0; p < 600u; p++) {
+        float sx, sy;
+        uint32_t b;
+        script_run(p, &sx, &sy, &b);
+        tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+        t0 = now_ms();
+        for (i = 0; i < n; i++) {
+            if (tick_input(F[i], 0, 0, 0, 0.0f, 1.0f / 30.0f) != SA1_OK) {
+                tickerr++;
+            }
+        }
+        sum += now_ms() - t0;
+        poll_events(F[0], &s);
+    }
+    faults = s.faults;
+    printf("    %u followers: +%.0f MB private (%.2f each); %.3f ms per pair for all (%.4f per follower)\n", (unsigned)n, m1 - m0, (m1 - m0) / (double)(n ? n : 1), sum / 600.0,
+           sum / 600.0 / (double)(n ? n : 1));
+    CHECK(faults == 0u && tickerr == 0u, "FM2: 0 faults (%u), 0 tick errors (%u)", (unsigned)faults, (unsigned)tickerr);
+    for (i = 0; i < n; i++) {
+        sa1_character_destroy(g_ctx, F[i]);
+    }
+    sa1_character_destroy(g_ctx, L);
+}
+
+static uint32_t fnv(uint32_t h, const void *p, size_t n)
+{
+    const uint8_t *b = (const uint8_t *)p;
+    size_t i;
+    for (i = 0; i < n; i++) {
+        h = (h ^ b[i]) * 16777619u;
+    }
+    return h;
+}
+
+static void test_fx1(void)
+{
+    sa1_character_id L, A, B;
+    uint32_t p, ha = 2166136261u, hb = 2166136261u, kinds, k;
+    printf("FX1 two identical followers identical; x86 = x64 (the DETERMINISM line):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    A = follower_new(SA1_CHAR_TAILS, L, 0);
+    B = follower_new(SA1_CHAR_TAILS, L, 0);
+    for (p = 0; p < 300u; p++) {
+        float sx, sy;
+        uint32_t b;
+        sa1_state a, c;
+        script_run(p, &sx, &sy, &b);
+        tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+        tick_input(A, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        tick_input(B, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+        state_of(A, &a);
+        state_of(B, &c);
+        ha = fnv(ha, a.position, sizeof a.position);
+        hb = fnv(hb, c.position, sizeof c.position);
+    }
+    CHECK(ha == hb, "FX1: identical followers: %08X, %08X", (unsigned)ha, (unsigned)hb);
+    sa1_character_destroy(g_ctx, A);
+    sa1_character_destroy(g_ctx, B);
+    /* one more for the cross-target line: every kind */
+    kinds = 2166136261u;
+    for (k = 0; k < 6u; k++) {
+        sa1_character_id F = follower_new(k_kinds[k], L, 0);
+        for (p = 0; p < 120u; p++) {
+            sa1_state a;
+            tick_input(L, 0, 1.0f, (p % 40u) == 20u ? SA1_BUTTON_JUMP : 0u, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+            state_of(F, &a);
+            kinds = fnv(kinds, a.position, sizeof a.position);
+        }
+        sa1_character_destroy(g_ctx, F);
+    }
+    sa1_character_destroy(g_ctx, L);
+    printf("DETERMINISM follower %08X %08X\n", (unsigned)ha, (unsigned)kinds);
+}
+
+/* ---- BRINGUP (--long, F4) ------------------------------------------------------------------------------------------------------- */
+typedef struct course_stats {
+    uint32_t faults, unimpl, respawn_d, respawn_o;
+    float mean_dh, max_dh;
+} course_stats;
+
+static void course_run(int32_t kind, int ground, float leader_y, uint32_t pairs, int mode, course_stats *o)
+{
+    /* mode 0 a live Sonic runs along +X with jumps, 1 he stands, 2 he stands backed against the wall (a host-fed point), 3 a host-fed point on a ledge over a void */
+    sa1_character_id L = 0, F = 0;
+    stats s;
+    double sum = 0.0;
+    uint32_t p;
+    sa1_leader_state hs;
+    float px = ground == G_VOID_LEDGE ? -200.0f : ground == G_WALL ? 240.0f : 0.0f;
+    memset(&s, 0, sizeof s);
+    memset(o, 0, sizeof *o);
+    (void)leader_y;
+    host_state(&hs, px, 0.0f, 0.0f, 0.0f, 0.0f);
+    if (mode == 0) {
+        L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        F = follower_new(kind, L, 0);
+    } else {
+        follower_new_ex(kind, 0, 0, &hs, &F);
+    }
+    for (p = 0; p < pairs; p++) {
+        sa1_state fs, ls;
+        float d;
+        if (mode == 0) {
+            tick_input(L, 0, (p % 300u) < 200u ? 1.0f : 0.0f, (p % 60u) == 30u ? SA1_BUTTON_JUMP : 0u, 0.0f, 1.0f / 30.0f);
+            state_of(L, &ls);
+        } else {
+            sa1_follower_feed(g_ctx, F, &hs);
+            memcpy(ls.position, hs.position, sizeof ls.position);
+        }
+        tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+        poll_events(F, &s);
+        state_of(F, &fs);
+        d = dist_h(ls.position, fs.position);
+        sum += d;
+        o->max_dh = d > o->max_dh ? d : o->max_dh;
+    }
+    o->mean_dh = (float)(sum / pairs);
+    o->faults = s.faults;
+    o->unimpl = s.unimpl;
+    o->respawn_d = s.respawn[0];
+    o->respawn_o = s.respawn[1];
+    sa1_character_destroy(g_ctx, F);
+    if (L != 0) {
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+static void test_bringup(void)
+{
+    static const struct { const char *name; int ground; int mode; } courses[] = {
+        { "flat", G_FLAT, 0 }, { "ledge 60", G_LEDGE, 0 }, { "pit", G_PIT, 0 }, { "gaps", G_GAPS, 0 }, { "wall", G_WALL, 2 }, { "ledge over a void", G_VOID_LEDGE, 3 },
+    };
+    uint32_t c;
+    int ki;
+    printf("BRINGUP every kind on the courses (F4; distance statistics, respawns by cause, faults):\n");
+    for (c = 0; c < sizeof courses / sizeof courses[0]; c++) {
+        build_ground(courses[c].ground);
+        set_ground();
+        for (ki = 0; ki < 6; ki++) {
+            course_stats o;
+            course_run(k_kinds[ki], courses[c].ground, 0.0f, 900u, courses[c].mode, &o);
+            CHECK(o.faults == 0u && o.unimpl == 0u, "BRINGUP %-18s %-9s mean dh %6.1f max %7.1f respawns %3u distance %3u off-screen; %u faults, %u unimplemented", courses[c].name,
+                  kind_name(k_kinds[ki]), (double)o.mean_dh, (double)o.max_dh, (unsigned)o.respawn_d, (unsigned)o.respawn_o, (unsigned)o.faults, (unsigned)o.unimpl);
+        }
+    }
+    {
+        static const float degs[2] = { 15.0f, 30.0f };
+        int dg;
+        for (dg = 0; dg < 2; dg++) {
+            build_slope(degs[dg], SA1_SURFACE_SOLID);
+            set_ground();
+            for (ki = 0; ki < 6; ki++) {
+                course_stats o;
+                course_run(k_kinds[ki], G_FLAT, 0.0f, 600u, 0, &o);
+                CHECK(o.faults == 0u && o.unimpl == 0u, "BRINGUP ramp %.0f degrees  %-9s mean dh %6.1f max %7.1f respawns %3u distance %3u off-screen; %u faults, %u unimplemented", (double)degs[dg],
+                      kind_name(k_kinds[ki]), (double)o.mean_dh, (double)o.max_dh, (unsigned)o.respawn_d, (unsigned)o.respawn_o, (unsigned)o.faults, (unsigned)o.unimpl);
+            }
+        }
+    }
+}
+
+/* the rest of F4's list: a moving platform (8C07506E carries players through fwp[pno]), host water (drowning sets flag 4 for slot 1,
+   code_8C07BE68.c:91-92), SET rings and both item boxes, host objects of the followers' mask, an E-102 and a Knuckles leader (G6) */
+static void test_bringup2(void)
+{
+    int ki;
+    printf("BRINGUP a moving platform (the leader on it, it rides 200 units to and fro):\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        sa1_collision_tri pt[2];
+        float a[3] = { -80.0f, 0.0f, -80.0f }, b[3] = { -80.0f, 0.0f, 80.0f }, c[3] = { 80.0f, 0.0f, -80.0f }, d[3] = { 80.0f, 0.0f, 80.0f };
+        float pos[3] = { 0.0f, 20.0f, 0.0f };
+        uint32_t obj = 0, p;
+        sa1_character_id F = 0;
+        sa1_leader_state hs;
+        stats s;
+        memcpy(pt[0].v[0], a, 12);
+        memcpy(pt[0].v[1], b, 12);
+        memcpy(pt[0].v[2], c, 12);
+        pt[0].surface = SA1_SURFACE_SOLID;
+        memcpy(pt[1].v[0], c, 12);
+        memcpy(pt[1].v[1], b, 12);
+        memcpy(pt[1].v[2], d, 12);
+        pt[1].surface = SA1_SURFACE_SOLID;
+        sa1_collision_object_add(g_ctx, pt, 2u, pos, NULL, &obj);
+        memset(&s, 0, sizeof s);
+        host_state(&hs, 0.0f, 20.0f, 0.0f, 0.0f, 0.0f);
+        follower_new_ex(k_kinds[ki], 0, 0, &hs, &F);
+        for (p = 0; p < 600u; p++) {
+            float x = 200.0f * sinf((float)p * 0.02f);
+            pos[0] = x;
+            sa1_collision_object_move(g_ctx, obj, pos, NULL);
+            host_state(&hs, x, 20.0f, 0.0f, 200.0f * 0.02f * cosf((float)p * 0.02f) / 2.0f, 0.0f);
+            sa1_follower_feed(g_ctx, F, &hs);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        CHECK(s.faults == 0u && s.unimpl == 0u, "BRINGUP platform %-9s %u respawns; %u faults, %u unimplemented", kind_name(k_kinds[ki]), (unsigned)(s.respawn[0] + s.respawn[1]),
+              (unsigned)s.faults, (unsigned)s.unimpl);
+        sa1_character_destroy(g_ctx, F);
+        sa1_collision_object_remove(g_ctx, obj);
+    }
+    printf("BRINGUP host water (the leader in a pool, 1,200 pairs: slot 1 drowns by the game's player-1 rule: at breath 1,080 + 780 steps flag 4, a knock-back taken in the same step, no death; E-102 has no breath):\n");
+    build_ground(G_POOL);
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        sa1_character_id F = 0;
+        sa1_leader_state hs;
+        stats s;
+        uint32_t p, flag4 = 0, deaths = 0, resp = 0, hurt = 0;
+        int max_breath = 0;
+        sa1_input in;
+        sa1_event ev[64];
+        memset(&s, 0, sizeof s);
+        host_state(&hs, 384.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        follower_new_ex(k_kinds[ki], 0, 0, &hs, &F);
+        memset(&in, 0, sizeof in);
+        in.struct_size = sizeof in;
+        in.host_flags = SA1_INPUT_HOST_WATER_KNOWN | SA1_INPUT_HOST_IN_WATER;
+        for (p = 0; p < 1200u; p++) {
+            const sa1g_world *w = sa1_character_world(g_ctx, F);
+            uint32_t t, n = 0, k;
+            sa1_follower_feed(g_ctx, F, &hs);
+            sa1_character_tick(g_ctx, F, &in, 1.0f / 30.0f, NULL, NULL);
+            t = rd(w, A_PLAYER_TWP + 4u);
+            if (in_arena(t) && (rd(w, t + 4u) & 4u)) {
+                flag4++;
+            }
+            {
+                sa1_state_ex x;
+                memset(&x, 0, sizeof x);
+                x.struct_size = sizeof x;
+                if (sa1_character_state_ex(g_ctx, F, &x) == SA1_OK && x.breath_timer > max_breath) {
+                    max_breath = x.breath_timer;
+                }
+            }
+            while (sa1_poll_events(g_ctx, ev, 64u, &n) == SA1_OK && n) {
+                for (k = 0; k < n; k++) {
+                    s.faults += ev[k].type == SA1_EVENT_FAULT;
+                    s.unimpl += ev[k].type == SA1_EVENT_UNIMPLEMENTED;
+                    deaths += ev[k].type == SA1_EVENT_DEATH;
+                    resp += ev[k].type == SA1_EVENT_FOLLOW && ev[k].id == SA1_FOLLOW_EV_RESPAWN;
+                    hurt += ev[k].type == SA1_EVENT_HURT;
+                }
+                n = 0;
+            }
+        }
+        CHECK(s.faults == 0u && s.unimpl == 0u && deaths == 0u && (k_kinds[ki] == SA1_CHAR_GAMMA ? max_breath == 0 && hurt == 0u : max_breath >= 1860 && hurt == 1u),
+              "BRINGUP water %-9s longest breath %d, HURT x%u, death events %u, flag 4 at a pair's end %u, respawns %u; %u faults, %u unimplemented", kind_name(k_kinds[ki]), max_breath, (unsigned)hurt, (unsigned)deaths,
+              (unsigned)flag4, (unsigned)resp,
+              (unsigned)s.faults, (unsigned)s.unimpl);
+        sa1_character_destroy(g_ctx, F);
+    }
+    printf("BRINGUP SET rings and both item boxes on the course, host objects of the mask ENEMY | HAZARD:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        sa1_character_id L, F;
+        stats s;
+        uint32_t i, p, recs[64], nrec = 0, ho[6], taken = 0;
+        sa1_set_event se[32];
+        for (i = 0; i < 40u; i++) {
+            recs[nrec++] = add_record(SA1_OBJTYPE_RING, 60.0f + 12.0f * (float)i, 8.0f, 0.0f, 0.0f);
+        }
+        for (i = 0; i < 9u; i++) {
+            recs[nrec++] = add_record(i % 2u ? SA1_OBJTYPE_ITEMBOX_AIR : SA1_OBJTYPE_ITEMBOX, 80.0f + 50.0f * (float)i, i % 2u ? 12.0f : 0.0f, 12.0f, (float)i);
+        }
+        for (i = 0; i < 6u; i++) {
+            sa1_hostobj_desc hd;
+            memset(&hd, 0, sizeof hd);
+            hd.struct_size = sizeof hd;
+            hd.kind = i % 2u ? SA1_HOSTOBJ_HAZARD : SA1_HOSTOBJ_ENEMY;
+            hd.position[0] = 100.0f + 70.0f * (float)i;
+            hd.position[1] = 6.0f;
+            hd.position[2] = -6.0f;
+            hd.armor = -1;
+            hd.touch = -1;
+            hd.num_shapes = 1;
+            hd.shapes[0].form = SA1_SHAPE_SPHERE;
+            hd.shapes[0].size[0] = 6.0f;
+            ho[i] = 0;
+            sa1_hostobj_add(g_ctx, &hd, &ho[i]);
+        }
+        L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        sa1_hostobj_world_mask(g_ctx, L, 0u);
+        F = follower_new(k_kinds[ki], L, 0);
+        sa1_hostobj_world_mask(g_ctx, F, (1u << SA1_HOSTOBJ_ENEMY) | (1u << SA1_HOSTOBJ_HAZARD));
+        memset(&s, 0, sizeof s);
+        for (p = 0; p < 900u; p++) {
+            uint32_t n = 0, k;
+            tick_input(L, 0, (p % 300u) < 150u ? 0.6f : -0.6f, (p % 90u) == 45u ? SA1_BUTTON_JUMP : 0u, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+            sa1_poll_set_events(g_ctx, se, 32u, &n);
+            for (k = 0; k < n; k++) {
+                taken += se[k].character == F && se[k].type == SA1_SET_EVENT_GONE;
+            }
+        }
+        CHECK(s.faults == 0u && s.unimpl == 0u, "BRINGUP objects %-9s the follower's world took %u records (GONE), EV_ITEM %u %u %u; %u respawns; %u faults, %u unimplemented", kind_name(k_kinds[ki]),
+              (unsigned)taken, (unsigned)s.item[1], (unsigned)s.item[5], (unsigned)s.item[8], (unsigned)(s.respawn[0] + s.respawn[1]), (unsigned)s.faults, (unsigned)s.unimpl);
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+        for (i = 0; i < nrec; i++) {
+            sa1_set_remove(g_ctx, recs[i]);
+        }
+        for (i = 0; i < 6u; i++) {
+            sa1_hostobj_remove(g_ctx, ho[i], SA1_HOSTOBJ_REMOVE_SILENT);
+        }
+    }
+    printf("BRINGUP a leader of each other kind (G6: counter.b[1], the physics row), a Sonic and a Tails follower, 300 pairs:\n");
+    for (ki = 0; ki < 6; ki++) {
+        sa1_character_id L = leader_new(k_kinds[ki], 0.0f, 12.0f, 0.0f);
+        sa1_character_id F = follower_new(SA1_CHAR_SONIC, L, 0), G = follower_new(SA1_CHAR_TAILS, L, 0);
+        stats s, s2;
+        uint32_t p;
+        memset(&s, 0, sizeof s);
+        memset(&s2, 0, sizeof s2);
+        for (p = 0; p < 300u; p++) {
+            tick_input(L, 0, 1.0f, (p % 60u) == 30u ? SA1_BUTTON_JUMP : 0u, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(G, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        CHECK(s.faults == 0u && s.unimpl == 0u, "BRINGUP leader %-9s %u faults, %u unimplemented", kind_name(k_kinds[ki]), (unsigned)s.faults, (unsigned)s.unimpl);
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, G);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+/* COST (--only COST, --long): the cost of the view behind slot 1, the same run with and without SA1_FOLLOW_GAME_VIEW */
+static void test_cost(void)
+{
+    static const int32_t kinds[2] = { SA1_CHAR_TAILS, SA1_CHAR_KNUCKLES };
+    uint32_t n = sizeof(void *) == 8 ? 32u : 16u, ki, mode;
+    printf("COST %u followers of one leader, 300 pairs of `run`, ms per follower and pair (read the archive's build and the machine's load with it):\n", (unsigned)n);
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 2; ki++) {
+        for (mode = 0; mode < 2; mode++) {
+            static sa1_character_id F[64];
+            sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+            double sum = 0.0, best = 1e30, t0, t1;
+            uint32_t i, p;
+            for (i = 0; i < n; i++) {
+                F[i] = follower_new(kinds[ki], L, SA1_FOLLOW_NO_SET | (mode ? SA1_FOLLOW_GAME_VIEW : 0u));
+            }
+            for (p = 0; p < 300u; p++) {
+                float sx, sy;
+                uint32_t b;
+                script_run(p, &sx, &sy, &b);
+                tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+                t0 = now_ms();
+                for (i = 0; i < n; i++) {
+                    tick_input(F[i], 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                }
+                t1 = now_ms() - t0;
+                sum += t1;
+                if (t1 < best) {
+                    best = t1;
+                }
+            }
+            printf("    %-8s %-22s mean %.4f, best pair %.4f\n", kind_name(kinds[ki]), mode ? "SA1_FOLLOW_GAME_VIEW" : "view behind slot 1", sum / 300.0 / (double)n, best / (double)n);
+            for (i = 0; i < n; i++) {
+                sa1_character_destroy(g_ctx, F[i]);
+            }
+            sa1_character_destroy(g_ctx, L);
+        }
+    }
+}
+
+static void test_soak(void)
+{
+    int ki;
+    printf("SOAK 30,000 random-leader pairs per kind:\n");
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        stats s;
+        float mean, maxd;
+        uint32_t hidden;
+        soak_run(k_kinds[ki], 0, 30000u, &s, &mean, &maxd, &hidden);
+        CHECK(s.faults == 0u && s.unimpl == 0u, "SOAK %-9s mean dh %6.1f max %7.1f respawns %u distance %u off-screen, hidden (sampled) %u; %u faults, %u unimplemented; sounds %u", kind_name(k_kinds[ki]),
+              (double)mean, (double)maxd, (unsigned)s.respawn[0], (unsigned)s.respawn[1], (unsigned)hidden, (unsigned)s.faults, (unsigned)s.unimpl, (unsigned)s.sounds);
+    }
+}
+
+#if defined(FT_STUBHITS)
+/* a scratch probe only (r098/follow/stubhits.py): which boundary stub of gen/policy/stubs.tsv a follower world reaches, per kind */
+extern uint32_t sa1g_stubhit[];
+extern const char *const sa1g_stubname[];
+extern const uint32_t sa1g_stubcount;
+
+static void test_stubs(void)
+{
+    int ki;
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        stats st;
+        float mean, maxd;
+        uint32_t hidden, i;
+        memset(sa1g_stubhit, 0, sizeof(uint32_t) * sa1g_stubcount);
+        soak_run(k_kinds[ki], 0, 3000u, &st, &mean, &maxd, &hidden);
+        printf("STUBS %-9s:", kind_name(k_kinds[ki]));
+        for (i = 0; i < sa1g_stubcount; i++) {
+            if (sa1g_stubhit[i] != 0u) {
+                printf(" %s x%u", sa1g_stubname[i], (unsigned)sa1g_stubhit[i]);
+            }
+        }
+        printf("\n");
+    }
+}
+#endif
+
+int main(int argc, char **argv)
+{
+    sa1_host h;
+    sa1_load_options lo;
+    sa1_coords co;
+    const char *gdi = getenv("SA1_TEST_GDI");
+    int i;
+    for (i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--long")) {
+            g_long = 1;
+        } else if (!strcmp(argv[i], "--only") && i + 1 < argc) {
+            g_only = argv[++i];
+        } else {
+            gdi = argv[i];
+        }
+    }
+    if (gdi == NULL || !*gdi) {
+        printf("usage: follower_test [--long] [--only CASE] GDI\n");
+        return 2;
+    }
+    sa1_host_defaults(&h);
+    h.log = log_cb;
+    h.log_level = SA1_LOG_WARN;
+    if (sa1_init(&h, &g_ctx) != SA1_OK) {
+        return 1;
+    }
+    sa1_coords_preset(SA1_COORDS_PRESET_NATIVE, &co);
+    sa1_set_coords(g_ctx, &co);
+    memset(&lo, 0, sizeof lo);
+    lo.struct_size = sizeof lo;
+    lo.characters = (1u << SA1_CHAR_SONIC) | (1u << SA1_CHAR_TAILS) | (1u << SA1_CHAR_KNUCKLES) | (1u << SA1_CHAR_AMY) | (1u << SA1_CHAR_GAMMA) | (1u << SA1_CHAR_BIG) |
+                    (1u << SA1_CHAR_SUPER_SONIC);
+    lo.flags = SA1_LOAD_DEFAULT;
+    if (SA1_FAILED(sa1_load_disc(g_ctx, gdi, &lo))) {
+        printf("load: %s\n", sa1_last_error(g_ctx));
+        return 1;
+    }
+    printf("follower_test: libsa1 %s, %d-bit, kinds mask %03X\n", sa1_version_string(), (int)(sizeof(void *) * 8), (unsigned)sa1_follower_kinds());
+    if (sa1_follower_kinds() == 0u) {
+        printf("FAIL: \"%s\": this is the optimised archive with the gate closed; run the -O0 build\n", sa1_follower_kind_reason(0));
+        return 1;
+    }
+    if (want("FS1")) test_fs1();
+    if (g_only != NULL && !strcmp(g_only, "FS2")) {
+        g_fs_soak = 1;
+        test_fs1();
+    }
+    if (want("FA1")) test_fa1();
+    if (want("FA2")) test_fa2();
+    if (want("FA4")) test_fa4();
+    if (want("FW1")) test_fw1();
+    if (want("FV1")) test_fv(0u, "FV1");
+    if (want("FV2")) test_fv(SA1_FOLLOW_GAME_VIEW, "FV2");
+    if (want("FT1")) test_ft1();
+    if (want("FT2")) test_ft23();
+    if (want("FP")) test_fp();
+    if (want("FC1")) test_fc1();
+    if (want("FL1")) test_fl1();
+    if (want("FH1")) test_fh1();
+    if (want("FH2")) test_fh2();
+    if (want("FH3")) test_fh3();
+    if (want("FR")) test_fr();
+    if (want("FK")) test_fk_fe();
+    if (want("FD1")) test_fd1();
+    if (want("FU1")) test_fu1();
+    if (want("FN1")) test_fn1();
+    if (want("FI1")) test_fi1();
+    if (want("FB1")) test_fb1();
+    if (want("FB2")) test_fb2_6();
+    if (want("FG")) test_fg();
+    if (want("FM1")) test_fm1();
+    if (want("FX1")) test_fx1();
+    if (want("FM2")) test_fm2();
+    if (g_long || (g_only != NULL && !strcmp(g_only, "COST"))) test_cost();
+    if (g_long || (g_only != NULL && !strcmp(g_only, "FA3"))) {
+        if (want("FA3") || g_long) test_fa3();
+    }
+    if (g_long || (g_only != NULL && !strcmp(g_only, "BRINGUP"))) test_bringup();
+    if (g_long || (g_only != NULL && !strcmp(g_only, "BRINGUP2"))) test_bringup2();
+    if (g_long || (g_only != NULL && !strcmp(g_only, "SOAK"))) test_soak();
+#if defined(FT_STUBHITS)
+    if (g_only != NULL && !strcmp(g_only, "STUBS")) test_stubs();
+#endif
+    sa1_shutdown(g_ctx);
+    printf("follower_test: %d failures\n", g_fail);
+    return g_fail ? 1 : 0;
+}

@@ -942,7 +942,7 @@ static void ho_sort(ho_state *S, uint32_t n)
 
 static int ho_player_pos(const sa1g_world *w, float p[3])
 {
-    uint32_t twp = ho_rd32(w, SA1G_ADDR_PLAYER_TWP);
+    uint32_t twp = ho_rd32(w, SA1G_ADDR_PLAYER_TWP + 4u * (uint32_t)w->slot);   /* round 0.9.8: the character slot */
     if (!ho_arena(twp)) {
         return 0;
     }
@@ -1119,7 +1119,7 @@ static void ho_window(sa1g_world *w, ho_state *S, const sa1ho_registry *R)
 /* ---- the character side before the executor (design 2.5), every step --------------------------------------------- */
 static void ho_hurt_push(sa1g_world *w, uint32_t object, uint32_t lost, uint32_t flags)
 {
-    uint32_t twp = ho_ptwp(w, 0);
+    uint32_t twp = ho_ptwp(w, (uint32_t)w->slot);
     float pos[3] = { 0.0f, 0.0f, 0.0f };
     if (ho_arena(twp)) {
         ho_rd3(w, twp + 0x20u, pos);
@@ -1159,7 +1159,8 @@ static uint32_t ho_deathzone_task(const sa1g_world *w)
 static void ho_char_pre(sa1g_world *w, const ho_state *S)
 {
     sa1g_ho_char *c = &w->ho;
-    uint32_t twp = ho_ptwp(w, 0), pwp = ho_ppwp(w, 0), mwp = ho_pmwp(w, 0), tflag, wt, item, i;
+    uint32_t twp = ho_ptwp(w, (uint32_t)w->slot), pwp = ho_ppwp(w, (uint32_t)w->slot), mwp = ho_pmwp(w, (uint32_t)w->slot), tflag, wt,
+             item, i;
     int32_t rings;
     int pend;
     /* round 0.9.1 (E1, sadc docs/research/gsa1_070_drown.md with its Review R3.6 / R4.2): what hostobj_post's death rules
@@ -1287,7 +1288,7 @@ static void ho_pre(sa1g_world *w, int32_t sub, void *user)
         }
     }
     ho_char_pre(w, S);
-    twp = ho_rd32(w, SA1G_ADDR_PLAYER_TWP);
+    twp = ho_rd32(w, SA1G_ADDR_PLAYER_TWP + 4u * (uint32_t)w->slot);
     w->ho_wtimer = ho_arena(twp) ? ho_rd16(w, twp + 0x06u) : 0u;
 }
 
@@ -1924,7 +1925,7 @@ static uint32_t ho_lift_mode(uint32_t chr)
 static void ho_held_update(sa1g_world *w, const ho_state *S, int32_t sub)
 {
     sa1g_ho_char *c = &w->ho;
-    uint32_t twp = ho_ptwp(w, 0), pwp = ho_ppwp(w, 0), obj = 0, phase = SA1_HOLD_NONE, chr, mode;
+    uint32_t twp = ho_ptwp(w, (uint32_t)w->slot), pwp = ho_ppwp(w, (uint32_t)w->slot), obj = 0, phase = SA1_HOLD_NONE, chr, mode;
     int32_t k = -1;
     if (S != NULL && ho_arena(twp) && ho_arena(pwp)) {
         uint32_t htp = ho_rd32(w, pwp + 0x68u);
@@ -2058,7 +2059,7 @@ static void ho_post(sa1g_world *w, int32_t sub, void *user)
 {
     ho_state *S = ho_state_of(w);
     sa1g_ho_char *c = &w->ho;
-    uint32_t twp = ho_rd32(w, SA1G_ADDR_PLAYER_TWP), pwp = ho_ppwp(w, 0), wt, k, item;
+    uint32_t twp = ho_rd32(w, SA1G_ADDR_PLAYER_TWP + 4u * (uint32_t)w->slot), pwp = ho_ppwp(w, (uint32_t)w->slot), wt, k, item;
     int hurt = 0, death = 0;
     (void)sub;
     (void)user;
@@ -2186,7 +2187,7 @@ void sa1ho_world_tail(const struct sa1g_world *w, sa1ho_tail *out)
     out->rings = (int16_t)ho_rd16(w, SA1G_ADDR_RINGS);
     out->lives = (int8_t)ho_rd8(w, HO_ADDR_LIVES);
     out->score = ho_rd32(w, HO_ADDR_SCORE);
-    twp = ho_rd32(w, SA1G_ADDR_PLAYER_TWP);
+    twp = ho_rd32(w, SA1G_ADDR_PLAYER_TWP + 4u * (uint32_t)w->slot);
     out->invulnerable_steps = ho_arena(twp) ? ho_rd16(w, twp + 0x06u) : 0u;
     out->hurt_steps = w->ho_hurt_steps;
     out->held_object = w->ho.held_phase == SA1_HOLD_CARRYING || w->ho.held_phase == SA1_HOLD_THROWING

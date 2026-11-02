@@ -75,6 +75,29 @@ def keep_noscreen(refdir, name):
     return False
 
 
+def route_args(extra_all):
+    """the options of --route. Takes a --route-except out of extra_all and adds it to the list below; an explicit
+    --route-only wins; an exe without one of the names ignores it. A stage reference leaves these to the original:
+    * func_8C019F4A, in a --ga build (a plain --pc build has the original by the #if in its file). The camera core hands
+      the mode its parameters in R4, and the lowered call has no argument (libsa1's code map checks the signature, and
+      the modes libsa1 runs take none), so an assembly mode reads a stale R4 and the camera differs within 7 steps.
+    * ADVERTISE's C. No reference here loads that image, and it shares the load slot with the stage overlays. The image
+      guard (src/t_sim.c guard_hook) runs a branch to a guarded address as a call of the original, so a stage's own
+      branch target at the same offset breaks: STG01's BT L0C900020 against func_8C900020 faults in frame 0.
+      `sa1h menu --route` routes it (draw2d.py diff, the charsel references)."""
+    if "--route-only" in extra_all:
+        return ["--route"]
+    names = ["func_8C019F4A"]
+    for src in sorted(glob.glob(os.path.join(ROOT, "src", "overlays", "advertise", "*.c"))):
+        base = os.path.basename(src)
+        names += [base, "advertise__" + base]       # the file's name in a plain build and in a --ga build
+    if "--route-except" in extra_all:
+        k = extra_all.index("--route-except")
+        names = extra_all[k + 1].split(",") + names
+        del extra_all[k:k + 2]
+    return ["--route", "--route-except", ",".join(names)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--exe", default=os.path.join(HARNESS, "build", "sa1h.exe"))
@@ -103,6 +126,7 @@ def main():
         print("%s writes version-1 traces; the references are version 2: rebuild it first" % a.exe)
         return 1
     extra_all = a.extra.split()
+    route_opts = route_args(extra_all) if a.route else []
     screen_forced = "--screen" in extra_all or "--no-screen" in extra_all
     if a.update and not screen_forced and sa1trace.exe_screen_mode(a.exe) != 2:
         print("%s does not set up the screen by default; the references have it (flag 8): rebuild it first, "
@@ -120,9 +144,7 @@ def main():
         if first.startswith("# args:"):
             extra = first[len("# args:"):].split()
         ref = os.path.join(refdir, name + a.ref_suffix)
-        cmd = [a.exe, "trace", "--input", "@" + script, "--print", "0"] + extra + extra_all
-        if a.route:
-            cmd.append("--route")
+        cmd = [a.exe, "trace", "--input", "@" + script, "--print", "0"] + extra + extra_all + route_opts
         out = os.path.join(a.outdir, name)
         notes = []
         if a.update or not os.path.exists(ref + ".bin"):

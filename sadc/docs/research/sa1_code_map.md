@@ -45,7 +45,7 @@ The game code is ordered like the original source tree and is *grouped by subsys
 8C055D20  angle/vector utils + MSetPosition, matrix capture, object helpers
 8C059A80  common stage objects (springs, dash panels, item boxes, ...), path-work objects
 8C06C0C0  ======== PLAYER COMMON (physics, motion, welds, player API) 8C06C0C0-8C07DEC0 ========
-8C07DEC0  debug texture viewer, race AI, Tails AI, vs-boss AI, RING
+8C07DEC0  the menus' 2D library (8C07DEC0-8C07F560; dialog / sphere helpers 8C0A5840-8C0A69A8; charsel098.md 1.3), race AI, Tails AI, vs-boss AI, RING
 8C088120  progress flags, PATH library, counters + HUD, title, story, SET manager
 8C091C20  SHADOWS, SOUND, TASK SYSTEM + heap, texture lists, file loaders, SPR particles
 8C0A0220  debug menus/editors, emblem

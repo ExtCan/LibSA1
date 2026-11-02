@@ -78,14 +78,15 @@ sa1set_registry *sa1set_registry_of(const sa1_context *ctx)
     if (ctx == NULL) {
         return NULL;
     }
-    tab_lock();
+    /* round 0.9.8 (T2, sadc docs/research/gsa1_098_plan.md 6.4): every step of every world asks this, on many threads: no lock for the read. An entry is
+     * written under the lock by a call of its own context, which never runs during that context's ticks (libsa1.h SA1_API_PARALLEL); a reader only ever
+     * matches its own entry, and a pointer word is read whole */
     for (i = 0; i < SA1SET_TABLE; i++) {
-        if (g_tab[i].ctx == ctx) {
+        if (*(const sa1_context *const volatile *)&g_tab[i].ctx == ctx) {
             r = g_tab[i].r;
             break;
         }
     }
-    tab_unlock();
     return r;
 }
 

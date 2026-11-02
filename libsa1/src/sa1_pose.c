@@ -315,6 +315,12 @@ static void apply_welds(const sa1_charset *cs, const sa1_object *o, int32_t obje
 sa1_status sa1_pose_evaluate(sa1_context *ctx, const sa1_charset *cs, sa1_instance *inst, int32_t object,
                              int32_t motion, float frame, uint32_t flags)
 {
+    return sa1_pose_evaluate_ov(ctx, cs, inst, object, motion, frame, flags, NULL, 0u);
+}
+
+sa1_status sa1_pose_evaluate_ov(sa1_context *ctx, const sa1_charset *cs, sa1_instance *inst, int32_t object, int32_t motion,
+                                float frame, uint32_t flags, const sa1_pose_override *ov, uint32_t nov)
+{
     const sa1_object *o;
     const sa1_motion *mo = NULL;
     float root[12], f = 0.0f;
@@ -363,6 +369,19 @@ sa1_status sa1_pose_evaluate(sa1_context *ctx, const sa1_charset *cs, sa1_instan
         ang[0] = nd->ang[0];
         ang[1] = nd->ang[1];
         ang[2] = nd->ang[2];
+        {
+            /* round 0.9.8: the caller's values for a few nodes (the world's head and eyes): a key of the motion still wins */
+            uint32_t q;
+            for (q = 0; q < nov; q++) {
+                if (ov[q].node == i) {
+                    memcpy(pos, ov[q].pos, sizeof pos);
+                    ang[0] = ov[q].ang[0];
+                    ang[1] = ov[q].ang[1];
+                    ang[2] = ov[q].ang[2];
+                    fl &= ~(uint32_t)(SA1_EVAL_UNIT_POS | SA1_EVAL_UNIT_ANG);
+                }
+            }
+        }
         if (mo && i < mo->num_nodes) {
             const sa1_motion_node *mn = &mo->nodes[i];
             if (mn->num_pos) {

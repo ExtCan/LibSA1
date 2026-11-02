@@ -4,7 +4,7 @@ docs/libsa1_integration.md 9.1 V5-V7, 11 "First milestone", Phase 7) against bui
 
     py -3.12 tests/build_replay.py [--target x86_64-windows|x86-windows|x86_64-linux|all] [--run]
                                    [--sadc DIR] [--gdi FILE] [--out DIR] [--tolerant] [--no-stage-tasks] [--pure]
-                                   [--trace NAME]...
+                                   [--trace NAME]... [-j N]
 
 Run it from LIB after `py -3.12 build.py --target <target>` (the archive must hold the whole lowered game). The test
 is compiled with the flags of the world tests (src/world/build_world_tests.py: the world core's flags,
@@ -14,7 +14,9 @@ is compiled with the flags of the world tests (src/world/build_world_tests.py: t
 build/replay/<target>), then for every reference trace
     py -3.12 <sadc>/harness/tools/sa1trace.py diff <sadc>/build/traces/ref/NAME.bin <out>/<target>/NAME.bin --ulps 0
 (V6, and NAME.reseed.bin for V5, NAME.disc.bin for DISC mode). With --target all, the outputs of x86_64-windows and
-x86-windows must be byte-identical (V7); x86_64-linux is built (and run on a Linux host).
+x86-windows must be byte-identical (V7); x86_64-linux is built (and run on a Linux host). -j N (default: every core): the
+replay_test runs of a target and its sa1trace.py diffs run N at a time; a trace is in one run and its outputs have its name, so
+nothing is shared, and every output is printed whole in the fixed order. The targets run one after the other.
 
 Strict is the default and the gate for all ten reference traces: replay_test fails unless every record of V6, V5 and
 DISC is identical in every decoded field and raw blob (DISC = FAITHFUL, no known issue), and every sa1trace.py diff
@@ -41,6 +43,7 @@ tails_sh1, L05A2 knux_rm3, L03A1 amy_tp2, L10A0 gamma_fe1, L01A2 big_ec3; made w
 and the user's GD-ROM dump (--gdi, default $SA1_TEST_GDI; never copied).
 """
 import argparse
+import concurrent.futures
 import filecmp
 import glob
 import os
@@ -105,6 +108,20 @@ ITEMBOX = ["itembox_ec1", "itembox_1_ec1", "itembox_2_ec1", "itembox_3_ec1", "it
            "itembox_6_ec1", "itembox_7_ec1", "itembox_8_ec1", "itembox_roll_ec1", "itembox_shell_ec1", "itembox_gamma_ec1",
            "itembox_tails_ec1", "itembox_knux_ec1", "itembox_amy_ec1", "itembox_big_ec1", "itembox_hammer_ec1",
            "itembox_tailatk_sh1", "itembox_hammer_tp2", "itembox_super_free"]
+# round 0.9.8 (sadc docs/research/fish098.md 7): Big casting into the Emerald Coast act 3 lake (FISHING, SLOW, the lure camera,
+# the catch's pops). The camera's own compare is tests/camreq_test.c; here the normal strict replay
+FISHCAM = ["fish_c3_ec3", "fish_d2_ec3", "fish_s1_ec3"]
+# round 0.9.8 (F2, F3; sadc docs/research/gsa1_096_plan.md 6.1 tasks 2, 10 with its review R.8): the game's own 1.5P Tails, references with a
+# player-1 sidecar NAME.p1.bin. They do not go to replay_test: tests/follower_replay.c runs each name twice, FOLLOW (one world with both
+# players, players 0 and 1 and the AI compared in-process) and FOLLOWC (the production boot: slot 0 a proxy fed from player 0's records). A
+# FOLLOW name without its reference, sidecar or landtable dump fails the run, and a whole-list run without a FOLLOW name fails too.
+FOLLOW = ["wv_follow_run", "wv_follow_pit", "wv_follow_offscreen", "sd_follow"]
+FOLLOWC = ["wv_follow_run", "wv_follow_pit", "wv_follow_offscreen", "sd_follow"]
+# Windy Valley's list-2 task 0C908AE0 (STG02, no C) draws rand() after the players: the world's rand_state is the reference's minus those
+# draws (follower_replay checks that: the LCG distance). sa1trace.py diff takes every other decoded field there
+FOLLOW_NO_RAND = "stick_x,stick_y,buttons,pad_on,pad_press,analog_ang,analog_stroke,mode,smode,id,btimer,twp_flag,wtimer,ang,pos,mspd,macc," \
+    "ang_aim,pspd,pacc,floor_normal,dotp,attr,last_attr,pwp_flag,jumptimer,nocontimer,waittimer,reqaction,action,lastaction,nextaction,nframe," \
+    "equipment,item,land_count,px_calls,px_rand,px_frame_counter,px_rings,px_gravity,frame_counter,rings,gravity"
 REPLAY_MAX_JOBS = 16    # replay_test.c MAX_JOBS
 REPLAY_DISC_IMAGES = 4  # src/world/sa1_api_world.c SA1W_DISC_IMAGES: character kinds per stage in one DISC context
 
@@ -137,6 +154,14 @@ def build(key, sadc):
     if r.returncode != 0:
         raise SystemExit("FAILED: " + " ".join(cmd))
     print("[%s] built %s" % (key, exe))
+    exe2 = os.path.join(out, "follower_replay" + (".exe" if key.endswith("windows") else ""))
+    cmd = [sys.executable, "-m", "ziglang", "cc", *flags, os.path.join("tests", "follower_replay.c"), lib, "-o", exe2, *libs]
+    r = subprocess.run(cmd, cwd=LIB, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+    if r.stdout.strip():
+        print(r.stdout.rstrip())
+    if r.returncode != 0:
+        raise SystemExit("FAILED: " + " ".join(cmd))
+    print("[%s] built %s" % (key, exe2))
     return exe
 
 
@@ -173,42 +198,111 @@ def replay_chunks(sadc, traces):
     return chunks
 
 
-def run(key, exe, sadc, gdi, out_dir, extra, traces):
+def run_chunk(cmd):
+    """one replay_test run: its exit code and its whole output"""
+    r = subprocess.run(cmd, cwd=LIB, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return r.returncode, r.stdout
+
+
+def run_diff(cmd, sadc):
+    """one sa1trace.py diff: its exit code and the lines to show"""
+    d = subprocess.run(cmd, cwd=sadc, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+    code = d.returncode
+    if code != 0:
+        # without --all the tool names only the first diverging fields: show every one
+        d = subprocess.run(cmd + ["--all"], cwd=sadc, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           errors="replace")
+    return code, d.stdout.rstrip().splitlines()
+
+
+def run(key, exe, sadc, gdi, out_dir, extra, traces, jobs):
     od = os.path.join(out_dir, key)
     os.makedirs(od, exist_ok=True)
     for f in glob.glob(os.path.join(od, "*.bin")):
         os.remove(f)
     rc = False
-    # replay_test keeps at most REPLAY_MAX_JOBS traces, and its DISC context of one stage holds at most
-    # REPLAY_DISC_IMAGES character kinds: one run per chunk (round 0.9.4: ITEMBOX has six kinds in Emerald Coast act 1)
-    for chunk in replay_chunks(sadc, traces):
-        cmd = [os.path.join(LIB, exe), "--out", od] + extra + sum((["--trace", t] for t in chunk), []) + [sadc, gdi]
-        r = subprocess.run(cmd, cwd=LIB)
-        print("[%s] replay_test exit %d (%s)" % (key, r.returncode, " ".join(chunk)))
-        rc |= r.returncode != 0
-    strict = "--tolerant" not in extra
-    tool = os.path.join(sadc, "harness", "tools", "sa1trace.py")
-    for name in traces:
-        ref = os.path.join(sadc, "build", "traces", "ref", name + ".bin")
-        for suffix, what in (("", "V6"), (".reseed", "V5"), (".disc", "DISC V6")):
-            mine = os.path.join(od, name + suffix + ".bin")
+    follow = [t for t in FOLLOW if t in traces]
+    traces = [t for t in traces if t not in FOLLOW]
+    if follow:
+        rc |= run_follow(key, exe, sadc, gdi, od, follow, jobs)
+    elif len(traces) >= len(all_plain()):
+        print("[%s] FAILED: a run of every list without the FOLLOW names (a missing reference is a failed gate: review R98.7)" % key)
+        rc = True
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        # replay_test keeps at most REPLAY_MAX_JOBS traces, and its DISC context of one stage holds at most
+        # REPLAY_DISC_IMAGES character kinds: one run per chunk (round 0.9.4: ITEMBOX has six kinds in Emerald Coast act 1)
+        chunks = replay_chunks(sadc, traces)
+        runs = [pool.submit(run_chunk, [os.path.join(LIB, exe), "--out", od] + extra +
+                            sum((["--trace", t] for t in chunk), []) + [sadc, gdi]) for chunk in chunks]
+        for chunk, fu in zip(chunks, runs):
+            code, out = fu.result()
+            sys.stdout.flush()
+            sys.stdout.buffer.write(out)
+            sys.stdout.buffer.flush()
+            print("[%s] replay_test exit %d (%s)" % (key, code, " ".join(chunk)))
+            rc |= code != 0
+        strict = "--tolerant" not in extra
+        tool = os.path.join(sadc, "harness", "tools", "sa1trace.py")
+        diffs = []
+        for name in traces:
+            ref = os.path.join(sadc, "build", "traces", "ref", name + ".bin")
+            for suffix, what in (("", "V6"), (".reseed", "V5"), (".disc", "DISC V6")):
+                mine = os.path.join(od, name + suffix + ".bin")
+                if os.path.exists(mine):
+                    diffs.append((ref, mine, what, pool.submit(run_diff, [sys.executable, tool, "diff", ref, mine, "--ulps",
+                                                                          "0"], sadc)))
+        for name in follow:
+            ref = os.path.join(sadc, "build", "traces", "ref", name + ".bin")
+            mine = os.path.join(od, name + ".bin")
+            cmd = [sys.executable, tool, "diff", ref, mine, "--ulps", "0"]
+            if name.startswith("wv_"):
+                cmd += ["--fields", FOLLOW_NO_RAND]
             if not os.path.exists(mine):
-                continue
-            d = subprocess.run([sys.executable, tool, "diff", ref, mine, "--ulps", "0"], cwd=sadc,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
-            print("[%s] sa1trace.py diff %s %s --ulps 0 (%s): exit %d" % (key, os.path.relpath(ref, sadc), mine, what,
-                                                                          d.returncode))
-            if strict and d.returncode != 0:
+                print("[%s] FAILED: no output %s" % (key, mine))
                 rc = True
-            if d.returncode != 0:
-                # without --all the tool names only the first diverging fields: show every one
-                d = subprocess.run([sys.executable, tool, "diff", ref, mine, "--ulps", "0", "--all"], cwd=sadc,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
-            lines = d.stdout.rstrip().splitlines()
+            else:
+                diffs.append((ref, mine, "FOLLOW player 0", pool.submit(run_diff, cmd, sadc)))
+        for ref, mine, what, fu in diffs:
+            code, lines = fu.result()
+            print("[%s] sa1trace.py diff %s %s --ulps 0 (%s): exit %d" % (key, os.path.relpath(ref, sadc), mine, what, code))
+            if strict and code != 0:
+                rc = True
             for line in lines[:14]:
                 print("    " + line)
             if len(lines) > 14:
                 print("    ... (%d more lines)" % (len(lines) - 14))
+    return rc
+
+
+def all_plain():
+    return M1 + M11 + P7 + HOSTOBJ + DROWN + HUD + RINGS + SUPER + ITEMBOX + FISHCAM
+
+
+def run_follow(key, exe, sadc, gdi, od, names, jobs):
+    """tests/follower_replay.c on the follower references (review R.8): both configurations, one run per name; True: failed"""
+    rc = False
+    for name in names:
+        lp = None
+        sk = ref_stage_kind(sadc, name)
+        if sk is not None:
+            lp = os.path.join(sadc, "build", "traces", "land", "L%02dA%d" % (sk[0][0], sk[0][1]))
+        need = [os.path.join(sadc, "build", "traces", "ref", name + e) for e in (".bin", ".p1.bin")]
+        need += [lp + e for e in (".tri", ".col")] if lp is not None else []
+        miss = [p for p in need if not os.path.isfile(p)]
+        if miss or sk is None:
+            print("[%s] FAILED: FOLLOW %s: missing %s" % (key, name, ", ".join(miss) or "the reference's stage"))
+            rc = True
+    exe2 = os.path.join(LIB, os.path.dirname(exe), "follower_replay" + (".exe" if key.endswith("windows") else ""))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        runs = [(n, pool.submit(run_chunk, [exe2, "--out", od, "--trace", n, sadc, gdi])) for n in names]
+        for n, fu in runs:
+            code, out = fu.result()
+            sys.stdout.flush()
+            sys.stdout.buffer.write(out)
+            sys.stdout.buffer.flush()
+            print("[%s] follower_replay exit %d (FOLLOW %s, FOLLOWC %s)" % (key, code, n, n))
+            rc |= code != 0
+    print("[%s] the replays: FOLLOW %s; FOLLOWC %s" % (key, " ".join(names), " ".join(n for n in FOLLOWC if n in names)))
     return rc
 
 
@@ -226,10 +320,12 @@ def main():
                     "tasks (implies nothing about strictness: combine with --tolerant to see the residuals classified)")
     ap.add_argument("--pure", action="store_true", help="also the information run with only the pad injected")
     ap.add_argument("--trace", action="append", default=[], help="reference trace name (default: M1, M1.1, Phase 7, "
-                    "HOSTOBJ, DROWN, HUD, RINGS, SUPER, ITEMBOX)")
+                    "HOSTOBJ, DROWN, HUD, RINGS, SUPER, ITEMBOX, FISHCAM)")
+    ap.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 4, help="replay_test runs and sa1trace.py diffs at a "
+                    "time (default: every core)")
     a = ap.parse_args()
     keys = sorted(TARGETS) if a.target == "all" else [a.target]
-    traces = a.trace or (M1 + M11 + P7 + HOSTOBJ + DROWN + HUD + RINGS + SUPER + ITEMBOX)
+    traces = a.trace or (all_plain() + FOLLOW)
     extra = (["--tolerant"] if a.tolerant else []) + (["--no-stage-tasks"] if a.no_stage_tasks else []) + \
         (["--pure"] if a.pure else [])
     rc = 0
@@ -239,7 +335,7 @@ def main():
         if a.run and runnable(k):
             if not a.gdi:
                 raise SystemExit("--run needs --gdi or SA1_TEST_GDI")
-            rc |= run(k, exe, a.sadc, a.gdi, a.out, extra, traces)
+            rc |= run(k, exe, a.sadc, a.gdi, a.out, extra, traces, a.jobs)
             ran.append(k)
     if "x86_64-windows" in ran and "x86-windows" in ran:
         a64, a32 = os.path.join(a.out, "x86_64-windows"), os.path.join(a.out, "x86-windows")

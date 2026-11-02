@@ -11,6 +11,7 @@
  */
 #include "sa1_internal.h"
 #include "sa1_capture.h"    /* sa1_texture_make_variants (round 0.9.4a) */
+#include "sa1_frontend.h"   /* round 0.9.8: sa1_frontend_close, sa1_loader_frontend_set */
 
 #include <stdio.h>
 
@@ -628,14 +629,72 @@ void sa1_charset_free(sa1_context *ctx, sa1_charset *cs)
     cs->main_object = -1;
 }
 
+/* Round 0.9.8 (the game's own front end; src/sa1_frontend.h): the screen's archives into ctx->frontend_set, read and SHA-1 checked as a
+ * character's. The list comes from the game's data; the same list again costs nothing */
+sa1_status sa1_loader_frontend_set(sa1_context *ctx, const char *gdi_path, const sa1fe_archive *list, uint32_t n)
+{
+    sa1_charset *cs = &ctx->frontend_set;
+    loader *L;
+    sa1_status st;
+    uint32_t i;
+    int same = cs->loaded && cs->num_archives == n;
+    for (i = 0; same && i < n; i++) {
+        same = strcmp(cs->archives[i].name, list[i].name) == 0 && cs->archives[i].texlist_addr == list[i].texlist;
+    }
+    if (same) {
+        return SA1_OK;
+    }
+    if (n > SA1_MAX_ARCHIVES) {
+        return sa1_fail(ctx, SA1_ERR_LIMIT, "the front end: %u archives", (unsigned)n);
+    }
+    sa1_charset_free(ctx, cs);
+    cs->arena.ctx = ctx;
+    cs->models.elem = sizeof(sa1_model);
+    cs->objects.elem = sizeof(sa1_object);
+    cs->motions.elem = sizeof(sa1_motion);
+    L = (loader *)sa1_mem_alloc(ctx, sizeof *L);
+    if (L == NULL) {
+        return SA1_ERR_OUT_OF_MEMORY;
+    }
+    L->ctx = ctx;
+    L->flags = 0;
+    st = sa1_disc_open(ctx, gdi_path, &L->disc);
+    if (st != SA1_OK) {
+        sa1_mem_free(ctx, L);
+        return st;
+    }
+    for (i = 0; i < n && !L->partial; i++) {
+        sa1_archive *ar;
+        load_archive(L, cs, list[i].name, list[i].texlist, NULL);
+        ar = &cs->archives[cs->num_archives - 1u];
+        ar->texlist_count = ar->num_textures;
+        if (ar->tex == NULL) {
+            L->partial = 1;
+        }
+    }
+    st = L->partial ? sa1_fail(ctx, SA1_ERR_NOT_FOUND, "the front end: the archive %s could not be loaded", list[i - 1u].name) : SA1_OK;
+    sa1_disc_close(&L->disc);
+    sa1_mem_free(ctx, L);
+    if (st != SA1_OK) {
+        sa1_charset_free(ctx, cs);
+        return st;
+    }
+    cs->loaded = 1;
+    return SA1_OK;
+}
+
 void sa1_unload_disc(sa1_context *ctx)
 {
     int32_t k;
     if (!ctx)
         return;
+    /* round 0.9.8: an open front end closes first (its world uses the context's shared parts); the host's pointer is dead then */
+    if (ctx->frontend_open != NULL)
+        sa1_frontend_close(ctx->frontend_open);
     sa1_characters_destroy_all(ctx);
     for (k = 0; k < SA1_CHAR_COUNT; k++)
         sa1_charset_free(ctx, &ctx->chars[k]);
+    sa1_charset_free(ctx, &ctx->frontend_set);
     ctx->files.count = 0;
     ctx->num_image_names = 0;
     ctx->disc_loaded = 0;

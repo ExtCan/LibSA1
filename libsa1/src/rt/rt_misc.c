@@ -58,6 +58,7 @@
  *       the interpreted game.
  */
 #include "rt.h"
+#include "rt_frontend.h"
 
 extern Uint32 D_8C5FBB08;               /* rand state: the C library's seed word (per world in the arena) */
 
@@ -237,5 +238,18 @@ SA1_TMU sa1_tmu;
 Uint32 sa1_tmu_tcnt1(void)
 {
     return sa1_tmu.tcnt1;
+}
+#endif
+
+/* 8C602B68 buInit (round 0.9.8; sadc docs/research/charsel098.md 5.3): no memory cards here, the init is complete at once: the game's
+ * callback runs now (the menu's 8C902480 busy-waits on what its callback 8C9026B8 sets), the answer is 0 */
+#if !defined(TARGET_PC_HARNESS)
+Sint32 func_8C602B68(Sint32 a, Sint32 b, void *work, void (*cb)(void))
+{
+    (void)a;
+    (void)b;
+    (void)work;
+    cb();
+    return 0;
 }
 #endif

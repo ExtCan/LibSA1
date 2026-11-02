@@ -34,6 +34,7 @@
  * Determinism: no host time, no rand(), single precision in the world's FP mode; x86 = x64.
  */
 #include "sa1_world.h"
+#include "sa1_world_lookup.h"
 #include "sa1_internal.h"
 #include "sa1_api_world.h"
 #include "sa1_preview.h"
@@ -135,7 +136,7 @@ static uint32_t wp_guest(const wp_state *S, const void *p)
 
 int sa1wp_native(uint32_t a)
 {
-    return sa1_fn_name(a) != NULL;
+    return SA1G_FN_NAME_OUTSIDE(a) != NULL;
 }
 
 /* ---- the view per exec (task 4) ------------------------------------------------------------------------------------ */

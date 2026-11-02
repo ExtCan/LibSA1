@@ -33,7 +33,8 @@
  *   invalid    the refusals: another stage, another character, DISC collision of another stage, struct sizes, flags,
  *              orders to a world that is not super-capable
  *   determinism  "DETERMINISM <hash>" of a fixed scenario (build_super.py compares x86 and x64); round 0.9.3a: also
- *              "DETERMINISM_MASKED <hash>" (words naming the extension segment hashed as 0: review RC6 / R.2.4)
+ *              "DETERMINISM_MASKED <hash>" (words naming the extension segment hashed as 0: review RC6 / R.2.4; round
+ *              0.9.8: also the words of the camera state that still hold what sa1g_camreq_boot wrote)
  *   kind8_trace  round 0.9.3a (review RC6): the Vs. Perfect Chaos Super Sonic's fixed scenario per pair, "KIND8_TRACE
  *              <hash>" (the behaviour gate: equal before and after a round; SUPER_TEST_TRACE=FILE writes the lines)
  * Round 0.9.3a, the General form (sadc docs/research/super_general_design.md 8.2 with its Review R.4):
@@ -1225,13 +1226,42 @@ static void t_forms(sa1_context *unused)
 
 /* ---- determinism ------------------------------------------------------------------------------------------------------- */
 /* round 0.9.3a (super_general_design.md Review RC6, R.2.4): the arena hashed with every aligned word that names the
- * extension segment 0x18 (pcdata, the window landtable, placeholders: their addresses move when pcdata grows) as 0 */
+ * extension segment 0x18 (pcdata, the window landtable, placeholders: their addresses move when pcdata grows) as 0.
+ * Round 0.9.8 (gsa1_098_plan.md 6.1 task 4; 098-verify's fail): sa1g_camreq_boot (src/world/sa1_world_camreq.c) writes the
+ * game's camera state in every booted world, where the 0.9.4 baseline has zeros. Measured on the 0.3.0 archive against
+ * the tree: it is the only difference this hash sees. So a camera word that still holds what the boot wrote also hashes
+ * as 0: the pin keeps its 0.9.4 value, and a later write to the camera state moves it like any other change. */
+#define DET_CAM_CONTROL 0x6B6F4Cu       /* *D_8C11204C, 0x80 bytes */
+#define DET_CAM_CONTROL_WORDS 32u
+#define DET_CAM_WORDS 0x6B7050u         /* B_8C6B7050 .. B_8C6B7087 */
+#define DET_CAM_WORDS_WORDS 14u
+static uint32_t g_det_cam[DET_CAM_CONTROL_WORDS + DET_CAM_WORDS_WORDS];
+
+/* the camera state as the boot left it: call before the first step */
+static void det_cam_keep(const sa1g_world *w)
+{
+    memcpy(g_det_cam, w->ram + DET_CAM_CONTROL, DET_CAM_CONTROL_WORDS * 4u);
+    memcpy(g_det_cam + DET_CAM_CONTROL_WORDS, w->ram + DET_CAM_WORDS, DET_CAM_WORDS_WORDS * 4u);
+}
+
+static const uint32_t *det_cam_boot_word(uint32_t i)
+{
+    if (i >= DET_CAM_CONTROL && i < DET_CAM_CONTROL + DET_CAM_CONTROL_WORDS * 4u) {
+        return &g_det_cam[(i - DET_CAM_CONTROL) / 4u];
+    }
+    if (i >= DET_CAM_WORDS && i < DET_CAM_WORDS + DET_CAM_WORDS_WORDS * 4u) {
+        return &g_det_cam[DET_CAM_CONTROL_WORDS + (i - DET_CAM_WORDS) / 4u];
+    }
+    return NULL;
+}
+
 static uint32_t arena_hash_masked(const sa1g_world *w)
 {
     uint32_t h = 2166136261u, i, v, k;
     for (i = 0; i < SA1G_ARENA_SIZE; i += 4u) {
+        const uint32_t *boot = det_cam_boot_word(i);
         memcpy(&v, w->ram + i, 4);
-        if (v != 0 && ((v >> 24) & 31u) == SA1G_SEG_EXT) {
+        if (v != 0 && (((v >> 24) & 31u) == SA1G_SEG_EXT || (boot != NULL && v == *boot))) {
             v = 0;
         }
         for (k = 0; k < 4u; k++) {
@@ -1336,6 +1366,14 @@ static void t_determinism(sa1_context *ctx)
         g_fail++;
         return;
     }
+    det_cam_keep(sa1_character_world(ctx, id));
+    /* the mask stands for the boot's camera state, not for an empty one: control dirty, entry -1 / mode 0 / kind 1, flags 2;
+     * B_8C6B7078 61; B_8C6B7084 -1 */
+    CHECK(g_det_cam[0] == 1u && g_det_cam[1] == 0x0100FFFFu && g_det_cam[2] == 0x02000000u &&
+              *det_cam_boot_word(0x6B7078u) == 61u && *det_cam_boot_word(0x6B7084u) == 0xFFFFFFFFu,
+          "the world's camera state is sa1g_camreq_boot's: control %08X %08X %08X, run steps %u, pending mode %08X",
+          (unsigned)g_det_cam[0], (unsigned)g_det_cam[1], (unsigned)g_det_cam[2], (unsigned)*det_cam_boot_word(0x6B7078u),
+          (unsigned)*det_cam_boot_word(0x6B7084u));
     for (i = 0; i < 400; i++) {
         float sx = (i / 50u) & 1u ? 0.7f : -0.3f;
         tick(ctx, id, sx, 1.0f, (i % 37u) == 5u ? SA1_BUTTON_JUMP : 0u, NULL, &x);
@@ -1348,7 +1386,7 @@ static void t_determinism(sa1_context *ctx)
            (int)x.mode, (unsigned)x.equipment, (int)x.rings, (unsigned)w->super_reverts);
     g_det_masked = arena_hash_masked(w);
     printf("DETERMINISM_MASKED %08X (aligned words naming the extension segment 0x18 hashed as 0: round 0.9.3a review "
-           "RC6, R.2.4)\n", (unsigned)g_det_masked);
+           "RC6, R.2.4; the camera state as sa1g_camreq_boot wrote it hashed as 0: round 0.9.8)\n", (unsigned)g_det_masked);
     CHECK(!(x.equipment & 0x8000u) && w->super_reverts == 1, "the 5 rings ran out: reverted once");
     sa1_character_destroy(ctx, id);
 }

@@ -143,8 +143,9 @@ static int co_bird_gate(const sa1g_world *w)
 /* player 0 is the world's Amy (the bird follows playertwp[0] and reads Amy's state through player 0) */
 static int co_player0_amy(const sa1g_world *w)
 {
+    /* round 0.9.8: player 0 of a follower world is the proxy: CurrentCharacter 0 refuses the bird there */
     uint32_t twp = co_rd32(w, SA1G_ADDR_PLAYER_TWP);
-    return (int16_t)co_rd16(w, SA1G_ADDR_CUR_CHAR) == 5 && twp != 0 && co_rd8(w, twp + 0x09u) == 5u;
+    return w->slot == 0 && (int16_t)co_rd16(w, SA1G_ADDR_CUR_CHAR) == 5 && twp != 0 && co_rd8(w, twp + 0x09u) == 5u;
 }
 
 /* inside the world: free every bird task (FreeTask; DestroyTask removes it, and a mirror child, at its next exec) */
@@ -190,7 +191,7 @@ static sa1_status co_companions(sa1_context *ctx, sa1g_world *w, const sa1w_char
     if (!co_player0_amy(w)) {
         return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "companion: the world's player 0 is not its Amy (CurrentCharacter %d, "
                         "character %u): the game's bird follows player 0", (int)(int16_t)co_rd16(w, SA1G_ADDR_CUR_CHAR),
-                        (unsigned)co_rd8(w, co_rd32(w, SA1G_ADDR_PLAYER_TWP) + 0x09u));
+                        (unsigned)co_rd8(w, co_rd32(w, SA1G_ADDR_PLAYER_TWP + 4u * (uint32_t)w->slot) + 0x09u));
     }
     on = (o->companions & bit) != 0;
     boot = w->steps == 0;

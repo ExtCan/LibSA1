@@ -56,6 +56,22 @@ static const sa1_file_desc k_files[] = {
     { "MIW_B001.PVR",     10952, "7eb21e78fa9d54ef00029043be91285bdde1de32", 0 },
     { "SB_BOARD1.PVR",    10956, "d851ade3e5d8b610790a25aca1e8960aeae9bde6", 0 },
     { "MTX_BOARD0.PVR",   10956, "f41d0bf31bc1af46cf683bc55343161d519fee7a", 0 },
+    /* round 0.9.8 (the game's own front end, SA1_API_FRONTEND; sadc docs/research/charsel098.md 5.2): the menu overlay as a world image and
+       the Character Select screen's nine archives, both languages (D_8C942628[language], D_8C94263C[1]) */
+    { "ADVERTISE.PRS",   176538, "1166c5d474790fb18f304b0d4a544301c3547236", 0x0C900000u },
+    { "AVA_BACK.PRS",     63967, "9600257b2cdadd9f13c6d81f219cd110150be79d", 0 },
+    { "ADV_WINDOW.PRS",     162, "7ad34a3968788c8a748f1358ed375d3e2da4694d", 0 },
+    { "AVA_CSR.PRS",       4212, "583c0c1ffdab7be85c7a0284b86707cab170998c", 0 },
+    { "AVA_DLG.PRS",       5209, "a53f09aa790037ea09a6817534543372fe76f681", 0 },
+    { "AVA_DLG_E.PRS",     3945, "38856370e217b8a0e3261882165f27599f49df82", 0 },
+    { "B_CHNAM.PRS",      22844, "86da7bbd223561ac55c7270e160883ada1f9a3fa", 0 },
+    { "B_CHNAM_E.PRS",    16805, "3a0727734b6c115e36010dcfacabe6357a0d73a7", 0 },
+    { "M_CHNAM.PRS",      13048, "b388a5711d826c230ba33d658bf2537e1b7263ae", 0 },
+    { "AVA_SUUJI.PRS",     1385, "44f45e26b187245f2f67d9cc2f3f71e36991740f", 0 },
+    { "AVA_CHSEL.PRS",    17132, "fe8184436a394a2d9099d64a1a26590ee16b434d", 0 },
+    { "AVA_CHSEL_E.PRS",  14592, "6ef4674de8664844fd298c90fc3ce3bc24f1d1fd", 0 },
+    { "AVA_FSCMN.PRS",     3005, "ad2ad4d7fc8df5f37ee90501a4335a3a9f05b9bc", 0 },
+    { "AVA_FSCMN_E.PRS",   2860, "7a83cb68bb49a7166a02d81266f97c8ab6c22267", 0 },
 };
 
 const sa1_file_desc *sa1_manifest_file(const char *name)

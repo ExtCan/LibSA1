@@ -41,6 +41,11 @@
 
 #include "libsa1.h"
 #include "sa1/guest.h"
+/* seam S6 (gsa1_098_plan.md 5.4): the code map's active list is a process global (empty SA1G_TLS) unless T2 lands, when
+   sa1/guest.h defines SA1G_TLS for the Windows targets (gsa1_096_plan.md review R.3) */
+#ifndef SA1G_TLS
+#define SA1G_TLS
+#endif
 
 /*
  * Recovery point: the C library's setjmp. On x86_64 mingw (zig's windows-gnu) setjmp() passes the
@@ -168,7 +173,7 @@ typedef struct sa1g_fnimage {
 extern const sa1g_fnimage sa1g_fnimages[];      /* pclower's sa1g_fntab.c (sa1_world_nogame.c: none) */
 extern const size_t sa1g_fnimage_count;
 /* the running world's images, NULL-terminated (sa1g_world_enter / leave, like sa1g_seg) */
-extern const sa1g_fnimage *sa1g_fn_active[SA1G_FN_ACTIVE_MAX + 1];
+extern SA1G_TLS const sa1g_fnimage *sa1g_fn_active[SA1G_FN_ACTIVE_MAX + 1];
 /* a function of the running world's images at a DC code address (NULL: none; outside a world: none) */
 const sa1g_fnent *sa1g_fn_image_lookup(uint32_t g);
 /* the registered image of that name ("STG01"), or NULL */
@@ -475,6 +480,80 @@ typedef struct sa1g_lane {
     uint32_t persist[8];
 } sa1g_lane;
 
+/* round 0.9.8 (followers; gsa1_096_plan.md 4.4, 4.5, follow096_lib.md 5.3; src/world/sa1_world_follower.c). sa1g_snap: a character
+   slot's state after one step; every character world keeps the last 17 (the ring: read only, no FP, no guest write). */
+#define SA1G_RING 17u
+typedef struct sa1g_snap {
+    float pos[3];
+    uint32_t ang[3];
+    uint32_t flag;              /* taskwk.flag & 3: the ground bits */
+    float mspd[3], pspd[3];     /* motionwk.spd, playerwk.spd */
+    float jog_speed, run_speed; /* playerwk p.jog_speed, p.run_speed (live: upgrades, Super); 0: no playerwk yet */
+    float tnorm[3];             /* playerwk.cstsp->tnorm */
+    uint32_t equipment;
+    uint32_t game_kind;         /* counter.b[1] */
+    uint32_t action;            /* playerwk.mj.action */
+    int32_t valid;              /* 0: the slot had no player */
+} sa1g_snap;
+
+/* a follower world's state; on 0 in every other world */
+typedef struct sa1g_follow {
+    int32_t on;
+    uint32_t flags;             /* SA1_FOLLOW_* */
+    int32_t kind;               /* SA1_CHAR_* of slot 1 */
+    int32_t leader_id;          /* sa1_character_id of the libsa1 leader, 0: host-fed */
+    const struct sa1g_world *leader;    /* its world, only during this follower's tick (sa1wf_slave .. sa1wf_tick_end) */
+    uint64_t consumed;          /* the leader's ring_step this follower has run up to */
+    sa1g_snap host_pre, host_mid;       /* host-fed: the two refreshes of a step (live: the same) */
+    sa1g_snap last;             /* the last snapshot written to the proxy */
+    uint32_t proxy_tp, proxy_twp, proxy_mwp, proxy_pwp, proxy_csts;
+    uint32_t ai_tp, ai_twp;
+    int32_t lost, held, respawn_req;
+    uint32_t pending_cause;     /* why the AI's mode became 2: SA1_FOLLOW_EV_RESPAWN's arg */
+    uint32_t respawns, respawns_distance, respawns_offscreen;
+    uint32_t steps_dropped;
+    uint32_t hidden_bits[10], hidden_pos, hidden_count;     /* the last 300 pairs (sa1_follower_info.hidden_pairs) */
+} sa1g_follow;
+
+/* the replays' injections of F2 and F3 (tests/follower_replay.c): a NAME.p1.bin record for one step; NULL everywhere else. At
+   the AI exec's first entry of the step XMTRX and the camera taskwk (the AI reads them in list 0: Review R.2.5), at the first
+   player entry rand (player 1's: Tails runs first, R.2.4), at player 1's entry its px_* (R.2.5) */
+typedef struct sa1g_follow_inj {
+    int32_t ai_on, first_on, p1_on;
+    uint32_t ai_xmtrx[16];
+    uint8_t ai_cam_raw[0x40];
+    uint32_t first_rand;
+    uint32_t p1_rand, p1_frame_counter;
+    int16_t p1_rings;
+    uint32_t p1_xmtrx[16];
+    uint8_t p1_cam_raw[0x40];
+    /* results of the step */
+    uint32_t ai_calls, first_calls, first_pno, first_rand_seen, ai_rand_seen;
+    uint32_t px_exec, px_calls, px_rand, px_frame_counter;
+    int16_t px_rings;
+    uint32_t px_gravity[3], px_xmtrx[16], px_cam_twp;
+    uint8_t px_cam_raw[0x40];
+} sa1g_follow_inj;
+
+/* round 0.9.8 (the game's camera requests; seam S1, gsa1_098_plan.md 5.4, fish098.md 3.3, 3.4; src/world/sa1_world_camreq.c):
+   what one drawn pair's camera was, in SA1 space, and the lane: pre is NULL until the first tick with SA1_INPUT_GAME_CAMERA;
+   want = this tick's bit; running = a known request ran in the last step: the camera taskwk is the game camera's output */
+typedef struct {
+    float pos[3];
+    int32_t ang[3];
+    float target[3];
+    uint32_t fn;
+    int32_t level;
+    uint32_t adjust;
+} sa1g_camreq_drawn;
+typedef struct {
+    sa1g_step_fn pre;
+    int32_t want, running;
+    sa1g_camreq_drawn drawn[2];
+    uint32_t last_fn;
+    int32_t last_level;
+} sa1g_camreq;
+
 typedef struct sa1g_world {
     uintptr_t seg[32];          /* host base per guest segment ((g >> 24) & 31) */
     uint8_t *ram;               /* the arena: guest 0x8C000000 */
@@ -641,6 +720,23 @@ typedef struct sa1g_world {
     sa1g_lane board;
     uint32_t board_col;
     uint32_t board_col_applied;     /* the word the window last registered its moving objects with (sa1_coladapt_world.c) */
+
+    /* round 0.9.8 (seam S1, gsa1_098_plan.md 5.4). slot: the character's player slot (0; 1 in a follower world): everything
+       libsa1 reads as "the character" reads this slot (sa1g_world_slot_player). look: the head look's lane
+       (src/world/sa1_world_look.c; sa1g_lane above). camreq: the game's camera requests (above). Zero in a world that never
+       gets a look call or a camera bit, so it runs exactly as before. Kept at the end: the offsets above stay */
+    int32_t slot;
+    sa1g_lane look;
+    sa1g_camreq camreq;
+    /* round 0.9.8 (followers; src/world/sa1_world_follower.c). ring[ring_step % SA1G_RING]: the slot after its ring_step-th
+       step (0: at the boot); follow_pre right after the pad update, follow_mid right after the executor, follow_view between
+       list 0 and list 1: NULL in every other world */
+    sa1g_snap ring[SA1G_RING];
+    uint64_t ring_step;
+    sa1g_follow fol;
+    sa1g_step_fn follow_pre, follow_mid;
+    void (*follow_view)(struct sa1g_world *w);
+    sa1g_follow_inj *fol_inj;   /* tests/follower_replay.c: the record of the next step; NULL: none */
 } sa1g_world;
 #define SA1WB_COL_RIDING 0x80000000u
 
@@ -882,6 +978,10 @@ int32_t sa1g_call_dc_i32(uint32_t dc);
                                            (D_8C19E0E0[level]) when the world's overlay image has their code, or a
                                            stand-in that creates the decompiled tasks of the level task's first
                                            exec (Emerald Coast); needs the stage overlay in the image */
+/* round 0.9.8 (gsa1_098_plan.md 5.3; 0x200 is reserved for the front end's world) */
+#define SA1G_BOOT_FOLLOWER_SAME  0x80u  /* tests only (F2): the game's LoadPlayerTask slot-1 iteration for character 0 after
+                                           player 0's creation, func_8C081AC0(player 0's task): one world, the references' own */
+#define SA1G_BOOT_FOLLOWER       0x100u /* a follower world (F3): PLAYER_SLOTS, the proxy in slot 0, the follower in slot 1 */
 
 typedef struct sa1g_boot_cfg {
     int32_t chr;                /* game character id: 0 Sonic, 2 Tails, 3 Knuckles, 5 Amy, 6 E-102, 7 Big */
@@ -895,7 +995,15 @@ typedef struct sa1g_boot_cfg {
     uint32_t window_cap;        /* EMPTY / WINDOW: COL entries (0: 191, design 5.4) */
     uint32_t event_flags[4];    /* bits 0..127 of B_8C799920 to set (upgrades read by PInitialize) */
     uint32_t super;             /* round 6a: SA1G_SUPER_* (copied to sa1g_world.super by the boot) */
+    /* round 0.9.8 (SA1G_BOOT_FOLLOWER): chr above is CurrentCharacter (0), the follower's kind is here (Review G9) */
+    struct sa1g_follow_cfg {
+        int32_t kind;           /* SA1_CHAR_* of slot 1 */
+        int32_t leader_chr;     /* the leader's game kind for counter.b[1] and the physics row (Super: 0) */
+        sa1g_snap first;        /* the proxy's first state */
+        uint32_t flags;         /* SA1_FOLLOW_* */
+    } follow;
 } sa1g_boot_cfg;
+typedef struct sa1g_follow_cfg sa1g_follow_cfg;
 
 /* sa1g_boot_cfg.super / sa1g_world.super (round 6a, Super Sonic: src/world/sa1_world_super.c, the B_CHAOS7 level task
  * stand-in of src/world/sa1_world_stage.c, the water floor of src/world/sa1_coladapt_world.c) */
@@ -1001,7 +1109,17 @@ int sa1g_world_window(sa1g_world *w, void **header, void **cols, uint32_t *cap);
 typedef struct sa1g_player_ptrs {
     uint32_t tp, twp, mwp, pwp, csts;
 } sa1g_player_ptrs;
+/* round 0.9.8 (seam S2): the pointers of the world's character slot w->slot (0; 1 in a follower world). sa1g_world_player is a
+   call of it; the camera view reads SA1G_ADDR_PLAYER_TWP directly and stays player 0 */
+void sa1g_world_slot_player(const sa1g_world *w, sa1g_player_ptrs *out);
 void sa1g_world_player(const sa1g_world *w, sa1g_player_ptrs *out);
+
+/* round 0.9.8 (src/world/sa1_world_follower.c): the ring, the follower's boot (inside the world) and attach (after it) */
+void sa1g_snap_of_world(const sa1g_world *w, sa1g_snap *s);
+void sa1g_ring_note(sa1g_world *w, int first);
+void sa1g_follower_boot(sa1g_world *w, const sa1g_boot_cfg *c);
+sa1_status sa1g_follower_attach(sa1g_world *w);
+void sa1g_follow_first(const sa1_context *ctx, const struct sa1g_world *leader, const sa1_leader_state *host, sa1g_snap *out);
 
 /* Events: push into the current world (inside a tick; no allocation), or into a given world. */
 void sa1g_event_push(uint32_t type, uint32_t id, uint32_t bank, const float pos[3], uint32_t arg);

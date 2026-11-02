@@ -1,0 +1,13 @@
+# args: --level 1 --act 2 --chr 7 --no-objects
+# Big casting into the Emerald Coast act 3 lake: + the stick moving the cursor under FISHING, the stick in the water does nothing (fish098.md 7)
+30 0 0
+120 -90 -90
+20 0 0
+40 0 -127 B
+40 127 0 B
+10 0 0 B
+100 0 0
+60 127 0
+100 0 0
+200 0 0 A
+100 0 0

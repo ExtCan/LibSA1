@@ -209,6 +209,9 @@ sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
+    if (sa1w_character_is_follower(ctx, id)) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
+    }
     st = sa1em_syntax(ctx, emote);
     if (st != SA1_OK) {
         return st;
@@ -282,6 +285,9 @@ sa1_status sa1_character_emote_stop(sa1_context *ctx, sa1_character_id id, uint3
     int32_t kind;
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
+    }
+    if (sa1w_character_is_follower(ctx, id)) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
     }
     if (how != SA1_EMOTE_STOP_NOW && how != SA1_EMOTE_STOP_BLEND) {
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_character_emote_stop: how %u (0 now, 1 blend)", (unsigned)how);

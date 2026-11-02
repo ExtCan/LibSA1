@@ -284,10 +284,11 @@ static void wb_free_task(uint32_t tp)
     freetask(sa1_decode(tp));
 }
 
-static void wb_setinputp(int32_t order)
+/* round 0.9.8: to the world's character slot (1 in a follower world) */
+static void wb_setinputp(const sa1g_world *w, int32_t order)
 {
     void (*setinp)(uint8_t, int32_t) = (void (*)(uint8_t, int32_t))sa1_fn(SA1_GFN_C(WB_FN_SETINPUTP), 0u);
-    setinp(0, order);
+    setinp((uint8_t)w->slot, order);
 }
 
 static uint32_t wb_create(uint16_t im, int32_t level, uint32_t exec)
@@ -411,14 +412,22 @@ static void wb_do_on(sa1g_world *w, wb_state *S, const sa1g_player_ptrs *pp, int
     S->pending_task = 0;
     if (wb_task_live(w, S) && !S->held && (S->req_flags & SA1_BOARD_REUSE_KEPT)) {
         /* the game's re-entry (0C90DFE0 state 7): 44 alone, the kept board takes the player again */
-        wb_setinputp(44);
+        wb_setinputp(w, 44);
         S->task_flags = S->req_flags;
     } else {
         if (wb_task_live(w, S)) {
             wb_free_board(w, S, 2u);    /* 4.4 a: a new board on every get-on */
         }
-        wb_setinputp(44);
+        wb_setinputp(w, 44);
         S->pending_task = wb_create(3, 2, init);
+        if (S->pending_task != 0 && w->slot != 0) {
+            /* the board task finds its rider by its own counter.b[0] (code_8C0B2EA0.c:124-128, code_8C0BF804.c:149-153); the
+               stage code creates it zeroed, for player 0. Not run before the executor, so also right for the pick exec */
+            uint32_t btwp = wb_rd32(w, S->pending_task + 0x20u);
+            if (wb_arena(btwp)) {
+                *(uint8_t *)sa1g_world_ptr(w, btwp + 8u) = (uint8_t)w->slot;
+            }
+        }
         wb_task_reset(S, S->pending_task, kind);
         S->task_flags = S->req_flags;
     }
@@ -459,7 +468,7 @@ static void wb_pre(struct sa1g_world *w, int32_t sub, void *user)
             if (S->req_flags & SA1_BOARD_REMOVE_ON_EXIT) {
                 S->flags |= SA1_BOARD_REMOVE_ON_EXIT;
             }
-            wb_setinputp(24);
+            wb_setinputp(w, 24);
         } else if (S->pending) {
             return;                     /* the ON is not answered yet: the OFF waits for the edge */
         }

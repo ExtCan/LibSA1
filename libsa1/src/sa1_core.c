@@ -209,30 +209,88 @@ void sa1_log(const sa1_context *ctx, int32_t level, const char *fmt, ...)
     va_end(ap);
 }
 
+/* Round 0.9.8 (T1, SA1_API_PARALLEL; sadc docs/research/gsa1_098_plan.md 6.4): sa1_last_error per thread. Each thread keeps its own newest
+ * message and the context it is for; ctx->error beside it stays the newest of any thread, written under a short lock, so that a
+ * thread that wrote none reads that. A few places write ctx->error directly (the quiet messages of sa1_face.c, sa1_preview.c,
+ * sa1_character.c; sa1_loader.c clears it): when no thread has written a message since this thread's, a different ctx->error is
+ * such a write and it is the newest, as in libsa1 0.3 (with messages from several threads the thread's own message wins).
+ * g_err_epoch: a destroyed context's address may come back; a thread's entry from before a sa1_shutdown does not count. */
+typedef struct err_entry {
+    const sa1_context *ctx;
+    uint32_t serial, epoch;
+    char text[sizeof ((sa1_context *)0)->error];
+} err_entry;
+
+static __thread err_entry t_err;
+static uint32_t g_err_serial;
+static uint32_t g_err_epoch;
+static char g_err_lock;
+
+static void err_lock(void)
+{
+    while (__atomic_test_and_set(&g_err_lock, __ATOMIC_ACQUIRE)) {
+    }
+}
+
+static void err_unlock(void)
+{
+    __atomic_clear(&g_err_lock, __ATOMIC_RELEASE);
+}
+
+static const char *err_store(sa1_context *ctx, const char *fmt, va_list ap)
+{
+    err_entry *t = &t_err;
+    vsnprintf(t->text, sizeof t->text, fmt, ap);
+    t->ctx = ctx;
+    err_lock();
+    memcpy(ctx->error, t->text, sizeof ctx->error);
+    t->serial = ++g_err_serial;
+    t->epoch = g_err_epoch;
+    err_unlock();
+    return t->text;
+}
+
 sa1_status sa1_fail(sa1_context *ctx, sa1_status st, const char *fmt, ...)
 {
+    const char *text;
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(ctx->error, sizeof ctx->error, fmt, ap);
+    text = err_store(ctx, fmt, ap);
     va_end(ap);
-    sa1_log(ctx, st < 0 ? SA1_LOG_ERROR : SA1_LOG_WARN, "%s", ctx->error);
+    sa1_log(ctx, st < 0 ? SA1_LOG_ERROR : SA1_LOG_WARN, "%s", text);
     return st;
 }
 
 /* round 0.9.5 (board095_perf.md 4): ctx->error exactly as sa1_fail writes it, logged at the caller's level */
 sa1_status sa1_refuse(sa1_context *ctx, sa1_status st, int32_t level, const char *fmt, ...)
 {
+    const char *text;
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(ctx->error, sizeof ctx->error, fmt, ap);
+    text = err_store(ctx, fmt, ap);
     va_end(ap);
-    sa1_log(ctx, level, "%s", ctx->error);
+    sa1_log(ctx, level, "%s", text);
     return st;
 }
 
 const char *sa1_last_error(const sa1_context *ctx)
 {
-    return ctx ? ctx->error : "no context";
+    const err_entry *t = &t_err;
+    const char *r;
+    if (!ctx) {
+        return "no context";
+    }
+    if (t->ctx != ctx) {
+        return ctx->error;      /* this thread wrote none for ctx: the newest of any thread */
+    }
+    err_lock();
+    if (t->epoch != g_err_epoch || (t->serial == g_err_serial && strcmp(ctx->error, t->text) != 0)) {
+        r = ctx->error;
+    } else {
+        r = t->text;
+    }
+    err_unlock();
+    return r;
 }
 
 void sa1_copy_out(void *dst, const void *src, size_t src_size)
@@ -379,6 +437,7 @@ void sa1_worker_ctx_destroy(sa1_context *wctx)
 
 void sa1_shutdown(sa1_context *ctx)
 {
+    __atomic_add_fetch(&g_err_epoch, 1u, __ATOMIC_RELAXED);
     sa1_host h;
     if (!ctx)
         return;

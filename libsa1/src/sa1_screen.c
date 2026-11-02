@@ -27,6 +27,7 @@
 #include "sa1_api_world.h"
 #include "sa1_capture.h"
 #include "sa1_screen.h"
+#include "sa1_frontend.h"     /* round 0.9.8: the front end's source (sa1_screen_fe_*) */
 
 #include <math.h>
 #include <stddef.h>
@@ -699,6 +700,213 @@ sa1_status sa1_character_screen(sa1_context *ctx, sa1_character_id id, const sa1
     sl->scr.draws = sl->draws;
     sl->scr.num_sprites = sl->nspr;
     sl->scr.sprites = sl->spr;
+    sl->scr.num_vertices = sl->nvtx;
+    sl->scr.vertices = sl->vtx;
+    *out = &sl->scr;
+    return SA1_OK;
+}
+
+/* ---- the front end's screen (round 0.9.8; sadc docs/research/charsel098.md 5.4; src/sa1_frontend.h) ------------------------------------
+ * Another source for sa1_screen, the format unchanged: the capture's kinds 14 and 15 (njDrawTexture, njDrawPolygon of the menus' 2D library),
+ * untransformed screen vertices, as SA1_PRIM_TRIANGLES: a strip of n vertices gives n - 2 triangles (0, 1, 2), (1, 3, 2) ..., so a quad gives
+ * two of one winding. Priority = -1 / z of its first vertex. The texture comes from the draw's global index through a sorted map of the set's
+ * textures: a miss is a counted error (no texture, SA1_DRAW_NO_TEXTURE). The blend comes from the record, by s_blend, the order from s_before:
+ * opaque, then blended, each from the most negative priority: on the select screen only the sky is opaque (charsel098.md 3.1). A quad of
+ * vertex alpha 0 stays in the list (the fade): hosts blend it away. Kinds 1 and 13 are not read here, and their paths above are as they were. */
+typedef struct s_fe_tex {
+    uint32_t gbix;
+    int32_t archive, texture;
+} s_fe_tex;
+
+struct sa1s_fe {
+    sa1s_slot sl;
+    s_fe_tex *map;
+    uint32_t nmap;
+    uint32_t misses;
+    int32_t built, b_drew;
+    uint32_t b_windows;
+};
+
+sa1_status sa1_screen_fe_create(sa1_context *ctx, const sa1_charset *set, struct sa1s_fe **out)
+{
+    struct sa1s_fe *s;
+    uint32_t a, i, n = 0, k;
+    *out = NULL;
+    s = (struct sa1s_fe *)sa1_mem_alloc(ctx, sizeof *s);
+    if (s == NULL) {
+        return SA1_ERR_OUT_OF_MEMORY;
+    }
+    for (a = 0; a < set->num_archives; a++) {
+        n += set->archives[a].num_textures;
+    }
+    s->map = (s_fe_tex *)sa1_mem_array(ctx, n ? n : 1u, sizeof *s->map);
+    if (s->map == NULL) {
+        sa1_mem_free(ctx, s);
+        return SA1_ERR_OUT_OF_MEMORY;
+    }
+    /* insertion: 67 entries, once per open; an index used twice keeps the first (the disc's menu archives have none: frontend_test) */
+    for (a = 0; a < set->num_archives; a++) {
+        for (i = 0; i < set->archives[a].num_textures; i++) {
+            uint32_t g = set->archives[a].tex[i].gbix;
+            for (k = s->nmap; k > 0 && s->map[k - 1u].gbix > g; k--) {
+                s->map[k] = s->map[k - 1u];
+            }
+            s->map[k].gbix = g;
+            s->map[k].archive = (int32_t)a;
+            s->map[k].texture = (int32_t)i;
+            s->nmap++;
+        }
+    }
+    *out = s;
+    return SA1_OK;
+}
+
+void sa1_screen_fe_free(sa1_context *ctx, struct sa1s_fe *s)
+{
+    if (s == NULL) {
+        return;
+    }
+    sa1_mem_free(ctx, s->sl.draws);
+    sa1_mem_free(ctx, s->sl.spr);
+    sa1_mem_free(ctx, s->sl.vtx);
+    sa1_mem_free(ctx, s->sl.items);
+    sa1_mem_free(ctx, s->map);
+    sa1_mem_free(ctx, s);
+}
+
+uint32_t sa1_screen_fe_misses(const struct sa1s_fe *s)
+{
+    return s != NULL ? s->misses : 0u;
+}
+
+static const s_fe_tex *s_fe_find(const struct sa1s_fe *s, uint32_t g)
+{
+    uint32_t lo = 0, hi = s->nmap;
+    while (lo < hi) {
+        uint32_t m = lo + (hi - lo) / 2u;
+        if (s->map[m].gbix < g) {
+            lo = m + 1u;
+        } else {
+            hi = m;
+        }
+    }
+    return lo < s->nmap && s->map[lo].gbix == g ? &s->map[lo] : NULL;
+}
+
+static sa1_status s_fe_emit(sa1_context *ctx, struct sa1s_fe *s, sa1_capture *c, const sa1_cap_rec *r, const s_item *it)
+{
+    sa1s_slot *sl = &s->sl;
+    const uint8_t *p = sa1_capture_payload(c, r, SA1_CAP_VTX2D_HEAD), *pv;
+    uint32_t n, gbix, flags = SA1_DRAW_UNLIT, stride, nv, t, ci;
+    int32_t arc = -1, tex = -1;
+    int textured = r->kind == SA1_CAP_TEX2D;
+    uint8_t bs, bd;
+    sa1_screen_draw *d;
+    if (p == NULL) {
+        return SA1_OK;
+    }
+    n = sa1_rd32(p);
+    gbix = sa1_rd32(p + 4);
+    stride = textured ? SA1_CAP_TEX2D_VTX : SA1_CAP_POLY2D_V_VTX;
+    if (n < 3u || SA1_CAP_VTX2D_HEAD + (uint64_t)n * stride > r->pay_len) {
+        return SA1_OK;
+    }
+    pv = p + SA1_CAP_VTX2D_HEAD;
+    if (textured) {
+        const s_fe_tex *m = s_fe_find(s, gbix);
+        if (m != NULL) {
+            arc = m->archive;
+            tex = m->texture;
+        } else {
+            s->misses++;
+            flags |= SA1_DRAW_NO_TEXTURE;
+        }
+    }
+    flags |= s_blend(r, r->attr != 0u, &bs, &bd);
+    d = s_draw(ctx, sl, SA1_PRIM_TRIANGLES, arc, tex, flags, bs, bd, it->pri, it->part, r->exec, 1);
+    nv = 3u * (n - 2u);
+    if (d == NULL || !s_grow(ctx, (void **)&sl->vtx, &sl->cap_vtx, sl->nvtx + nv, sizeof *sl->vtx)) {
+        return SA1_ERR_OUT_OF_MEMORY;
+    }
+    for (t = 0; t + 2u < n; t++) {
+        for (ci = 0; ci < 3u; ci++) {
+            static const uint8_t even[3] = { 0, 1, 2 }, odd[3] = { 0, 2, 1 };
+            const uint8_t *v = pv + stride * (t + ((t & 1u) ? odd[ci] : even[ci]));
+            sa1_screen_vertex *o = &sl->vtx[sl->nvtx++];
+            uint32_t col = sa1_rd32(v + (textured ? 0x14u : 0x0Cu));
+            o->x = sa1_rdf32(v);
+            o->y = sa1_rdf32(v + 4);
+            o->u = textured ? sa1_rdf32(v + 0x0C) : 0.0f;
+            o->v = textured ? sa1_rdf32(v + 0x10) : 0.0f;
+            o->color[0] = (uint8_t)(col >> 16);
+            o->color[1] = (uint8_t)(col >> 8);
+            o->color[2] = (uint8_t)col;
+            o->color[3] = (uint8_t)(col >> 24);
+        }
+    }
+    d->count += nv;
+    return SA1_OK;
+}
+
+sa1_status sa1_screen_fe_build(sa1_context *ctx, struct sa1s_fe *s, sa1_capture *c, int drew, const sa1_screen **out)
+{
+    sa1s_slot *sl = &s->sl;
+    sa1_capture_stats cst;
+    uint32_t i, k, n, nit = 0;
+    const sa1_cap_rec *recs = NULL;
+    sa1_capture_get_stats(c, &cst);
+    if (!s->built || s->b_windows != cst.windows || s->b_drew != drew) {
+        sl->ndraw = sl->nspr = sl->nvtx = 0;
+        n = drew ? sa1_capture_records(c, &recs) : 0u;
+        if (!s_grow(ctx, (void **)&sl->items, &sl->cap_items, n + 1u, sizeof *sl->items)) {
+            return sa1_fail(ctx, SA1_ERR_OUT_OF_MEMORY, "sa1_frontend_screen: out of memory");
+        }
+        for (i = 0; i < n; i++) {
+            const sa1_cap_rec *r = &recs[i];
+            const uint8_t *p;
+            s_item it;
+            float z;
+            if (r->kind != SA1_CAP_TEX2D && r->kind != SA1_CAP_POLY2D_V) {
+                continue;
+            }
+            p = sa1_capture_payload(c, r, SA1_CAP_VTX2D_HEAD + 0x0Cu);
+            if (p == NULL || sa1_rd32(p) == 0u) {
+                continue;
+            }
+            z = sa1_rdf32(p + SA1_CAP_VTX2D_HEAD + 8u);
+            it.rec = i;
+            it.trans = r->attr != 0u;
+            it.pri = z != 0.0f ? -1.0f / z : 0.0f;
+            it.part = SA1_HUD_CHARACTER;
+            if (!(it.pri == it.pri)) {
+                it.pri = 0.0f;
+            }
+            for (k = nit; k > 0 && s_before(&it, &sl->items[k - 1u]); k--) {
+                sl->items[k] = sl->items[k - 1u];
+            }
+            sl->items[k] = it;
+            nit++;
+        }
+        for (i = 0; i < nit; i++) {
+            sa1_status st = s_fe_emit(ctx, s, c, &recs[sl->items[i].rec], &sl->items[i]);
+            if (st != SA1_OK) {
+                sl->ndraw = sl->nspr = sl->nvtx = 0;
+                s->built = 0;
+                return sa1_fail(ctx, st, "sa1_frontend_screen: out of memory");
+            }
+        }
+        s->built = 1;
+        s->b_windows = cst.windows;
+        s->b_drew = drew;
+        sl->gen++;
+    }
+    memset(&sl->scr, 0, sizeof sl->scr);
+    sl->scr.struct_size = sizeof sl->scr;
+    sl->scr.generation = sl->gen;
+    sl->scr.width = S_SCREEN_W;
+    sl->scr.height = S_SCREEN_H;
+    sl->scr.num_draws = sl->ndraw;
+    sl->scr.draws = sl->draws;
     sl->scr.num_vertices = sl->nvtx;
     sl->scr.vertices = sl->vtx;
     *out = &sl->scr;

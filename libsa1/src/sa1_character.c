@@ -440,7 +440,63 @@ static sa1_status ensure_world(sa1_context *ctx, sa1_char *ch, sa1_character_id 
 #endif
 }
 
+static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_in, const struct sa1w_follow_create *fc,
+                              sa1_character_id *out_id);
+
 sa1_status sa1_character_create_ex(sa1_context *ctx, const sa1_character_desc *desc_in, sa1_character_id *out_id)
+{
+    return char_create(ctx, desc_in, NULL, out_id);
+}
+
+/* round 0.9.8 (src/sa1_follower.c): a character with a follower's world, built at once */
+sa1_status sa1w_character_create_follower(sa1_context *ctx, const sa1_character_desc *d, const struct sa1w_follow_create *fc,
+                                          sa1_character_id *out_id)
+{
+    return char_create(ctx, d, fc, out_id);
+}
+
+int sa1w_character_is_follower(const sa1_context *ctx, sa1_character_id id)
+{
+    const sa1_char *ch = get_char(ctx, id);
+    return ch != NULL && (ch->cw.flags & SA1W_FOLLOWER) != 0;
+}
+
+uint32_t sa1w_followers_count(const sa1_context *ctx)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < SA1_MAX_INSTANCES; i++) {
+        const sa1_char *ch = ctx->inst[i] ? (const sa1_char *)(const void *)ctx->inst[i] : NULL;
+        if (ch != NULL && (ch->cw.flags & SA1W_FOLLOWER)) {
+            n++;
+        }
+    }
+    return n;
+}
+
+/* 1: leader is f, or follows f (directly or through a chain) */
+int sa1w_follow_cycle(const sa1_context *ctx, sa1_character_id f, sa1_character_id leader)
+{
+    uint32_t guard = 0;
+#if !defined(SA1_NO_WORLD)
+    while (leader != 0 && guard++ < SA1_MAX_INSTANCES) {
+        const sa1_char *ch = get_char(ctx, leader);
+        if (leader == f) {
+            return 1;
+        }
+        if (ch == NULL || !(ch->cw.flags & SA1W_FOLLOWER) || ch->world == NULL) {
+            return 0;
+        }
+        leader = sa1wf_leader_id(ch->world);
+    }
+#else
+    (void)ctx;
+    (void)f;
+#endif
+    return leader != 0;
+}
+
+static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_in, const struct sa1w_follow_create *fc,
+                              sa1_character_id *out_id)
 {
     static const uint32_t known = SA1_CREATE_WORLD | SA1_CREATE_PUPPET | SA1_CREATE_SA1_SPACE | SA1_CREATE_ANGLES |
                                   SA1_CREATE_START_TABLE | SA1_CREATE_STAGE | SA1_CREATE_SEED | SA1_CREATE_UPGRADES |
@@ -546,6 +602,10 @@ sa1_status sa1_character_create_ex(sa1_context *ctx, const sa1_character_desc *d
     }
     if (d.flags & SA1_CREATE_WATER_FLOOR)
         ch->cw.flags |= SA1W_WATER_FLOOR;
+    if (fc != NULL) {
+        ch->cw.flags |= SA1W_FOLLOWER;
+        ch->cw.follow = *fc;
+    }
     if (d.flags & SA1_CREATE_SA1_SPACE) {
         memcpy(ch->cw.pos, d.position, sizeof ch->cw.pos);
         sa1_to_host_point(ctx, d.position, ch->inst.position);
@@ -574,6 +634,7 @@ sa1_status sa1_character_create_ex(sa1_context *ctx, const sa1_character_desc *d
     st = SA1_OK;
     if (d.flags & SA1_CREATE_WORLD) {
         st = ensure_world(ctx, ch, id);
+        ch->cw.follow.leader_world = NULL;      /* only while the world is built */
         if (SA1_FAILED(st)) {
             ctx->inst[slot] = NULL;
             char_free(ctx, ch);
@@ -636,6 +697,18 @@ sa1_status sa1_character_destroy(sa1_context *ctx, sa1_character_id id)
     if (!ch)
         return SA1_ERR_NOT_FOUND;
     slot = ((uint32_t)id & 0xFFFFu) - 1u;
+#if !defined(SA1_NO_WORLD)
+    {
+        /* round 0.9.8: its followers go on host-fed from their last snapshot (SA1_FOLLOW_EV_LEADER_LOST arg 0) */
+        uint32_t i;
+        for (i = 0; i < SA1_MAX_INSTANCES; i++) {
+            sa1_char *o = ctx->inst[i] ? (sa1_char *)(void *)ctx->inst[i] : NULL;
+            if (o != NULL && o != ch && (o->cw.flags & SA1W_FOLLOWER) && o->world != NULL && sa1wf_leader_id(o->world) == id) {
+                sa1wf_leader_lost(o->world, 0u);
+            }
+        }
+    }
+#endif
     ctx->inst[slot] = NULL;
     char_free(ctx, ch);
     return SA1_OK;
@@ -775,6 +848,13 @@ static void state_lanes(sa1_state_ex *x, const sa1w_pstate *p)
     x->emote_row = p ? p->emote_row : -1;
     x->emote_extra = p ? p->emote_extra : -1;
     x->emote_frame = p ? p->emote_frame : 0.0f;
+    /* round 0.9.8 (SA1_API_LOOK; seam S5) */
+    x->look_kind = p ? p->look_kind : 0u;
+    x->look_owner = p ? p->look_owner : 0u;
+    x->head_angle[0] = p ? p->head_angle[0] : 0;
+    x->head_angle[1] = p ? p->head_angle[1] : 0;
+    x->eye_angle[0] = p ? p->eye_angle[0] : 0;
+    x->eye_angle[1] = p ? p->eye_angle[1] : 0;
 }
 
 static void state_of(const sa1_context *ctx, const sa1_char *ch, sa1_state_ex *x)
@@ -929,6 +1009,8 @@ sa1_status sa1_character_order(sa1_context *ctx, sa1_character_id id, int32_t or
     sa1_status st;
     if (!ch)
         return SA1_ERR_NOT_FOUND;
+    if (ch->cw.flags & SA1W_FOLLOWER)
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
     if (order != SA1_ORDER_SUPER && order != SA1_ORDER_NORMAL)
         return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "sa1_character_order: order %d is not SA1_ORDER_SUPER / NORMAL",
                         (int)order);
@@ -1239,11 +1321,37 @@ static int general_drawn(const sa1_charset *cs, const sa1_char *ch, int32_t a, i
     return 1;
 }
 
+#if !defined(SA1_NO_WORLD)
+/* the look work's three nodes of a kind's main body (look096.md 3.1: head, eye L, eye R; E-102 has no look task) */
+static uint32_t look_overrides(const sa1_charset *cs, const sa1_char *ch, int32_t object, sa1_pose_override *ov)
+{
+    static const uint8_t k_nodes[8][3] = {
+        { 11, 21, 17 }, { 0, 0, 0 }, { 4, 9, 8 }, { 10, 20, 16 }, { 0, 0, 0 }, { 10, 20, 16 }, { 0, 0, 0 }, { 60, 66, 65 },
+    };
+    const sa1_object *o = &SA1_VEC(cs->objects, sa1_object)[object];
+    int32_t kind = ch->inst.kind;
+    uint32_t n = 0, k;
+    if (kind < 0 || kind >= 8 || k_nodes[kind][0] == 0) {
+        return 0u;
+    }
+    for (k = 0; k < 3; k++) {
+        uint32_t i = k_nodes[kind][k];
+        if (i < o->num_nodes && sa1w_world_node(ch->world, o->nodes[i].addr, ov[n].ang, ov[n].pos)) {
+            ov[n].node = i;
+            n++;
+        }
+    }
+    return n;
+}
+#endif
+
 static sa1_status pose_eval_current(sa1_context *ctx, sa1_char *ch)
 {
     const sa1_charset *cs = loaded_set(ctx, ch->inst.kind);
     int32_t object, motion = -1, action = ch->inst.action;
     float lift = 0.0f;              /* round 0.9.4a: GA's lift of the game's Super motions (general_drawn) */
+    sa1_pose_override ov[3];
+    uint32_t nov = 0;
     sa1_status st;
     if (!cs)
         return SA1_ERR_NOT_LOADED;
@@ -1258,6 +1366,12 @@ static sa1_status pose_eval_current(sa1_context *ctx, sa1_char *ch)
     } else {
         action = -1;
     }
+#if !defined(SA1_NO_WORLD)
+    /* round 0.9.8 (096 4.7 d, look096.md 7.1.6): the head and the eyes the look task turned in the world's own copy of the model
+       (Tails' eyes move by translation): a hidden pair does not show them at rest. Render only, no game state */
+    if (ch->world != NULL && object == cs->main_object)
+        nov = look_overrides(cs, ch, object, ov);
+#endif
     if (cs->has_physics) {
         /* the game's displays draw the model's root above twp->pos: Sonic's and E-102's at the collision centre,
          * center_height up (8C0AE110 / 8C0AE17A, 8C0CFACE), Tails', Knuckles' and Amy's at half their height
@@ -1272,10 +1386,10 @@ static sa1_status pose_eval_current(sa1_context *ctx, sa1_char *ch)
         memcpy(keep, ch->inst.position, sizeof keep);
         for (k = 0; k < 3; k++)
             ch->inst.position[k] += hup[k];
-        st = sa1_pose_evaluate(ctx, cs, &ch->inst, object, motion, ch->inst.frame, 0u);
+        st = sa1_pose_evaluate_ov(ctx, cs, &ch->inst, object, motion, ch->inst.frame, 0u, ov, nov);
         memcpy(ch->inst.position, keep, sizeof keep);
     } else {
-        st = sa1_pose_evaluate(ctx, cs, &ch->inst, object, motion, ch->inst.frame, 0u);
+        st = sa1_pose_evaluate_ov(ctx, cs, &ch->inst, object, motion, ch->inst.frame, 0u, ov, nov);
     }
     if (st != SA1_OK)
         return st;
@@ -1487,6 +1601,10 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
     o.board_hide = ch->world != NULL && sa1wb_draw_hidden(ch->world);
     o.board_world = ch->world != NULL && sa1wb_kept(ch->world);
 #endif
+#if !defined(SA1_NO_WORLD)
+    if (ch->cw.flags & SA1W_FOLLOWER)
+        sa1wf_note_hidden(ch->world, sa1_capture_hidden(ch->cap));
+#endif
     if (sa1_capture_hidden(ch->cap)) {
         /* the game's camera did not see the character in the last pair: its display returned before drawing (game
          * logic: the visibility test 8C038D00, rt_draw.c section 6). Hosts draw the character whether the game's
@@ -1566,6 +1684,7 @@ sa1_status sa1_character_tick(sa1_context *ctx, sa1_character_id id, const sa1_i
     sa1_char *ch = get_char(ctx, id);
     sa1_status st, cst, rs1 = SA1_OK;
     uint32_t pairs = 0, p2 = 0;
+    float wdt = dt;     /* what the world runs with: a follower of a libsa1 character runs its leader's steps, whatever dt */
     if (!ch)
         return SA1_ERR_NOT_FOUND;
     if (mesh_out && mesh_out->struct_size >= sizeof(uint32_t)) {
@@ -1585,12 +1704,33 @@ sa1_status sa1_character_tick(sa1_context *ctx, sa1_character_id id, const sa1_i
     (void)pairs;
     (void)p2;
     (void)rs1;
+    (void)wdt;
     st = SA1_ERR_NOT_IMPLEMENTED;
 #else
     /* the game's displays draw into the capture while the window is open (7.2): every live tick, whether the host asks
      * for the mesh or not, so the world runs the same code either way */
     capture_attach(ctx, ch);
-    sa1w_world_input_ex(ch->world, input, &ctx->coords);   /* round 0.9.5: with the host camera (SA1_INPUT_HOST_CAMERA) */
+    if (ch->cw.flags & SA1W_FOLLOWER) {
+        /* round 0.9.8 (libsa1.h "followers"): stick and buttons are the AI's; a libsa1 leader's steps decide the pairs */
+        sa1_input fin;
+        sa1_character_id lid = sa1wf_leader_id(ch->world);
+        const sa1_char *lc = lid != 0 ? get_char(ctx, lid) : NULL;
+        if (lid != 0 && (lc == NULL || lc->world == NULL))
+            sa1wf_leader_lost(ch->world, 0u);
+        else if (lc != NULL && sa1w_world_fault(lc->world)[0])
+            sa1wf_leader_lost(ch->world, 1u);
+        lid = sa1wf_leader_id(ch->world);
+        memset(&fin, 0, sizeof fin);
+        if (input != NULL && input->struct_size >= sizeof(uint32_t))
+            memcpy(&fin, input, input->struct_size < sizeof fin ? input->struct_size : sizeof fin);
+        fin.stick_x = 0.0f;
+        fin.stick_y = 0.0f;
+        fin.buttons = 0u;
+        sa1w_world_input_ex(ch->world, input != NULL ? &fin : NULL, &ctx->coords);
+        wdt = sa1wf_slave(ch->world, lid != 0 ? lc->world : NULL, dt);
+    } else {
+        sa1w_world_input_ex(ch->world, input, &ctx->coords);   /* round 0.9.5: with the host camera (SA1_INPUT_HOST_CAMERA) */
+    }
     {
         /* A tick of k >= 2 pairs (a frame of 33 ms or more) captures every pair it runs, as k one-pair ticks do, so
          * that the render output interpolates between the last two pairs (sadc docs/research/gsa1_060_pops.md F1 and
@@ -1603,12 +1743,12 @@ sa1_status sa1_character_tick(sa1_context *ctx, sa1_character_id id, const sa1_i
          * refresh). Capturing each one, not only the one before the last, keeps the motion hints' chain (pair_info's
          * frame advance of the pair before) what one-pair ticks have: a k-pair tick renders bit for bit what k one-pair
          * ticks render (tests/pairs_test.c). Cost: k - 1 more captures after a long frame only. */
-        uint32_t due = sa1w_world_pairs_due(ch->world, dt), p1 = 0, j;
+        uint32_t due = sa1w_world_pairs_due(ch->world, wdt), p1 = 0, j;
         st = SA1_OK;
         for (j = 1; j < due && st == SA1_OK; j++) {
             uint32_t pj = 0;
             sa1_capture_open(ch->cap);
-            st = sa1w_world_run(ch->world, j == 1u ? dt : 0.0f, 1u, 1, &pj);
+            st = sa1w_world_run(ch->world, j == 1u ? wdt : 0.0f, 1u, 1, &pj);
             sa1_capture_close(ch->cap);
             p1 += pj;
             if (st == SA1_OK && pj > 0) {
@@ -1626,11 +1766,13 @@ sa1_status sa1_character_tick(sa1_context *ctx, sa1_character_id id, const sa1_i
         }
         if (st == SA1_OK) {
             sa1_capture_open(ch->cap);
-            st = sa1w_world_run(ch->world, due >= 2u ? 0.0f : dt, due >= 2u ? 1u : 0u, 0, &p2);
+            st = sa1w_world_run(ch->world, due >= 2u ? 0.0f : wdt, due >= 2u ? 1u : 0u, 0, &p2);
             sa1_capture_close(ch->cap);
         }
         pairs = p1 + p2;
     }
+    if (ch->cw.flags & SA1W_FOLLOWER)
+        sa1wf_tick_end(ch->world);
     if (st == SA1_OK) {
         /* round 0.9.3a: the General form's warnings (the world cannot log from inside a pair) */
         uint32_t sw = sa1w_world_super_warnings(ch->world);

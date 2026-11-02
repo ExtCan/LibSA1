@@ -158,6 +158,12 @@ R8_ALLOWED_CONFLICTS = [
     # 1ST_READ callers a taskwk * (p); 8C0941FC is a boundary stub whose position read accepts arena pointers only
     # (LIB/gen/gen_stubs.py sa1g_stub_pos), so the raw -1 is never dereferenced
     "func_8C0941FC",
+    # the character select (round 0.9.8): SetLevelAndAct 8C04F76C is (Uint8, Uint8) where it MATCHES, code_8C901280.c calls it with
+    # (Sint32, Sint32) where that one MATCHES (each form changes the other's code); the values are level and act, 0..255, in the same
+    # two registers on every target
+    "func_8C04F76C",
+    # 8C050A06 (the soft-reset flag) takes nothing; code_8C900020.c calls it with 0, which its MATCH needs: an ignored argument
+    "func_8C050A06",
 ]
 
 # Header-level decisions the design puts into the headers under SA1_GA. Until the headers implement
@@ -2556,7 +2562,9 @@ def gen_fntab(entries, images=None):
               "    x ^= x >> 16;", "    x *= 0x85EBCA6Bu;", "    x ^= x >> 13;", "    x *= 0xC2B2AE35u;",
               "    x ^= x >> 16;", "    return x;", "}", "",
               "/* ---- base image: 1ST_READ (and the lowered runtime) */"]
-    lines += _fntab_table(ents, "sa1g_fntab", "sa1g_fnhash_d", "sa1g_fnhash_s", "sa1g_fn_lookup_base", True)
+    lines += ["/* the base map alone, never sa1g_fn_active: for any thread, in or outside a world (libsa1 round 0.9.8, L4) */",
+              "const sa1g_fnent *sa1g_fn_lookup_base(uint32_t g);"]
+    lines += _fntab_table(ents, "sa1g_fntab", "sa1g_fnhash_d", "sa1g_fnhash_s", "sa1g_fn_lookup_base", False)
     lines += ["const size_t sa1g_fntab_count = %d;" % len(ents), ""]
     for name, info, es in imgs:
         lines.append("/* ---- image %s: %s (SHA-1 %s), code %08X-%08X, %d entries */" % (
@@ -2581,7 +2589,7 @@ def gen_fntab(entries, images=None):
         lines.append('    { "", "", "", 0u, 0u, (const sa1g_fnent *(*)(uint32_t))0, (const sa1g_fnent *)0, 0u },')
     lines += ["};", "const size_t sa1g_fnimage_count = %d;" % len(imgs), "",
               "/* the images of the running world, NULL-terminated (the world core, like sa1g_seg) */",
-              "extern const sa1g_fnimage *sa1g_fn_active[];", "",
+              "extern SA1G_TLS const sa1g_fnimage *sa1g_fn_active[];", "",
               "/* a function of one of the running world's images (NULL: none at this address) */",
               "const sa1g_fnent *sa1g_fn_image_lookup(uint32_t g);",
               "const sa1g_fnent *sa1g_fn_image_lookup(uint32_t g)", "{",
@@ -2601,33 +2609,40 @@ def gen_fntab(entries, images=None):
               "    if (e == (const sa1g_fnent *)0 || (sig != 0u && e->sig != sig)) {",
               "        sa1g_fault_fn(g.v, sig);", "    }",
               "    return (void *)e->fn;", "}", "#endif", "",
-              "/* native function -> DC code address (traces, debug output): a hash over every table, built on first use */",
+              "/* native function -> DC code address (traces, debug output): a hash over every table. libsa1 builds it once, at the",
+              " * process's first world creation under its process lock (round 0.9.8, L5); without a world: on first use */",
               "static const struct { const sa1g_fnent *t; size_t n; } sa1g_fnall[%d] = {" % (1 + len(imgs)),
               "    { sa1g_fntab, %du }," % len(ents)]
     for name, info, es in imgs:
         lines.append("    { sa1g_fntab_%s, %du }," % (name, len(es)))
     lines += ["};",
               "#define SA1G_FNREV_SIZE %du" % (1 << max(1, (2 * max(1, total) - 1).bit_length())),
-              "uint32_t sa1_fn_addr(const void *native)", "{",
-              "    static uint32_t rev[SA1G_FNREV_SIZE];",
-              "    static int built;",
+              "static uint32_t sa1g_fnrev[SA1G_FNREV_SIZE];",
+              "static int sa1g_fnrev_built;",
+              "void sa1g_fn_addr_build(void);",
+              "void sa1g_fn_addr_build(void)", "{",
               "    uint32_t h;",
               "    size_t i, j;",
-              "    if (!built) {",
-              "        for (j = 0; j < sizeof sa1g_fnall / sizeof sa1g_fnall[0]; j++) {",
-              "            for (i = 0; i < sa1g_fnall[j].n; i++) {",
-              "                h = sa1g_fnmix((uint32_t)((uintptr_t)sa1g_fnall[j].t[i].fn >> 2)) & (SA1G_FNREV_SIZE - 1u);",
-              "                while (rev[h] != 0u) {",
-              "                    h = (h + 1u) & (SA1G_FNREV_SIZE - 1u);",
-              "                }",
-              "                rev[h] = (uint32_t)((j << 16) | i) + 1u;",
-              "            }",
-              "        }",
-              "        built = 1;",
+              "    if (__atomic_load_n(&sa1g_fnrev_built, __ATOMIC_ACQUIRE)) {",
+              "        return;",
               "    }",
+              "    for (j = 0; j < sizeof sa1g_fnall / sizeof sa1g_fnall[0]; j++) {",
+              "        for (i = 0; i < sa1g_fnall[j].n; i++) {",
+              "            h = sa1g_fnmix((uint32_t)((uintptr_t)sa1g_fnall[j].t[i].fn >> 2)) & (SA1G_FNREV_SIZE - 1u);",
+              "            while (sa1g_fnrev[h] != 0u) {",
+              "                h = (h + 1u) & (SA1G_FNREV_SIZE - 1u);",
+              "            }",
+              "            sa1g_fnrev[h] = (uint32_t)((j << 16) | i) + 1u;",
+              "        }",
+              "    }",
+              "    __atomic_store_n(&sa1g_fnrev_built, 1, __ATOMIC_RELEASE);",
+              "}", "",
+              "uint32_t sa1_fn_addr(const void *native)", "{",
+              "    uint32_t h;",
+              "    sa1g_fn_addr_build();",
               "    h = sa1g_fnmix((uint32_t)((uintptr_t)native >> 2)) & (SA1G_FNREV_SIZE - 1u);",
-              "    while (rev[h] != 0u) {",
-              "        uint32_t v = rev[h] - 1u;",
+              "    while (sa1g_fnrev[h] != 0u) {",
+              "        uint32_t v = sa1g_fnrev[h] - 1u;",
               "        const sa1g_fnent *e = &sa1g_fnall[v >> 16].t[v & 0xFFFFu];",
               "        if ((const void *)e->fn == native) {",
               "            return e->addr;",
@@ -3196,6 +3211,10 @@ def run_lowering(a, files, quiet=False):
         for u in units:
             if hasattr(u, "lowered"):
                 text = u.lowered
+                # libsa1 round 0.9.8 (T2): the runtime's register declarations are per thread where guest.h says so (SA1G_TLS, empty for
+                # ga32 and x86_64-linux); the parse has no such macro, so the text gets it here
+                text = text.replace("extern float *sa1_rt_xmtrx;", "extern SA1G_TLS float *sa1_rt_xmtrx;")
+                text = text.replace("extern const RT_PAD *sa1_rt_pad;", "extern SA1G_TLS const RT_PAD *sa1_rt_pad;")
                 if u.renames:
                     # per-image C names (design 2.5), after sa1/guest.h: they rename definitions, declarations and calls
                     head, _, rest = text.partition('#include "sa1/guest.h"\n')
@@ -3450,7 +3469,7 @@ int32_t func_8CF20000(void);
 void func_8CF10000(gnode *n);
 extern uint32_t sa1g_pcdv_st_exported, sa1g_pcdv_st_shared;
 
-float *sa1_rt_xmtrx;
+SA1G_TLS float *sa1_rt_xmtrx;
 static int fails;
 #define CHECK(c, what) do { if (!(c)) { printf("  FAIL %s (line %d)\n", what, __LINE__); fails++; } \
                             else { printf("  ok   %s\n", what); } } while (0)
@@ -3459,11 +3478,11 @@ void sa1g_fault_encode(const void *host) { printf("  FAULT encode %p\n", host); 
 void sa1g_fault_fn(uint32_t g, uint32_t sig) { printf("  FAULT code map %08X sig %08X\n", g, sig); exit(3); }
 void sa1g_unimpl(uint32_t g, const char *name) { printf("  FAULT unimplemented %s %08X\n", name, g); exit(3); }
 
-const struct sa1g_fnimage *sa1g_fn_active[1];      /* the code map's overlay images: none is running */
+SA1G_TLS const struct sa1g_fnimage *sa1g_fn_active[1];      /* the code map's overlay images: none is running */
 
 #if !defined(SA1_GA32)
-uintptr_t sa1g_seg[32];
-uint8_t *sa1g_ram_base;
+SA1G_TLS uintptr_t sa1g_seg[32];
+SA1G_TLS uint8_t *sa1g_ram_base;
 static uintptr_t span[32];
 uint32_t sa1g_encode_slow(const void *p)
 {

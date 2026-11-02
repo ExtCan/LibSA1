@@ -71,6 +71,7 @@ sa1_api_ext *sa1_api_ext_of(const sa1_context *ctx);
 #define SA1W_SUPER_CAPABLE 0x4u /* SA1_CREATE_SUPER_CAPABLE (kind 0; kind 8 always is) */
 #define SA1W_SUPER_GIVEN   0x8u /* SA1_CREATE_SUPER: super_flags is the host's (else the defaults) */
 #define SA1W_WATER_FLOOR   0x10u /* SA1_CREATE_WATER_FLOOR */
+#define SA1W_FOLLOWER      0x20u /* round 0.9.8: a follower's world (sa1w_create.follow; src/world/sa1_world_follower.c) */
 
 typedef struct sa1w_create {
     int32_t kind;               /* SA1_CHAR_* (0-7 are the game's own character ids) */
@@ -81,6 +82,15 @@ typedef struct sa1w_create {
     uint32_t seed;              /* rand() state after boot */
     uint32_t event_flags[4];    /* bits 0..127 of the event / upgrade flags B_8C799920 */
     uint32_t super_flags;       /* round 6a: SA1_SUPER_* (with SA1W_SUPER_GIVEN) */
+    /* round 0.9.8 (SA1W_FOLLOWER) */
+    struct sa1w_follow_create {
+        uint32_t flags;         /* SA1_FOLLOW_* */
+        sa1_character_id leader;        /* 0: host-fed */
+        struct sa1g_world *leader_world;        /* its world, only while the follower's world is built */
+        sa1_leader_state host;  /* leader 0: the first snapshot */
+        int32_t leader_kind;    /* SA1_CHAR_* of the leader (host: host.kind; -1 Sonic, 8 Super: game kind 0) */
+        const void *test_first; /* tests/follower_replay.c: the proxy's first state as a sa1g_snap (NULL: the leader's, or host) */
+    } follow;
 } sa1w_create;
 
 /* creation results that are not errors (sa1w_world_create *notes) */
@@ -138,6 +148,9 @@ typedef struct sa1w_pstate {
     int32_t  drawn_frame_valid;
     float    drawn_frame;
     uint32_t drawn_action;
+    /* round 0.9.8 (SA1_API_LOOK; seam S5): sa1_state_ex's look tail, zero unless w->look.fill wrote them */
+    uint32_t look_kind, look_owner;
+    int32_t  head_angle[2], eye_angle[2];
 } sa1w_pstate;
 #define SA1W_PSTATE_DRAWN 1     /* sa1w_pstate has drawn_valid / drawn_pos / drawn_ang */
 #define SA1W_PSTATE_DRAWN_FRAME 1   /* round 0.9.4a: and drawn_frame_valid / drawn_frame / drawn_action */
@@ -466,6 +479,38 @@ void sa1wb_state_get(const struct sa1g_world *w, sa1wb_state *out);
 /* the render capture (sa1_character.c): 1 = a board task's draws are left out (not held once yet); 1 = the board is kept */
 int sa1wb_draw_hidden(const struct sa1g_world *w);
 int sa1wb_kept(const struct sa1g_world *w);
+
+/* ---- round 0.9.8 (SA1_API_CAMERA; seam S9, gsa1_098_plan.md 5.4, review R98.2): defined in src/sa1_camreq.c, called by
+ *      sa1w_world_input_ex at the first tick with the bit; does nothing while that file's gate is closed ------------------ */
+void sa1g_camreq_install(struct sa1g_world *w);
+
+/* ---- round 0.9.8: followers (SA1_API_FOLLOWER; src/sa1_follower.c the API, src/world/sa1_world_follower.c the world) --- */
+/* the character path of sa1_character_create_ex with a follower's world (sa1_character.c) */
+sa1_status sa1w_character_create_follower(sa1_context *ctx, const sa1_character_desc *d, const struct sa1w_follow_create *fc,
+                                          sa1_character_id *out_id);
+/* the angles and position of an NJS_OBJECT in the world's own arena (physical or guest address); 0: not in the arena */
+int sa1w_world_node(const struct sa1g_world *w, uint32_t addr, int32_t ang[3], float pos[3]);
+/* 1: a follower id (no world needed) */
+int sa1w_character_is_follower(const sa1_context *ctx, sa1_character_id id);
+/* sa1_character.c: the number of followers of ctx; every world's parts */
+uint32_t sa1w_followers_count(const sa1_context *ctx);
+int sa1w_follow_cycle(const sa1_context *ctx, sa1_character_id f, sa1_character_id leader);
+int sa1wf_on(const struct sa1g_world *w);
+int32_t sa1wf_kind(const struct sa1g_world *w);
+sa1_status sa1wf_feed(const sa1_context *ctx, struct sa1g_world *w, const sa1_leader_state *s);
+void sa1wf_set_leader(struct sa1g_world *w, const struct sa1g_world *leader, sa1_character_id id);
+sa1_character_id sa1wf_leader_id(const struct sa1g_world *w);
+void sa1wf_event_flag(struct sa1g_world *w, uint32_t n);
+void sa1wf_leader_lost(struct sa1g_world *w, uint32_t arg);
+float sa1wf_slave(struct sa1g_world *w, const struct sa1g_world *leader, float dt);
+void sa1wf_tick_end(struct sa1g_world *w);
+sa1_status sa1wf_respawn(struct sa1g_world *w);
+sa1_status sa1wf_hold(struct sa1g_world *w, int on);
+void sa1wf_note_hidden(struct sa1g_world *w, int hidden);
+void sa1wf_info(const sa1_context *ctx, const struct sa1g_world *w, const struct sa1g_world *leader, sa1_follower_info *o);
+/* tests only (tests/follower_replay.c): boot flags ORed into the next world this context builds (SA1G_BOOT_FOLLOWER_SAME,
+   F2's configuration); 0 afterwards */
+void sa1w_test_boot_flags(uint32_t flags);
 
 /* ---- tests (tests/replay_test.c): the world of a character (NULL: not created yet, or none) -------- */
 struct sa1g_world *sa1_character_world(const sa1_context *ctx, sa1_character_id id);

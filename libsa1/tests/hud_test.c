@@ -33,6 +33,8 @@
  *     harness's NAME.d2d.txt format to OUT/<name>.lib.d2d.txt (tests/build_hud.py compares them with the references:
  *     harness/tools/draw2d.py's --lib rules); every record of the trace must stay identical with the pass (decoded
  *     fields).
+ * 13. Big's HUD with the lure in the water, jump held (round 0.9.8: fish098.md 6.1 T16): 13 sprites and the POLY2D tension bar per
+ *     pair in lure mode 5, the line-length digits changing.
  */
 #include "world_replay.c"
 
@@ -1055,6 +1057,126 @@ static void replay_2d(const env *E, const char *name)
     wr_trace_free(&t);
 }
 
+/* ---- 13: Big's HUD with the lure in the water, jump held (round 0.9.8: fish098.md 6.1 T16, gsa1_090_bigfish.md F4, review R3.9) ---- */
+static void t16_rect(sa1_collision_tri *t, uint32_t *n, float x0, float y0, float x1, float y1, float z, uint32_t surf)
+{
+    float a[3] = { x0, y0, z }, b[3] = { x1, y0, z }, c[3] = { x1, y1, z }, d[3] = { x0, y1, z };
+    memcpy(t[*n].v[0], a, 12); memcpy(t[*n].v[1], b, 12); memcpy(t[*n].v[2], c, 12); t[*n].surface = surf; (*n)++;
+    memcpy(t[*n].v[0], a, 12); memcpy(t[*n].v[1], c, 12); memcpy(t[*n].v[2], d, 12); t[*n].surface = surf; (*n)++;
+}
+
+static void test_big_water(const env *E)
+{
+    sa1_context *ctx = new_ctx(E, 1u << SA1_CHAR_BIG);
+    sa1_character_id id = 0;
+    sa1g_world *w;
+    sa1_collision_tri t[64];
+    uint32_t n = 0, k, wet = 0, sprites13 = 0, bars = 0, changes = 0, last_hash = 0, reel_pairs = 0, min_s = 0xFFFFFFFFu, max_s = 0;
+    sa1_coords co;
+    sa1_character_desc d;
+    printf("13. Big's HUD with the lure in the water, jump held (T16):\n");
+    if (ctx == NULL) {
+        CHECK(0, "context");
+        return;
+    }
+    memset(&co, 0, sizeof co);
+    co.struct_size = sizeof co;
+    sa1_coords_preset(SA1_COORDS_PRESET_SOURCE, &co);
+    sa1_set_coords(ctx, &co);
+    /* fish098's island: 600 HU square at z 0, water at -20 HU, sea bed -600 */
+    t16_rect(t, &n, -300, -300, 300, 300, 0, SA1_SURFACE_SOLID);
+    t16_rect(t, &n, -6000, -6000, 6000, -300, -20, SA1_SURFACE_WATER);
+    t16_rect(t, &n, -6000, 300, 6000, 6000, -20, SA1_SURFACE_WATER);
+    t16_rect(t, &n, -6000, -300, -300, 300, -20, SA1_SURFACE_WATER);
+    t16_rect(t, &n, 300, -300, 6000, 300, -20, SA1_SURFACE_WATER);
+    t16_rect(t, &n, -6000, -6000, 6000, 6000, -600, SA1_SURFACE_SOLID);
+    if (SA1_FAILED(sa1_collision_set_static(ctx, t, n))) {
+        CHECK(0, "the island: %s", sa1_last_error(ctx));
+        sa1_shutdown(ctx);
+        return;
+    }
+    memset(&d, 0, sizeof d);
+    d.struct_size = sizeof d;
+    d.kind = SA1_CHAR_BIG;
+    d.flags = SA1_CREATE_WORLD;
+    if (SA1_FAILED(sa1_character_create_ex(ctx, &d, &id)) || !hud_on(ctx, id, SA1_HUD_ALL, 1)) {
+        CHECK(0, "Big: %s", sa1_last_error(ctx));
+        sa1_shutdown(ctx);
+        return;
+    }
+    w = sa1_character_world(ctx, id);
+    for (k = 0; k < 300u; k++) {
+        sa1_input in;
+        const sa1_screen *s;
+        uint32_t lt, i, ns = 0, nb = 0, h = 2166136261u;
+        memset(&in, 0, sizeof in);
+        in.struct_size = sizeof in;
+        in.host_flags = SA1_INPUT_GAME_CAMERA;
+        if (k >= 10u && k < 50u) {
+            in.buttons = SA1_BUTTON_ACTION;
+        }
+        if (k >= 25u && k < 50u) {
+            in.stick_y = 1.0f;
+        }
+        if (k >= 100u) {
+            in.buttons = SA1_BUTTON_JUMP;
+        }
+        if (sa1_character_tick(ctx, id, &in, 1.0f / 30.0f, NULL, NULL) != SA1_OK) {
+            printf("    tick: %s\n", sa1_last_error(ctx));
+            break;
+        }
+        if (k < 90u) {
+            continue;
+        }
+        lt = 0;
+        sa1g_world_rd32(w, 0x8C7A40C8u, &lt);
+        {
+            uint32_t ltw = 0, m = 0;
+            if (lt != 0) {
+                sa1g_world_rd32(w, lt + 0x20u, &ltw);
+            }
+            if (ltw != 0) {
+                sa1g_world_rd32(w, ltw & ~3u, &m);
+            }
+            if ((m & 0xFFu) != 5u) {
+                continue;
+            }
+        }
+        s = screen_of(ctx, id);
+        for (i = 0; s != NULL && i < s->num_sprites; i++) {
+            ns += s->sprites[i].part == SA1_HUD_CHARACTER;
+            if (s->sprites[i].source == 0x8C0E943Cu) {
+                const sa1_screen_draw *dr = draw_of_sprite(s, i);
+                h ^= (uint32_t)dr->texture;
+                h *= 16777619u;
+                {
+                    uint32_t u;
+                    memcpy(&u, &s->sprites[i].uv[0], 4);
+                    h ^= u;
+                    h *= 16777619u;
+                }
+            }
+        }
+        for (i = 0; s != NULL && i < s->num_draws; i++) {
+            nb += s->draws[i].prim == SA1_PRIM_TRIANGLES && s->draws[i].source == 0x8C0E943Cu;
+        }
+        wet++;
+        sprites13 += ns == 13u;
+        bars += nb == 1u;
+        min_s = ns < min_s ? ns : min_s;
+        max_s = ns > max_s ? ns : max_s;
+        if (k >= 100u) {
+            reel_pairs++;
+            changes += h != last_hash;
+        }
+        last_hash = h;
+    }
+    CHECK(wet >= 100u && sprites13 == wet, "T16 %u pairs in lure mode 5: 13 sprites of Big's HUD in every one (9 of the task 8C0EB160, 4 of 8C0E943C: %u; %u..%u)", (unsigned)wet, (unsigned)sprites13, (unsigned)min_s, (unsigned)max_s);
+    CHECK(bars == wet, "T16 the POLY2D tension bar in every one (%u)", (unsigned)bars);
+    CHECK(reel_pairs > 50u && changes >= 5u, "T16 jump held: the line-length digits change (%u changes over %u pairs)", (unsigned)changes, (unsigned)reel_pairs);
+    sa1_shutdown(ctx);
+}
+
 static int part_on(const env *E, uint32_t p)
 {
     return (E->parts & (1u << p)) != 0;
@@ -1125,6 +1247,9 @@ int main(int argc, char **argv)
     }
     if (part_on(&E, 6) || part_on(&E, 8) || part_on(&E, 10)) {
         test_gamma(&E);
+    }
+    if (part_on(&E, 13)) {
+        test_big_water(&E);
     }
     if (part_on(&E, 12)) {
         for (k = 0; k < sizeof refs / sizeof refs[0]; k++) {

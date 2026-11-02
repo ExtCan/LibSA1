@@ -17,6 +17,9 @@
  * Threading: like sa1_collision_object_*, these calls belong to the thread that ticks the context's characters.
  */
 #include "sa1_hostobj.h"
+#if !defined(SA1H_HOSTOBJ)
+#include "world/sa1_world_look.h"     /* round 0.9.8: sa1_look_set_super */
+#endif
 #include "sa1_api_world.h"
 #include "sa1_screen.h"
 
@@ -54,14 +57,15 @@ sa1ho_registry *sa1ho_registry_of(const sa1_context *ctx)
     if (ctx == NULL) {
         return NULL;
     }
-    tab_lock();
+    /* round 0.9.8 (T2, sadc docs/research/gsa1_098_plan.md 6.4): every step of every world asks this, on many threads: no lock for the read. An entry is
+     * written under the lock by a call of its own context, which never runs during that context's ticks (libsa1.h SA1_API_PARALLEL); a reader only ever
+     * matches its own entry, and a pointer word is read whole */
     for (i = 0; i < SA1HO_TABLE; i++) {
-        if (g_tab[i].ctx == ctx) {
+        if (*(const sa1_context *const volatile *)&g_tab[i].ctx == ctx) {
             r = g_tab[i].r;
             break;
         }
     }
-    tab_unlock();
     return r;
 }
 
@@ -455,6 +459,10 @@ sa1_status sa1_character_set_option(sa1_context *ctx, sa1_character_id id, uint3
        this file and src/world/sa1_world_hostobj.c without the screen layer (harness/build.py LIB_HOSTOBJ_SOURCES) */
     if (option >= SA1_COPT_CLOCK && option <= SA1_COPT_HUD_PARTS) {
         return sa1_screen_set_option(ctx, id, option, value);
+    }
+    /* round 0.9.8: the Super head copy (src/sa1_look.c; the harness's oracle has no look: gsa1_096_plan.md review R.7) */
+    if (option == SA1_COPT_SUPER_LOOK) {
+        return sa1_look_set_super(ctx, id, value);
     }
 #endif
     if (option < SA1_COPT_NO_DEATH || option > SA1_COPT_NO_DAMAGE) {

@@ -1,0 +1,9 @@
+# args: --level 1 --act 2 --chr 7 --no-objects
+# Big casting into the Emerald Coast act 3 lake: + the reel, COLI pop 716, the cut, EVENT pop 719, the HUD with the lure in the water and A held (fish098.md 7)
+30 0 0
+120 -90 -90
+20 0 0
+50 0 -127 B
+200 0 0
+300 0 0 A
+120 0 0

@@ -1,0 +1,11 @@
+# args: --frames 860 --unlock --set8 8C754BFC=1
+# Round 0.9.8 (charsel098.md 3.4, 7): RIGHT, RIGHT, A, A on Knuckles (the Character Select dialog's skip compares frames >= 313 at +42)
+230 0 0
+1 0 0 RIGHT
+40 0 0
+1 0 0 RIGHT
+40 0 0
+1 0 0 A
+20 0 0
+1 0 0 A
+360 0 0

@@ -206,10 +206,15 @@ void sa1g_step_game(sa1g_world *w, int32_t sub, void *user)
     sa1ca_world_step_begin(w);              /* host worlds: a matrix push 8C029B00 left behind is undone (PC only) */
     sa1g_camera_view(w);                    /* round 0.9.4: first, so its eye is this step's camera position */
     sa1g_camera_host(w);                    /* round 0.9.5: the host's eye instead, when the tick latched one */
-    sa1g_camera_refresh(w);
+    if (!w->camreq.running) {               /* round 0.9.8: while a known request runs the taskwk is the game camera's output */
+        sa1g_camera_refresh(w);
+    }
     sa1g_call_dc(SA1G_FN_PAD_UPDATE);       /* rt pdGetPeripheral, then the analog conversion 8C05117E */
     if (w->replay) {
         sa1g_inject_pad(w);
+    }
+    if (w->follow_pre != NULL) {
+        w->follow_pre(w, sub, w->user);     /* round 0.9.8: the proxy = the leader after ITS last step (sa1_world_follower.c) */
     }
     if (w->hostobj_pre != NULL) {
         w->hostobj_pre(w, sub, w->user);    /* host objects: window, proxies, latched poses (sa1_world_hostobj.c) */
@@ -223,14 +228,25 @@ void sa1g_step_game(sa1g_world *w, int32_t sub, void *user)
     if (w->emote.pre != NULL) {
         w->emote.pre(w, sub, w->user);      /* round 0.9.4a: emote start / input cancel (sa1_world_emote.c) */
     }
+    if (w->look.pre != NULL) {
+        w->look.pre(w, sub, w->user);       /* round 0.9.8: the latched head look (sa1_world_look.c) */
+    }
     if (w->board.pre != NULL) {
         w->board.pre(w, sub, w->user);      /* round 0.9.5: the latched board request (sa1_world_board.c) */
     }
+    if (w->camreq.pre != NULL) {
+        w->camreq.pre(w, sub, w->user);     /* round 0.9.8, last before the walk: the camera task runs before the players
+                                               (sa1_world_camreq.c; fish098.md 3.3) */
+    }
     /* 8C099A50 (event coroutines) and 8C06C182 (debug timer) are skipped */
-    if (w->replay || w->num_xhooks != 0 || w->freeze_unknown) {
-        sa1g_run_tasks(w);                  /* the same walk, with player-entry injection and overrides */
+    if (w->replay || w->num_xhooks != 0 || w->freeze_unknown || w->slot != 0) {
+        sa1g_run_tasks(w);                  /* the same walk, with player-entry injection and overrides (round 0.9.8: a
+                                               follower world always: its view between list 0 and list 1) */
     } else {
         sa1g_call_dc(SA1G_FN_EXECUTOR);     /* list 7 as level 8, then levels 0..6 */
+    }
+    if (w->follow_mid != NULL) {
+        w->follow_mid(w, sub, w->user);     /* round 0.9.8: the proxy = the leader after this step: CCL and the land gather */
     }
     sa1g_call_dc(SA1G_FN_CCL);
     if (w->hostobj_post != NULL) {
@@ -241,6 +257,9 @@ void sa1g_step_game(sa1g_world *w, int32_t sub, void *user)
     }
     if (w->emote.post != NULL) {
         w->emote.post(w, sub, w->user);     /* round 0.9.4a: the state cancel, the end (sa1_world_emote.c) */
+    }
+    if (w->look.post != NULL) {
+        w->look.post(w, sub, w->user);      /* round 0.9.8: the head look (sa1_world_look.c) */
     }
     if (w->face.post != NULL) {
         w->face.post(w, sub, w->user);      /* round 0.9.4a (unused today; kept symmetric) */
@@ -258,29 +277,16 @@ void sa1g_step_game(sa1g_world *w, int32_t sub, void *user)
     }
     sa1g_call_dc(SA1G_FN_LAND_UPDATE);      /* calls the landtable gather 8C052518 */
     sa1g_step_tail(w);
+    sa1g_ring_note(w, 0);                   /* round 0.9.8: the slot's state for its followers (read only) */
 }
 
-/* the particle manager has C in this build (a --lower subset may leave it out: then it is not run) */
-int sa1g_particles_linked(void)
-{
-    static int linked = -1;
-    if (linked < 0) {
-        linked = sa1g_game_linked() && sa1_fn_name(SA1G_FN_PARTICLES) != NULL;
-    }
-    return linked;
-}
+/* sa1g_particles_linked, sa1g_game_ready: src/world/sa1_world_lookup.c (seam S8) */
 
 void sa1g_display_game(sa1g_world *w, void *user)
 {
     (void)w;
     (void)user;
     sa1g_call_dc(SA1G_FN_DISPLAY);
-}
-
-int sa1g_game_ready(void)
-{
-    return sa1g_game_linked() && sa1_fn_name(SA1G_FN_PAD_UPDATE) != NULL && sa1_fn_name(SA1G_FN_EXECUTOR) != NULL
-           && sa1_fn_name(SA1G_FN_CCL) != NULL && sa1_fn_name(SA1G_FN_LAND_UPDATE) != NULL;
 }
 
 /* ---- input (6.6) ------------------------------------------------------------------------------------- */

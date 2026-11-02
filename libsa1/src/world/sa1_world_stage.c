@@ -30,6 +30,7 @@
  * SA1_CREATE_STAGE_TASKS (src/world/sa1_api_world.c composes the kind's image with STGnn then).
  */
 #include "sa1_world.h"
+#include "sa1_world_lookup.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -77,7 +78,7 @@ static int st_has_code(uint32_t exec)
     if ((exec & 0x1FFFFFFFu) >= 0x0C900000u && (exec & 0x1FFFFFFFu) < 0x0D000000u) {
         return sa1g_fn_image_lookup(exec) != NULL;
     }
-    return sa1_fn_name(exec) != NULL;
+    return SA1G_FN_NAME_OUTSIDE(exec) != NULL;
 }
 
 /* ---- Emerald Coast (STG01; decompiled: sadc src/overlays/stg01) -------------------------------------- */
@@ -283,7 +284,7 @@ void sa1g_stage_tasks(sa1g_world *w)
             w->level_tp = tp;
         }
         if (how != NULL && n < sizeof w->stage_note) {
-            name = sa1_fn_name(exec);
+            name = SA1G_FN_NAME_OUTSIDE(exec);
             n += (size_t)snprintf(w->stage_note + n, sizeof w->stage_note - n, "%slist %d: %08X%s%s %s",
                                   n ? "; " : "", (int)list, (unsigned)exec, name ? " " : "", name ? name : "", how);
         }

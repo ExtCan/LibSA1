@@ -1266,6 +1266,10 @@ typedef struct wr_result {
     wr_diff d;
 } wr_result;
 
+/* seam S12 (gsa1_098_plan.md 5.4, fish098.md 6.1 T1): a test's hook, called at wr_replay's step point, right before each step
+ * with the record that step replays (camreq_test's camera compare hangs here); NULL everywhere else */
+static void (*wr_step_hook)(sa1g_world *w, const sa1_trace_rec *r, uint32_t index);
+
 /* replay records [first, end) of t into w (single steps with the record's sub); out (may be NULL) gets
  * the world's records (out[0] = record first) */
 static void wr_replay(sa1g_world *w, const wr_trace *t, uint32_t first, uint32_t end, uint32_t inject,
@@ -1282,6 +1286,9 @@ static void wr_replay(sa1g_world *w, const wr_trace *t, uint32_t first, uint32_t
         const sa1_trace_rec *r = &t->r[i];
         sa1_status st;
         wr_inject(w, r, inject, cam_from_record);
+        if (wr_step_hook != NULL) {
+            wr_step_hook(w, r, i);
+        }
         st = sa1g_world_step(w, (int32_t)r->sub);
         if (st != SA1_OK) {
             printf("    step %u: %s: %s\n", (unsigned)i, sa1g_status_string(st), w->fault.msg);
