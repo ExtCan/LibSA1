@@ -173,6 +173,7 @@ typedef struct sim_cfg {
     uint32_t create_ocpw[8];   /* round 0.9.4: +ocp=HEX, the initial ssCondition (default 0x8001) */
     const char *hostobj;      /* --hostobj FILE: libsa1's host-object layer under the script's calls (ho_oracle.c) */
     int pno1;                 /* --pno1: the player-1 / follower-AI sidecar <out>.p1.bin */
+    int cast;                 /* --cast (--chr 1 or 4, round 0.9.9): Eggman or Tikal as the stage's player, four words of guest RAM (cast_patch) */
 } sim_cfg;
 
 /* image guard epoch: bumped whenever an overlay may have been (re)loaded; the guard re-identifies
@@ -812,8 +813,10 @@ static int px_pno1;                     /* --pno1: also player 1's entry (the si
 static sa1_trace_rec px_stage1;         /* player 1's px_* fields of the current step */
 static uint32_t px_first_pno = 0xFFFFFFFFu, px_first_rand;  /* the first player exec entry of the step */
 
-/* SonicMain, TailsMain, KnucklesMain, AmyMain, E102Main, BigMain (LoadPlayerTask 8C04F3C0) */
-static const uint32_t px_mains[] = { 0x8C0A77BCu, 0x8C0B6148u, 0x8C0C0640u, 0x8C0D6B40u, 0x8C0CBE00u, 0x8C0DFFA0u };
+/* SonicMain, TailsMain, KnucklesMain, AmyMain, E102Main, BigMain (LoadPlayerTask 8C04F3C0);
+ * round 0.9.9: EggmanMain, TikalMain (no stock run has such an exec: trace --cast) */
+static const uint32_t px_mains[] = { 0x8C0A77BCu, 0x8C0B6148u, 0x8C0C0640u, 0x8C0D6B40u, 0x8C0CBE00u, 0x8C0DFFA0u,
+                                     0x8C0ED880u, 0x0CB00000u };
 
 static void px_capture_into(sa1_trace_rec *s)
 {
@@ -2674,11 +2677,68 @@ static void install_hle(void)
                      (void *)(uintptr_t)sim_stubs[i].ret, sim_stubs[i].name);
 }
 
+/* trace --cast (round 0.9.9, docs/research/playable099.md 2.2, 3.6): the stock game cannot start Eggman or Tikal as the
+ * player (8C09D980 hangs on them, LoadPlayerTask has no branch, 8C04F8FA no start table). Four patches in GUEST RAM, never in
+ * a file, so the header's CRCs stay the real ones; everything else that runs is the game's code as it is:
+ *  P1 8C09D980 func_8C09D980: RTS; NOP: no motion file (their motions are in 1ST_READ / TIKAL_PROG)
+ *  P2 8C04F3EE LoadPlayerTask: BF -> NOP: its "chr 0" branch runs for every character
+ *  P3 8C04F554 that branch's literal: SonicMain -> EggmanMain / TikalMain
+ *  P4 8C04FA18 func_8C04F8FA: BRA -> NOP NOP: it falls into Sonic's start table */
+#define CAST_MOTION_LOADER 0x8C09D980u
+
+static int cast_patch(int chr)
+{
+    if (sh4_read16(0x8C04F3EEu) != 0x8B10u || sh4_read32(0x8C04F554u) != 0x8C0A77BCu) {
+        fprintf(stderr, "--cast: 1ST_READ is not the expected image (8C04F3EE %04X, 8C04F554 %08X)\n",
+                sh4_read16(0x8C04F3EEu), sh4_read32(0x8C04F554u));
+        return -1;
+    }
+    sh4_write16(CAST_MOTION_LOADER, 0x000Bu);
+    sh4_write16(CAST_MOTION_LOADER + 2u, 0x0009u);
+    sh4_write16(0x8C04F3EEu, 0x0009u);
+    sh4_write32(0x8C04F554u, chr == 1 ? 0x8C0ED880u : 0x0CB00000u);
+    sh4_write16(0x8C04FA18u, 0x0009u);
+    sh4_write16(0x8C04FA1Au, 0x0009u);
+    printf("sim: --cast: %s as the stage's player, 4 patches in guest RAM (8C09D980, 8C04F3EE, 8C04F554, 8C04FA18)\n",
+           chr == 1 ? "EggmanMain" : "TikalMain");
+    return 0;
+}
+
+static int stage_image(const sim_cfg *cfg);
+static uint8_t *read_file(const char *path, long *size);
+
+/* --cast --chr 4: TIKAL_PROG after the stage load. An overlay at 0C900000 that reaches 0CB00000 would lose its top (ADV stages);
+ * the set-up's sim_run("load") has logged the file that loaded it (stage_image), its size is that of the file on disk */
+static int cast_load_tikal(const sim_cfg *cfg)
+{
+    int k = stage_image(cfg);
+    if (k >= 0 && sh4_overlays[k].load == 0x0C900000u) {
+        char path[1300];
+        long n = 0;
+        uint8_t *b;
+        snprintf(path, sizeof path, "%s/%s", g_root, sh4_overlays[k].bin);
+        b = read_file(path, &n);
+        free(b);
+        if (b && sh4_overlays[k].load + (uint32_t)n > 0x0CB00000u) {
+            fprintf(stderr, "--cast --chr 4: the stage's overlay %s ends at %08X, over TIKAL_PROG at 0CB00000 (ADV stages): refused\n",
+                    sh4_overlays[k].name, sh4_overlays[k].load + (uint32_t)n);
+            return -1;
+        }
+    }
+    if (harness_load_overlay("TIKAL_PROG"))
+        return -1;
+    guard_epoch++;      /* or the image guard keeps "TIKAL_PROG is not loaded" and her routed C never runs */
+    printf("sim: --cast: TIKAL_PROG loaded at 0CB00000 after the stage load\n");
+    return 0;
+}
+
 static int sim_setup(const sim_cfg *cfg)
 {
     sh4_arg none[1], a;
     uint64_t ic0;
     if (harness_load_rom())
+        return -1;
+    if (cfg->cast && cast_patch(cfg->chr))
         return -1;
     if (cfg->disc)
         snprintf(disc_dir, sizeof disc_dir, "%s", cfg->disc);
@@ -2738,6 +2798,8 @@ static int sim_setup(const sim_cfg *cfg)
     if (sim_run("load", STAGE_LOAD, none, 0, 1000000000))
         return -1;
     guard_epoch++;
+    if (cfg->cast && cfg->chr == 4 && cast_load_tikal(cfg))
+        return -1;
     printf("sim: stage start %s\n", fname(STAGE_START));
     {
         /* --no-level-tasks / --super-free: the table words the stage start reads, cleared for its duration */
@@ -3660,6 +3722,9 @@ static void usage(void)
          "                                          item box already broken), made after the whole stage start; /SX..,\n"
          "                                          +ocp or +late: host-object sidecar version 2)\n"
          "                  [--pno1]               (player 1 + follower AI sidecar <out>.p1.bin, sa1_trace_ext.h)\n"
+         "                  [--cast]               (--chr 1 or 4: the game's EggmanMain / TikalMain as the stage's player, 4\n"
+         "                                          patches in guest RAM, the header's CRCs stay the real ones; --chr 4 loads\n"
+         "                                          TIKAL_PROG after the stage load; ADV stages are refused)\n"
          "                  [--hostobj FILE]       (libsa1's host-object layer under FILE's calls: <out>.obj.bin;\n"
          "                                          harness/src/ho_oracle.c; --create-task ...@X,Y,Z[,ANGY] places a task)\n"
          "  traces are version 2 (sa1_trace.h) unless --trace-v1; --check accepts v1 and v2 references\n"
@@ -3728,6 +3793,7 @@ int cmd_trace(int argc, char **argv)
         else if (!strcmp(a, "--super-free")) cfg.super_free = 1;
         else if (!strcmp(a, "--no-level-tasks")) cfg.no_level_tasks = 1;
         else if (!strcmp(a, "--pno1")) cfg.pno1 = 1;
+        else if (!strcmp(a, "--cast")) cfg.cast = 1;
         else if (!strcmp(a, "--hostobj") && v) { cfg.hostobj = v; i++; }
         else if (!strcmp(a, "--create-task") && v && cfg.n_create < 8) {
             char *e;
@@ -3802,6 +3868,19 @@ int cmd_trace(int argc, char **argv)
         else { usage(); return 2; }
     }
     trace_v1 = cfg.trace_v1;
+    if (cfg.cast && cfg.chr != 1 && cfg.chr != 4) {
+        fprintf(stderr, "--cast needs --chr 1 (Eggman) or --chr 4 (Tikal); --chr %d is refused\n", cfg.chr);
+        return 2;
+    }
+    if (cfg.cast && cfg.chr == 4 && cfg.level >= 26 && cfg.level <= 34) {
+        fprintf(stderr, "--cast --chr 4: level %d is an ADV stage, whose overlay reaches over TIKAL_PROG at 0CB00000: refused\n", cfg.level);
+        return 2;
+    }
+    if (cfg.cast && cfg.route == 2) {
+        fprintf(stderr, "--cast: --route-all is refused: the set-up's native code would call the C of func_8C09D980, which hangs on chr %d\n",
+                cfg.chr);
+        return 2;
+    }
     if (cfg.super_free && (cfg.level != 19 || cfg.act != 0 || cfg.chr != 0 || cfg.no_level_tasks)) {
         fprintf(stderr, "--super-free needs --level 19 --act 0 --chr 0 (the Perfect Chaos stage, Sonic) and the "
                         "level task (not --no-level-tasks)\n");
@@ -3868,6 +3947,8 @@ int cmd_trace(int argc, char **argv)
         sh4_route_native(1);
         if (cfg.route_only || cfg.route_except)
             nr = route_select(cfg.route_only, cfg.route_except);
+        if (cfg.cast && sh4_hook_find(CAST_MOTION_LOADER, NULL, NULL, NULL))
+            sh4_hook_remove(CAST_MOTION_LOADER);    /* its C would hang where P1 returns (gsa1_099_plan.md 2.4 C9) */
         printf("sim: routing %d native decompiled functions into the run\n", nr);
         if (cfg.no_guard)
             printf("sim: --no-image-guard: overlay functions are routed by address, whatever image is loaded\n");

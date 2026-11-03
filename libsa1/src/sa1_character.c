@@ -20,10 +20,19 @@
 #include "sa1_hostobj.h"
 #include "sa1_screen.h"
 #include "sa1_preview.h"    /* round 0.9.4b: sa1pv_destroy_all (the object showcases) */
+#include "sa1_question.h"   /* round 0.9.9: SA1_CREATE_QUESTION */
 
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+/* round 0.9.9 (gsa1_099_plan.md 5.4 S2): SA1_CREATE_QUESTION: built, src/sa1_question.c */
+#define SA1Q_BUILT 1
+#if defined(__OPTIMIZE__) && !SA1Q_BUILT
+#define SA1Q_GATED 1
+#else
+#define SA1Q_GATED 0
+#endif
 
 static const char *const k_names[SA1_CHAR_COUNT] = { "sonic", "eggman", "tails", "knuckles", "tikal",
                                                      "amy", "gamma", "big", "supersonic" };
@@ -309,6 +318,7 @@ typedef struct sa1_char {
     int32_t rshadow_on;
     sa1_rout rout;                  /* the expanded / interpolated output */
     int32_t start_rings;            /* API 0.3 (SA1_CREATE_START_RINGS): rings set when the world is built, -1 = none */
+    int32_t question_still;         /* round 0.9.9: SA1_COPT_QUESTION_SPIN 0 (sa1q_char_still) */
 } sa1_char;
 
 static sa1_char *get_char(const sa1_context *ctx, sa1_character_id id)
@@ -495,13 +505,15 @@ int sa1w_follow_cycle(const sa1_context *ctx, sa1_character_id f, sa1_character_
     return leader != 0;
 }
 
+static sa1_status question_first(sa1_context *ctx, sa1_char *ch);
+
 static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_in, const struct sa1w_follow_create *fc,
                               sa1_character_id *out_id)
 {
     static const uint32_t known = SA1_CREATE_WORLD | SA1_CREATE_PUPPET | SA1_CREATE_SA1_SPACE | SA1_CREATE_ANGLES |
                                   SA1_CREATE_START_TABLE | SA1_CREATE_STAGE | SA1_CREATE_SEED | SA1_CREATE_UPGRADES |
                                   SA1_CREATE_STAGE_TASKS | SA1_CREATE_START_RINGS | SA1_CREATE_SUPER |
-                                  SA1_CREATE_SUPER_CAPABLE | SA1_CREATE_WATER_FLOOR;
+                                  SA1_CREATE_SUPER_CAPABLE | SA1_CREATE_WATER_FLOOR | SA1_CREATE_QUESTION;
     sa1_character_desc d;
     const sa1_charset *cs;
     sa1_char *ch;
@@ -517,6 +529,14 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
         return SA1_ERR_INVALID_ARGUMENT;
     if (d.flags & ~known)
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "unknown character flags 0x%X", (unsigned)(d.flags & ~known));
+    if (d.flags & SA1_CREATE_QUESTION) {
+        if (SA1Q_GATED)
+            return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "the question mark is not built yet");
+        if (d.kind != SA1_CHAR_SUPER_SONIC)
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_QUESTION: only kind 8");
+        if (d.flags & SA1_CREATE_PUPPET)
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_QUESTION: a puppet has no world (SA1_CREATE_PUPPET)");
+    }
     if ((d.flags & SA1_CREATE_PUPPET) && (d.flags & SA1_CREATE_WORLD))
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "a puppet has no world (SA1_CREATE_PUPPET with SA1_CREATE_WORLD)");
     if (!(sa1_finite(d.position[0]) && sa1_finite(d.position[1]) && sa1_finite(d.position[2])) || !sa1_finite(d.yaw))
@@ -563,6 +583,12 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
     cs = loaded_set(ctx, d.kind);
     if (!cs)
         return sa1_fail(ctx, SA1_ERR_NOT_LOADED, "character %s is not loaded", k_names[d.kind]);
+    if (d.flags & SA1_CREATE_QUESTION) {
+        /* the model and its archive, before anything of the character exists: outside the world, once per disc */
+        st = sa1q_load(ctx);
+        if (st != SA1_OK)
+            return st;
+    }
     if ((d.flags & SA1_CREATE_SUPER_CAPABLE) && d.kind == SA1_CHAR_SONIC) {
         /* round 6a: his Super body's textures (sa1_loader.c load_other_body) */
         for (k = 0; k < cs->num_archives && strcmp(cs->archives[k].name, "SUPERSONIC") != 0; k++)
@@ -641,6 +667,15 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
             return st;
         }
     }
+    if (d.flags & SA1_CREATE_QUESTION) {
+        /* no CPU pose of Super Sonic, ever: the "?" from the start */
+        sa1_status qs = question_first(ctx, ch);
+        if (qs != SA1_OK) {
+            ctx->inst[slot] = NULL;
+            char_free(ctx, ch);
+            return qs;
+        }
+    }
     *out_id = id;
     return st;
 }
@@ -666,10 +701,10 @@ sa1_status sa1_character_create(sa1_context *ctx, int32_t kind, const float posi
 }
 
 /* the character kinds whose worlds tick (sa1g_character_main: Sonic, Tails, Knuckles, Amy, E-102, Big; round 6a: Super
- * Sonic, whose world is Sonic's) */
+ * Sonic, whose world is Sonic's; round 0.9.9: Tikal, Eggman) */
 #define SA1_TICKING_KINDS ((1u << SA1_CHAR_SONIC) | (1u << SA1_CHAR_TAILS) | (1u << SA1_CHAR_KNUCKLES) | \
                            (1u << SA1_CHAR_AMY) | (1u << SA1_CHAR_GAMMA) | (1u << SA1_CHAR_BIG) | \
-                           (1u << SA1_CHAR_SUPER_SONIC))
+                           (1u << SA1_CHAR_SUPER_SONIC) | (1u << SA1_CHAR_TIKAL) | (1u << SA1_CHAR_EGGMAN))
 
 sa1_status sa1_character_prepare(sa1_context *ctx, uint32_t kinds)
 {
@@ -1451,6 +1486,52 @@ static void capture_attach(sa1_context *ctx, sa1_char *ch)
 }
 #endif
 
+/* round 0.9.9 (SA1_CREATE_QUESTION; src/sa1_question.c): the "?" at the character's root, spun by the world's step as on the menu. SA1_COPT_QUESTION_SPIN 0: with the drawn yaw, the
+ * model's front (its +z: what the menu's camera sees at angle 0) along the way the character faces, 0x4000 from the yaw because the glyph stands in the model's xy plane. Output only */
+static sa1_status question_append(sa1_context *ctx, sa1_char *ch, sa1_meshbuf *b)
+{
+    sa1_state_ex x;
+    sa1w_pstate p;
+    float root[3];
+    uint32_t yaw;
+    int faulted;
+    state_of(ctx, ch, &x);
+    if (pstate_of(ch, &p, &faulted)) {
+        memcpy(root, p.drawn_valid ? p.drawn_pos : p.pos, sizeof root);
+        yaw = p.drawn_valid ? p.drawn_ang[1] : p.ang[1];
+    } else {
+        sa1_from_host_point(ctx, ch->inst.position, root);
+        yaw = (uint32_t)yaw_to_bams(ch->inst.yaw);
+    }
+    return sa1q_append(ctx, b, root, ch->question_still ? yaw - 0x4000u : x.step * 0x2D8u);
+}
+
+/* before the first pair, after a pose or a rebuilt world: the "?" alone in rb[0], where the CPU pose of any other character would stand */
+static sa1_status question_first(sa1_context *ctx, sa1_char *ch)
+{
+    sa1_state_ex x;
+    sa1_status st;
+    sa1_meshbuf_reset(&ch->rb[0]);
+    st = question_append(ctx, ch, &ch->rb[0]);
+    if (st != SA1_OK)
+        return st;
+    sa1_meshbuf_geometry(&ch->rb[0], &ch->inst.geom);
+    state_of(ctx, ch, &x);
+    memcpy(ch->rpos[0], x.position, sizeof ch->rpos[0]);
+    ch->ryaw[0] = x.yaw;
+    ch->rdrawn[0] = 0;
+    ch->rcur = 0;
+    ch->rhave = 1;
+    ch->rgen++;
+    return SA1_OK;
+}
+
+int32_t *sa1q_char_still(const sa1_context *ctx, sa1_character_id id)
+{
+    sa1_char *ch = get_char(ctx, id);
+    return ch != NULL && (ch->create_flags & SA1_CREATE_QUESTION) ? &ch->question_still : NULL;
+}
+
 /* Draws farther than this from the character are left out of its mesh (SA1 units): the game parks models it does
  * not want to see far away (E-102 draws one at y = -1000000), beyond the far clip of any stage. */
 #define SA1_MESH_CLIP_RADIUS 16384.0f
@@ -1596,6 +1677,7 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
     o.effects = 1;
     o.dedupe = 1;
     o.exec_arrays = 1;      /* round 0.9.4: who drew each model / sprite (sa1_meshbuf.node_exec / spr_exec) */
+    o.question = (ch->create_flags & SA1_CREATE_QUESTION) != 0;     /* round 0.9.9; 0 in every reference world */
 #if !defined(SA1_NO_WORLD)
     /* round 0.9.5 (the board): its draws left out until it was held once; a kept board in world space */
     o.board_hide = ch->world != NULL && sa1wb_draw_hidden(ch->world);
@@ -1605,7 +1687,7 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
     if (ch->cw.flags & SA1W_FOLLOWER)
         sa1wf_note_hidden(ch->world, sa1_capture_hidden(ch->cap));
 #endif
-    if (sa1_capture_hidden(ch->cap)) {
+    if (!o.question && sa1_capture_hidden(ch->cap)) {
         /* the game's camera did not see the character in the last pair: its display returned before drawing (game
          * logic: the visibility test 8C038D00, rt_draw.c section 6). Hosts draw the character whether the game's
          * camera sees it or not: the render output is the CPU pose of the game's action and frame (the posing state
@@ -1632,6 +1714,12 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
     st = sa1_capture_emit_into(ctx, ch->cap, &o, &ch->rb[nxt], g);
     if (st != SA1_OK)
         return st;
+    if (o.question) {
+        st = question_append(ctx, ch, &ch->rb[nxt]);
+        if (st != SA1_OK)
+            return st;
+        sa1_meshbuf_geometry(&ch->rb[nxt], g);
+    }
     pair_info(cs, ch, nxt);
     ch->rcur = nxt;
     if (ch->rhave < 2)
@@ -1672,6 +1760,11 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
 static sa1_status mesh_current(sa1_context *ctx, sa1_char *ch, sa1_mesh *mesh)
 {
     mesh_src s;
+    if (!ch->rhave && (ch->create_flags & SA1_CREATE_QUESTION)) {
+        sa1_status qs = question_first(ctx, ch);
+        if (qs != SA1_OK)
+            return qs;
+    }
     if (!ch->rhave)
         return pose_current(ctx, ch, mesh);
     buf_src(&ch->rb[ch->rcur], &s);
@@ -1873,6 +1966,12 @@ sa1_status sa1_character_pose(sa1_context *ctx, sa1_character_id id, const sa1_p
     ch->rgen++;
     ch->rhave = 0;  /* the render output shows this pose (a ticking character: until its next pair) */
     ch->rshadow_on = 0;
+    if (ch->create_flags & SA1_CREATE_QUESTION) {   /* round 0.9.9: a "?" stays one */
+        st = question_first(ctx, ch);
+        if (st != SA1_OK)
+            return st;
+        return mesh_out ? mesh_current(ctx, ch, mesh_out) : SA1_OK;
+    }
     if (mesh_out) {
         st = pose_src(ctx, ch, &s);
         if (st != SA1_OK)
@@ -3213,6 +3312,11 @@ static sa1_status render_build(sa1_context *ctx, sa1_char *ch, float alpha, cons
         alpha = 0.0f;
     if (alpha > 1.0f)
         alpha = 1.0f;
+    if (!ch->rhave && (ch->create_flags & SA1_CREATE_QUESTION)) {
+        st = question_first(ctx, ch);
+        if (st != SA1_OK)
+            return st;
+    }
     if (ch->rhave) {
         cur = &ch->rb[ch->rcur];
         if (ch->rhave > 1)

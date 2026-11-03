@@ -94,7 +94,7 @@
 8C04EFE0	func_8C04EFE0	v:	void	stage-clear sequence (Big caught Froggy: score screen task, voices); libsa1.h has no event kind for it yet (0.2 draft): void keeps the world alive; ref: 0 calls in the 15 scripts; reach: BigMain; the original draws rand
 8C04F84E	func_8C04F84E	v:i32	fatal	stage restart path of the Red Mountain act setup (0C91253C, tail-called by the level task 0C911E0A for Sonic in act 0 near (-3667, 0, -2319)): game flow; ref: 0 calls in the 15 scripts; reach: none from the mains / step; the original draws rand
 8C04F8EC	func_8C04F8EC	v:i32	fatal	never reached by a front end (result 107 only; charsel098.md 5.3)
-8C04F8FA	func_8C04F8FA	v:p	event RESPAWN pos=a0@twp	set the start / checkpoint position (design 4.4: the host respawns the character); ref: 0 calls in the 15 scripts; reach: AmyMain, KnucklesMain, SonicMain, Tikal
+8C04F8FA	func_8C04F8FA	v:p	event RESPAWN pos=a0@twp	set the start / checkpoint position (design 4.4: the host respawns the character); ref: 0 calls in the 15 scripts; reach: AmyMain, EggmanMain, KnucklesMain, SonicMain, Tikal
 8C04FE40	func_8C04FE40	i32:	ret 0	game mode == 0x10 test; ref: 19589 calls in steps in 15/15 scripts, returns 0 x19589, 2223 in frame code; reach: AmyMain, BigMain, E102Main, KnucklesMain, SonicMain, TailsMain
 8C051810	func_8C051810	v:	void	the vsync callback 8C051760 hands to 8C605234 (void): only its address is used
 8C051C6A	func_8C051C6A	v:i32	fatal	stage restart path of the Red Mountain act setup (0C91253C, tail-called by the level task 0C911E0A for Sonic in act 0 near (-3667, 0, -2319)): game flow; ref: 0 calls in the 15 scripts; reach: none from the mains / step

@@ -62,7 +62,7 @@
  *   F15 GAME {Z, 6, 30}: pairs 0-2 0>8 at 1/6, 3/6, 5/6 (letter 25, shown 1, SEQUENCE); pairs 3-17 8>8 (letter -2,
  *       SEQUENCE); pair 18 shown 0, NONE, letter -1.
  * REFUSALS (sa1_last_error): "<call>: E-102 has no face in the game (no face task)", "<call>: Super Sonic has no event head in
- *   the game", "<call>: Tikal cannot tick in libsa1 yet", "<call>: Big's face cannot show F, G, Z" (UNSUPPORTED);
+ *   the game", "<call>: Tikal has no face in libsa1 yet (her ladder was never measured)", "<call>: Big's face cannot show F, G, Z" (UNSUPPORTED);
  *   "<call>: 'q' (byte 113) is not a face letter A-Z, a-e or 0", "<call>: more than 64 letters", "<call>: a looping script may
  *   not contain '0' (it ends with the next face call)", "<call>: entry N: animation .. (0-30), enter .. (0-127), hold ..
  *   (0-3600), reserved .. / .. (0)", "<call>: N entries (at most 32)", "<call>: flags 0x.. (...)" (INVALID_ARGUMENT);

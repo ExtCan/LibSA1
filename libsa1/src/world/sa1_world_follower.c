@@ -20,6 +20,7 @@
 #include "sa1_world.h"
 #include "sa1_internal.h"
 #include "sa1_api_world.h"
+#include "sa1_emote.h"
 #include "pc/sh4_fpmodel.h"
 
 #include <math.h>
@@ -31,6 +32,7 @@
 #define FW_A_AI_TASK    0x8C78C248u     /* task *B_8C78C248 */
 #define FW_A_AI_HOLD    0x8C78C24Cu     /* Sint32 B_8C78C24C */
 #define FW_A_PHYSICS    0x8C1BDFE4u     /* player_parameter[8] (0x84 each), Sonic_Physics_Data */
+#define FW_A_PERIPHERAL 0x8C754C08u     /* PDS_PERIPHERAL B_8C754C08[8] (0x34 each), on at +0x08, press at +0x10 */
 #define FW_F_CALLOC     0x8C098B0Cu     /* CAlloc(n, size) */
 #define FW_F_AI_CREATE  0x8C081AC0u
 #define FW_F_AI_EXEC    0x8C081D4Eu
@@ -205,6 +207,12 @@ static void fw_write_proxy(sa1g_world *w, const sa1g_follow *f, const sa1g_snap 
         fw_wrf(w, f->proxy_pwp + FW_PWP_SPD + 4u * k, s->pspd[k]);
         fw_wrf(w, f->proxy_csts + FW_CSTS_TNORM + 4u * k, s->tnorm[k]);
     }
+    /* round 0.9.9 (sa1_follower_spot): the follower's own place, x and z only: the AI's jump rule sees the leader's true height; f->last, the ring and sa1wf_info stay the true leader.
+       Only when there is a spot: an add of 0 would turn a -0.0f into +0.0f */
+    if (f->spot_cur[0] != 0.0f || f->spot_cur[1] != 0.0f) {
+        fw_wrf(w, f->proxy_twp + FW_TWP_POS, s->pos[0] + f->spot_cur[0] * f->spot_part);
+        fw_wrf(w, f->proxy_twp + FW_TWP_POS + 8u, s->pos[2] + f->spot_cur[1] * f->spot_part);
+    }
     fw_wr16(w, f->proxy_twp + FW_TWP_FLAG, (fw_rd16(w, f->proxy_twp + FW_TWP_FLAG) & ~3u) | (s->flag & 3u));
     if (s->jog_speed != 0.0f || s->run_speed != 0.0f) {
         /* the live speeds: upgrades and Super. 0: the leader has no playerwk yet: the physics row stays */
@@ -258,11 +266,88 @@ static void fw_refresh(sa1g_world *w, uint32_t when)
     }
 }
 
+/* ---- round 0.9.9: staying apart (sa1_follower_spot; follow099.md 4.2) ---------------------------------------------------- */
+/* In fw_pre, before the refresh. The offset in force follows the wanted one by 2 units per step, so a change of the host's list never makes the AI's target jump. The fall rule: a
+   follower 30 units below its leader's height and in the air gives its spot up until the leader runs again (back by 0.2 % a step while the leader is on the ground with a speed over 1): without
+   it a spot beyond a ledge is a loop (run to the spot, fall, drop in, run to the spot: 27 drop-ins in 40 s, follow099.md 4.1). No spot: nothing is read and nothing is written */
+static void fw_spot_step(sa1g_world *w, sa1g_follow *f)
+{
+    sa1g_player_ptrs pp;
+    int a;
+    if (f->spot[0] == 0.0f && f->spot[1] == 0.0f && f->spot_cur[0] == 0.0f && f->spot_cur[1] == 0.0f) {
+        return;
+    }
+    for (a = 0; a < 2; a++) {
+        float e = f->spot[a] - f->spot_cur[a];
+        f->spot_cur[a] += e > 2.0f ? 2.0f : e < -2.0f ? -2.0f : e;
+    }
+    if (f->spot[0] == 0.0f && f->spot[1] == 0.0f) {
+        return;
+    }
+    sa1g_world_slot_player(w, &pp);
+    if (fw_arena(pp.twp)) {
+        float y = fw_rdf(w, pp.twp + FW_TWP_POS + 4u), ly = fw_rdf(w, f->proxy_twp + FW_TWP_POS + 4u);
+        if (ly - y > 30.0f && !(fw_rd16(w, pp.twp + FW_TWP_FLAG) & 3u)) {
+            f->spot_part = 0.0f;
+        }
+        if (f->last.pspd[0] > 1.0f && f->spot_part < 1.0f && (f->last.flag & 3u)) {
+            f->spot_part = f->spot_part < 0.998f ? f->spot_part + 0.002f : 1.0f;
+        }
+    }
+}
+
+/* ---- round 0.9.9: keeping up (sa1_follower_speed; follow099.md 3.5) ---------------------------------------------------------- */
+/* player_parameter offsets (sadc include/sa1/player.h; the live copy is playerwk.p, FW_PWP_PARAM): max_x_spd, jog_speed, run_speed, rush_speed, crash_speed, dash_speed, air_accel, slow_down,
+   run_break, air_break, lim_h_spd, lim_frict, grd_frict_z */
+static const uint32_t k_fw_speed_fields[13] = { 0x10u, 0x24u, 0x28u, 0x2Cu, 0x30u, 0x34u, 0x40u, 0x44u, 0x48u, 0x4Cu, 0x08u, 0x68u, 0x64u };
+#define FW_PARAM_RUN_ACCEL 0x3Cu
+
+/* In fw_pre, after the refresh: k = 1 + (speed - 1) * clamp((d - 20) / 30, 0, 1), d the horizontal distance from slot 1 to the proxy (its spot). The fields are absolute values from the table's,
+   every step while the option is on, so the game's own save / restore pairs (8C07D2A2, 8C0B2EA0) cannot leave a stale scale. run_accel goes into the world's own table row: func_8C075214 rewrites
+   p.run_accel from the table in every land step, so a write into the live field is undone (measured, follow099.md 3.1). Back at speed 1: the table's values once, then nothing. Speed 1 from the
+   start: no write, ever, after these two float tests. No extra step runs: timers, drowning and the animation's rules stay the game's */
+static void fw_speed_step(sa1g_world *w, sa1g_follow *f)
+{
+    sa1g_player_ptrs pp;
+    float k = 1.0f;
+    uint32_t i, row;
+    if (f->speed == 1.0f && f->speed_k == 1.0f) {
+        return;
+    }
+    sa1g_world_slot_player(w, &pp);
+    if (!fw_arena(pp.twp) || !fw_arena(pp.pwp)) {
+        return;
+    }
+    if (!f->speed_based) {
+        f->speed_based = 1;
+        f->speed_row = fw_rd8(w, pp.twp + FW_TWP_B1);
+        row = FW_A_PHYSICS + f->speed_row * 0x84u;
+        for (i = 0; i < 13u; i++) {
+            f->speed_base[i] = fw_rdf(w, row + k_fw_speed_fields[i]);
+        }
+        f->speed_base_accel = fw_rdf(w, row + FW_PARAM_RUN_ACCEL);
+    }
+    if (f->speed != 1.0f) {
+        float dx = fw_rdf(w, pp.twp + FW_TWP_POS) - fw_rdf(w, f->proxy_twp + FW_TWP_POS);
+        float dz = fw_rdf(w, pp.twp + FW_TWP_POS + 8u) - fw_rdf(w, f->proxy_twp + FW_TWP_POS + 8u);
+        float t = (sa1g_sqrtf(dx * dx + dz * dz) - 20.0f) / 30.0f;
+        t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
+        k = 1.0f + (f->speed - 1.0f) * t;
+    }
+    for (i = 0; i < 13u; i++) {
+        fw_wrf(w, pp.pwp + FW_PWP_PARAM + k_fw_speed_fields[i], f->speed_base[i] * k);
+    }
+    fw_wrf(w, FW_A_PHYSICS + f->speed_row * 0x84u + FW_PARAM_RUN_ACCEL, f->speed_base_accel * k);
+    f->speed_k = k;
+}
+
 static void fw_pre(sa1g_world *w, int32_t sub, void *user)
 {
     (void)sub;
     (void)user;
+    fw_spot_step(w, &w->fol);
     fw_refresh(w, 0u);
+    fw_speed_step(w, &w->fol);
 }
 
 static void fw_mid(sa1g_world *w, int32_t sub, void *user)
@@ -321,6 +406,13 @@ static void fw_ai_exec(sa1g_world *w, uint32_t tp, void *user)
     int32_t m0 = (int32_t)(int8_t)fw_rd8(w, twp), m1;
     (void)user;
     ((void (*)(void *))fw_gfn(FW_F_AI_EXEC))(sa1_decode(tp));
+    if (sa1em_world_wants_hold(w)) {
+        /* round 0.9.9 (an emote on a follower id; follow099.md 2.4, 5.2): while it plays or waits to start the AI's output is dropped, as a player who lets go of the stick. Only its output: its state
+           machine and its respawn test run on. Its stroke of 0.005 at rest would keep four kinds out of mode 1, and the emote's cancel rule would end it at once (on in 0 of 60 pairs, measured) */
+        fw_wr32(w, FW_A_PERIPHERAL + 0x34u + 0x08u, 0u);        /* per[1].on */
+        fw_wr32(w, FW_A_PERIPHERAL + 0x34u + 0x10u, 0u);        /* per[1].press */
+        fw_wrf(w, SA1G_ADDR_ANALOG + 8u + 4u, 0.0f);            /* B_8C754DCC[1].stroke */
+    }
     if (f->respawn_req) {
         /* sa1_follower_respawn, where the game's own respawn test makes the request (the AI's exec, list 0): order 24 reaches slot 1
            in this step (a rider's board handler takes only 24), the placement and order 48 come at the AI's next entry */
@@ -379,6 +471,9 @@ void sa1g_follower_boot(sa1g_world *w, const sa1g_boot_cfg *c)
     void *ai, *ftp = NULL;
     memset(f, 0, sizeof *f);
     f->on = 1;
+    f->speed = 1.0f;
+    f->speed_k = 1.0f;
+    f->spot_part = 1.0f;
     f->flags = fc->flags;
     f->kind = fc->kind;
     f->pending_cause = 1u;
@@ -683,6 +778,39 @@ static void fw_hold_cb(sa1g_world *w, void *user)
     }
 }
 
+/* sa1_follower_speed: the value fw_speed_step reads at the world's next step (the caller checked its range) */
+sa1_status sa1wf_speed(struct sa1g_world *w, float speed)
+{
+    if (w == NULL || !w->fol.on) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    if (w->dead) {
+        return w->dead_status;
+    }
+    w->fol.speed = speed;
+    return SA1_OK;
+}
+
+/* sa1_follower_spot: an offset in host space, x and z of SA1 space in force. It scales as a point does: G-SA1's 64 Hammer units are 16 SA1 units */
+sa1_status sa1wf_spot(const sa1_context *ctx, struct sa1g_world *w, const float offset[3])
+{
+    float o[3];
+    if (w == NULL || !w->fol.on) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    if (w->dead) {
+        return w->dead_status;
+    }
+    sa1_from_host_point(ctx, offset, o);
+    w->fol.spot[0] = o[0];
+    w->fol.spot[1] = o[2];
+    if (w->steps == 0u) {
+        w->fol.spot_cur[0] = o[0];      /* before the world's first step: at once */
+        w->fol.spot_cur[1] = o[2];
+    }
+    return SA1_OK;
+}
+
 sa1_status sa1wf_hold(struct sa1g_world *w, int on)
 {
     int32_t v = on ? 1 : 0;
@@ -743,4 +871,5 @@ void sa1wf_info(const sa1_context *ctx, const struct sa1g_world *w, const struct
     o->steps_behind = leader != NULL ? (uint32_t)(leader->ring_step - f->consumed) : 0u;
     o->steps_dropped = f->steps_dropped;
     o->hidden_pairs = f->hidden_count;
+    o->speed_factor = f->speed_k;
 }

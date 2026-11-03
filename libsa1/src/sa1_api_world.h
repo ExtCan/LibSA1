@@ -506,6 +506,9 @@ float sa1wf_slave(struct sa1g_world *w, const struct sa1g_world *leader, float d
 void sa1wf_tick_end(struct sa1g_world *w);
 sa1_status sa1wf_respawn(struct sa1g_world *w);
 sa1_status sa1wf_hold(struct sa1g_world *w, int on);
+/* round 0.9.9 (sa1_follower_speed, sa1_follower_spot; between ticks; each a value the follower's world reads in its own job): speed checked by the caller; offset in host space */
+sa1_status sa1wf_speed(struct sa1g_world *w, float speed);
+sa1_status sa1wf_spot(const sa1_context *ctx, struct sa1g_world *w, const float offset[3]);
 void sa1wf_note_hidden(struct sa1g_world *w, int hidden);
 void sa1wf_info(const sa1_context *ctx, const struct sa1g_world *w, const struct sa1g_world *leader, sa1_follower_info *o);
 /* tests only (tests/follower_replay.c): boot flags ORed into the next world this context builds (SA1G_BOOT_FOLLOWER_SAME,

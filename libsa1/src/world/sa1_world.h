@@ -513,6 +513,16 @@ typedef struct sa1g_follow {
     uint32_t respawns, respawns_distance, respawns_offscreen;
     uint32_t steps_dropped;
     uint32_t hidden_bits[10], hidden_pos, hidden_count;     /* the last 300 pairs (sa1_follower_info.hidden_pairs) */
+    /* round 0.9.9 (SA1_API_FOLLOWER 2: sa1_follower_speed, sa1_follower_spot; sadc docs/research/gsa1_099_plan.md 4.1 B3, B4, follow099.md 3.5, 4.2). The boot sets speed,
+       speed_k and spot_part to 1: at those values with spot 0 nothing is ever written and the proxy is the leader, bit for bit (no reference world makes the calls) */
+    float speed;                /* the host's value: 1 = the game's numbers */
+    float speed_base[13];       /* the 13 live fields' values in the world's own table row, read at the first write */
+    float speed_base_accel;     /* its run_accel, read before the first write into it */
+    float speed_k;              /* the factor in force (sa1_follower_info.speed_factor) */
+    uint32_t speed_row;         /* the row: slot 1's counter.b[1] */
+    int32_t speed_based;
+    float spot[2], spot_cur[2]; /* the offset in SA1 units (x, z): wanted, in force (eases 2 units per step, at once before the first step) */
+    float spot_part;            /* the fall rule: the part of spot_cur the proxy gets, 0 .. 1 */
 } sa1g_follow;
 
 /* the replays' injections of F2 and F3 (tests/follower_replay.c): a NAME.p1.bin record for one step; NULL everywhere else. At
@@ -1146,7 +1156,7 @@ sa1_status sa1g_wctx_image(sa1g_wctx *c, int32_t kind, const sa1g_image **out);
 
 /* sa1_character_create: one world per ticking character (D2), built from the kind's image and booted
  * (6.2, 6.3: stage 0x0100, WINDOW landtable) when the game code is linked; position (host space, may be
- * NULL: the game's start table) and yaw give the start. Tikal / Super Sonic: SA1_ERR_UNSUPPORTED (6.3a). */
+ * NULL: the game's start table) and yaw give the start. A kind with no player row: SA1_ERR_UNSUPPORTED. */
 sa1_status sa1g_character_world_create(sa1g_wctx *c, int32_t kind, const float position[3], float yaw,
                                        sa1g_world **out);
 void sa1g_character_world_destroy(sa1g_wctx *c, sa1g_world *w);

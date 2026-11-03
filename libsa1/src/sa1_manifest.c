@@ -129,8 +129,8 @@ static const sa1_char_desc k_chars[SA1_CHAR_COUNT] = {
     { "knuckles", 3, 0x8C35B094u, 0x8C3528CCu, 111, 0x8C353114u,
       { "K_MOT.PRS", NULL, NULL, NULL }, { 0, 0, 0, 0 },
       k_knuckles_over, N(k_knuckles_over), NULL, 0, NULL, 0 },
-    /* SA1_CHAR_TIKAL (no action table; the model lives in TIKAL_PROG) */
-    { "tikal", 4, 0x0CB09818u, 0, 0, 0x0CB015A8u,
+    /* SA1_CHAR_TIKAL (the model and her action list D_0CB01400 live in TIKAL_PROG; round 0.9.9: the 9 entries) */
+    { "tikal", 4, 0x0CB09818u, 0x0CB01400u, 9, 0x0CB015A8u,
       { "TIKAL_PROG.PRS", NULL, NULL, NULL }, { 0, 0, 0, 0 }, NULL, 0, NULL, 0, NULL, 0 },
     /* SA1_CHAR_AMY */
     { "amy", 5, 0x8C4C7C3Cu, 0x8C4BB1D0u, 98, 0x8C4BB8B4u,

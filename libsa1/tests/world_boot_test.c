@@ -395,9 +395,39 @@ static void test_api(sa1_context *ctx, const char *gdi)
         }
     }
     {
+        /* round 0.9.9 (gsa1_099_plan.md 2.4 C6): Tikal gets a world and ticks */
         sa1g_world *wt = NULL;
-        st = sa1g_character_world_create(&c, SA1_CHAR_TIKAL, NULL, 0.0f, &wt);
-        CHECK(st == SA1_ERR_UNSUPPORTED && wt == NULL, "Tikal: %s (own create path, 6.3a)", sa1g_status_string(st));
+        sa1_input in2;
+        sa1_state s2;
+        float tpos[3] = { 0.0f, 0.0f, 800.0f };
+        st = sa1g_character_world_create(&c, SA1_CHAR_TIKAL, tpos, 0.0f, &wt);
+        CHECK(st == SA1_OK && wt != NULL, "Tikal: a world: %s", sa1g_status_string(st));
+        if (st == SA1_OK && wt != NULL) {
+            memset(&in2, 0, sizeof in2);
+            in2.struct_size = sizeof in2;
+            for (i = 0; i < 30 && st == SA1_OK; i++) {
+                memset(&s2, 0, sizeof s2);
+                s2.struct_size = sizeof s2;
+                st = sa1g_character_world_tick(wt, &in2, 1.0f / 30.0f, &s2);
+            }
+            CHECK(st == SA1_OK && wt->pairs == 30, "Tikal: 30 ticks of 1/30 s: %s, %u pairs", sa1g_status_string(st), (unsigned)wt->pairs);
+            sa1g_character_world_destroy(&c, wt);
+        }
+        /* and Eggman */
+        wt = NULL;
+        st = sa1g_character_world_create(&c, SA1_CHAR_EGGMAN, tpos, 0.0f, &wt);
+        CHECK(st == SA1_OK && wt != NULL, "Eggman: a world: %s", sa1g_status_string(st));
+        if (st == SA1_OK && wt != NULL) {
+            memset(&in2, 0, sizeof in2);
+            in2.struct_size = sizeof in2;
+            for (i = 0; i < 30 && st == SA1_OK; i++) {
+                memset(&s2, 0, sizeof s2);
+                s2.struct_size = sizeof s2;
+                st = sa1g_character_world_tick(wt, &in2, 1.0f / 30.0f, &s2);
+            }
+            CHECK(st == SA1_OK && wt->pairs == 30, "Eggman: 30 ticks of 1/30 s: %s, %u pairs", sa1g_status_string(st), (unsigned)wt->pairs);
+            sa1g_character_world_destroy(&c, wt);
+        }
     }
     sa1g_character_world_destroy(&c, w);
     sa1g_wctx_free(&c);

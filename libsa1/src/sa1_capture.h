@@ -552,6 +552,8 @@ typedef struct sa1_capture_emit_opts {
        is left out, exec 0 included: the menu's display walk draws every model a second time with exec 0 (charsel098.md 3.3 item 1), and
        the other characters draw at their parked place every frame (item 2) */
     uint32_t only_exec;
+    /* round 0.9.9 (SA1_CREATE_QUESTION; zero: as before): only the game's objects' draws, a board's and the blob: nothing of the character's body, its effects or its aura. Output only */
+    int32_t question;
 } sa1_capture_emit_opts;
 /* round 0.9.5: 1 when exec is a board task's (8C0B2F46 Sonic, 8C0BF804 Tails; compared physically). 0 is never one */
 int sa1_capture_board_exec(uint32_t exec);

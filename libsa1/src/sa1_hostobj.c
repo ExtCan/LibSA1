@@ -19,6 +19,7 @@
 #include "sa1_hostobj.h"
 #if !defined(SA1H_HOSTOBJ)
 #include "world/sa1_world_look.h"     /* round 0.9.8: sa1_look_set_super */
+#include "sa1_question.h"             /* round 0.9.9: sa1q_set_spin */
 #endif
 #include "sa1_api_world.h"
 #include "sa1_screen.h"
@@ -463,6 +464,10 @@ sa1_status sa1_character_set_option(sa1_context *ctx, sa1_character_id id, uint3
     /* round 0.9.8: the Super head copy (src/sa1_look.c; the harness's oracle has no look: gsa1_096_plan.md review R.7) */
     if (option == SA1_COPT_SUPER_LOOK) {
         return sa1_look_set_super(ctx, id, value);
+    }
+    /* round 0.9.9: the "?" (src/sa1_question.c; the harness's oracle has no "?": gsa1_099_plan.md review R99.5) */
+    if (option == SA1_COPT_QUESTION_SPIN) {
+        return sa1q_set_spin(ctx, id, value);
     }
 #endif
     if (option < SA1_COPT_NO_DEATH || option > SA1_COPT_NO_DAMAGE) {

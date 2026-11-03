@@ -115,6 +115,11 @@ FISHCAM = ["fish_c3_ec3", "fish_d2_ec3", "fish_s1_ec3"]
 # player-1 sidecar NAME.p1.bin. They do not go to replay_test: tests/follower_replay.c runs each name twice, FOLLOW (one world with both
 # players, players 0 and 1 and the AI compared in-process) and FOLLOWC (the production boot: slot 0 a proxy fed from player 0's records). A
 # FOLLOW name without its reference, sidecar or landtable dump fails the run, and a whole-list run without a FOLLOW name fails too.
+# round 0.9.9 (sadc docs/research/gsa1_099_plan.md 6.2, 6.3 A5): Tikal as player 0, references by the harness's `trace --cast` (the real ROM with four words patched in guest RAM: playable099.md 2.2),
+# no B in debug in them (deviation D1). They replay like the plain traces.
+PLAYABLE_TIKAL = ["tikal_ec1", "tikal_debug_ec1"]
+# ... and Eggman, from the C of sadc src/1st_read/code_8C0ED880.c
+PLAYABLE_EGGMAN = ["eggman_ec1", "eggman_debug_ec1"]
 FOLLOW = ["wv_follow_run", "wv_follow_pit", "wv_follow_offscreen", "sd_follow"]
 FOLLOWC = ["wv_follow_run", "wv_follow_pit", "wv_follow_offscreen", "sd_follow"]
 # Windy Valley's list-2 task 0C908AE0 (STG02, no C) draws rand() after the players: the world's rand_state is the reference's minus those
@@ -275,7 +280,7 @@ def run(key, exe, sadc, gdi, out_dir, extra, traces, jobs):
 
 
 def all_plain():
-    return M1 + M11 + P7 + HOSTOBJ + DROWN + HUD + RINGS + SUPER + ITEMBOX + FISHCAM
+    return M1 + M11 + P7 + HOSTOBJ + DROWN + HUD + RINGS + SUPER + ITEMBOX + FISHCAM + PLAYABLE_TIKAL + PLAYABLE_EGGMAN
 
 
 def run_follow(key, exe, sadc, gdi, od, names, jobs):

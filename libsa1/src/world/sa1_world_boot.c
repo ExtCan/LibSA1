@@ -121,6 +121,8 @@ static const sa1g_chr_desc k_chr[] = {
     { 5, 0x8C0D6B40u, 0x8C19D394u },    /* Amy */
     { 6, 0x8C0CBE00u, 0x8C19D6C8u },    /* E-102 */
     { 7, 0x8C0DFFA0u, 0x8C19D0D8u },    /* Big */
+    { 4, 0x0CB00000u, 0u },             /* Tikal, round 0.9.9: TIKAL_PROG in the image; the game has no start table for her */
+    { 1, 0x8C0ED880u, 0u },             /* Eggman, round 0.9.9: no start table in the game either */
 };
 
 static const sa1g_chr_desc *sa1g_chr_of(int32_t chr)
@@ -385,7 +387,7 @@ static void sa1g_start_from_table(sa1g_world *w, const sa1g_chr_desc *d, uint8_t
 {
     uint32_t e = d->start_table, k;
     int16_t level = (int16_t)gr16(w, SA1G_ADDR_CUR_LEVEL), act = (int16_t)gr16(w, SA1G_ADDR_CUR_ACT);
-    for (k = 0; k < 256; k++, e += 20u) {
+    for (k = 0; e != 0u && k < 256; k++, e += 20u) {        /* a table of 0 (Tikal, Eggman): the "(0, 0, 0)" branch below */
         int16_t l = (int16_t)gr16(w, e), a = (int16_t)gr16(w, e + 2u);
         if (l == level && a == act) {
             uint32_t ang = gr32(w, e + 16u), p0 = gr32(w, e + 4u), p1 = gr32(w, e + 8u), p2 = gr32(w, e + 12u);
@@ -601,7 +603,7 @@ sa1_status sa1g_world_boot(sa1g_world *w, const sa1g_boot_cfg *cfg)
         return SA1_ERR_NOT_IMPLEMENTED;
     }
     if (!(cfg->flags & SA1G_BOOT_NO_PLAYER) && sa1g_chr_of(cfg->chr) == NULL) {
-        return SA1_ERR_UNSUPPORTED;         /* Eggman, Tikal (own create path, 6.3a) */
+        return SA1_ERR_UNSUPPORTED;         /* no player row in k_chr */
     }
     if (cfg->land_mode < SA1G_LAND_NONE || cfg->land_mode > SA1G_LAND_WINDOW) {
         return SA1_ERR_INVALID_ARGUMENT;

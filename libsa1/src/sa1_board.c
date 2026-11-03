@@ -32,6 +32,8 @@ static int bd_boards_loaded(const sa1_context *ctx, int32_t kind)
 static const char *bd_kind_name(int32_t kind)
 {
     switch (kind) {
+    case SA1_CHAR_EGGMAN: return "Eggman";
+    case SA1_CHAR_TIKAL: return "Tikal";
     case SA1_CHAR_KNUCKLES: return "Knuckles";
     case SA1_CHAR_AMY: return "Amy";
     case SA1_CHAR_GAMMA: return "E-102";

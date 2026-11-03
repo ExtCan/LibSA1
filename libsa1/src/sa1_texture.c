@@ -2,6 +2,7 @@
  * Texture queries and the per-archive texture atlas.
  */
 #include "sa1_capture.h"
+#include "sa1_question.h"
 
 #include <stdlib.h>
 
@@ -14,6 +15,12 @@ static const sa1_archive *get_archive(const sa1_context *ctx, int32_t kind, uint
     if (!ctx || (kind != SA1_KIND_FRONTEND && (kind < 0 || kind >= SA1_CHAR_COUNT))) {
         *st = SA1_ERR_INVALID_ARGUMENT;
         return NULL;
+    }
+    /* round 0.9.9: the "?"'s archive: never counted in num_archives, never reached by enumerating them */
+    if (kind == SA1_CHAR_SUPER_SONIC && archive == SA1_ARCHIVE_QUESTION) {
+        const sa1_archive *q = sa1q_archive(ctx);
+        *st = q != NULL ? SA1_OK : SA1_ERR_NOT_LOADED;
+        return q;
     }
     /* round 0.9.8: the menu's archives (sa1_frontend_open) */
     cs = kind == SA1_KIND_FRONTEND ? &ctx->frontend_set : &ctx->chars[kind];

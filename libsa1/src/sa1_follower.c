@@ -24,6 +24,15 @@
 #endif
 #define SA1FO_NOT_BUILT "followers are not built yet"
 
+/* round 0.9.9 (gsa1_099_plan.md 5.4 S1): sa1_follower_speed and sa1_follower_spot; 099-lib-follow lands their bodies and sets this to 1 right before its final gate */
+#define SA1FO2_BUILT 1
+#if defined(__OPTIMIZE__) && !SA1FO2_BUILT
+#define SA1FO2_GATED 1
+#else
+#define SA1FO2_GATED 0
+#endif
+#define SA1FO2_NOT_BUILT "follower speed and spots are not built yet"
+
 #define FO_KIND_BIT(k) (1u << (k))
 /* the kinds whose bring-up passed (tests/follower_test.c --long; gsa1_098_plan.md 6.2): a kind without its bit has its reason */
 #define FO_KINDS (FO_KIND_BIT(SA1_CHAR_TAILS) | FO_KIND_BIT(SA1_CHAR_SONIC) | FO_KIND_BIT(SA1_CHAR_KNUCKLES) | \
@@ -67,8 +76,8 @@ const char *sa1_follower_kind_reason(int32_t kind)
     }
     switch (kind) {
     case SA1_CHAR_SUPER_SONIC: return "Super Sonic cannot follow: a Super follower is not a configuration of the game";
-    case SA1_CHAR_EGGMAN: return "Eggman cannot follow: he has no player code in the game";
-    case SA1_CHAR_TIKAL: return "Tikal cannot follow: she has no player code in the game";
+    case SA1_CHAR_EGGMAN: return "Eggman cannot follow: the game has no follower modes in his code";
+    case SA1_CHAR_TIKAL: return "Tikal cannot follow: the game has no follower modes in her code";
     default: return "this is not a character";
     }
 }
@@ -316,6 +325,67 @@ sa1_status sa1_follower_hold(sa1_context *ctx, sa1_character_id f, int on)
         }
         st = sa1wf_hold(w, on);
         return st == SA1_OK ? SA1_OK : sa1_fail(ctx, st, "sa1_follower_hold: %s", sa1w_world_fault(w));
+    }
+#endif
+}
+
+sa1_status sa1_follower_speed(sa1_context *ctx, sa1_character_id f, float speed)
+{
+    sa1_status st;
+    if (ctx == NULL) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    st = sa1w_character_peek(ctx, f, NULL, NULL, NULL);
+    if (st != SA1_OK) {
+        return sa1_fail(ctx, st, "sa1_follower_speed: no character %d", (int)f);
+    }
+#if defined(SA1_NO_WORLD)
+    (void)speed;
+    return sa1_fail(ctx, SA1_ERR_NOT_IMPLEMENTED, "this libsa1 build has no world core (SA1_NO_WORLD): no followers");
+#else
+    if (fo_world(ctx, f) == NULL) {
+        return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_follower_speed: character %d is not a follower", (int)f);
+    }
+    if (!(speed >= 1.0f && speed <= SA1_FOLLOWER_SPEED_MAX)) {     /* a NaN and the infinities fail too */
+        return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_follower_speed: speed must be finite, 1 .. %g", (double)SA1_FOLLOWER_SPEED_MAX);
+    }
+    if (SA1FO2_GATED) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, SA1FO2_NOT_BUILT);
+    }
+    {
+        struct sa1g_world *w = fo_world(ctx, f);
+        st = sa1wf_speed(w, speed);
+        return st == SA1_OK ? SA1_OK : sa1_fail(ctx, st, "sa1_follower_speed: %s", sa1w_world_fault(w));
+    }
+#endif
+}
+
+sa1_status sa1_follower_spot(sa1_context *ctx, sa1_character_id f, const float offset[3])
+{
+    sa1_status st;
+    if (ctx == NULL || offset == NULL) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    st = sa1w_character_peek(ctx, f, NULL, NULL, NULL);
+    if (st != SA1_OK) {
+        return sa1_fail(ctx, st, "sa1_follower_spot: no character %d", (int)f);
+    }
+#if defined(SA1_NO_WORLD)
+    return sa1_fail(ctx, SA1_ERR_NOT_IMPLEMENTED, "this libsa1 build has no world core (SA1_NO_WORLD): no followers");
+#else
+    if (fo_world(ctx, f) == NULL) {
+        return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_follower_spot: character %d is not a follower", (int)f);
+    }
+    if (!isfinite(offset[0]) || !isfinite(offset[1]) || !isfinite(offset[2])) {
+        return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_follower_spot: the offset must be finite");
+    }
+    if (SA1FO2_GATED) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, SA1FO2_NOT_BUILT);
+    }
+    {
+        struct sa1g_world *w = fo_world(ctx, f);
+        st = sa1wf_spot(ctx, w, offset);
+        return st == SA1_OK ? SA1_OK : sa1_fail(ctx, st, "sa1_follower_spot: %s", sa1w_world_fault(w));
     }
 #endif
 }

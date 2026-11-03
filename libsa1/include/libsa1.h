@@ -112,6 +112,8 @@
  *                    sa1_character_look, sa1_look, SA1_COPT_SUPER_LOOK, the sa1_state_ex look tail; the parallel-tick contract
  *                    and per-thread sa1_last_error; SA1_INPUT_GAME_CAMERA, sa1_character_camera, sa1_camera_state,
  *                    SA1_EVENT_CAMERA; sa1_frontend_*, SA1_KIND_FRONTEND, SA1_EVENT_FRONTEND.
+ *   0.5 round 0.9.9 (SA1_VERSION_MINOR 5: SA1_API_FOLLOWER 2, SA1_API_PLAYABLE, SA1_API_QUESTION; gsa1_099_plan.md): sa1_follower_speed, sa1_follower_spot,
+ *                    sa1_follower_info.speed_factor, emotes on a follower id; Eggman and Tikal tick, SA1_BUTTON_X; SA1_CREATE_QUESTION, SA1_ARCHIVE_QUESTION, SA1_COPT_QUESTION_SPIN.
  */
 #ifndef LIBSA1_H
 #define LIBSA1_H
@@ -128,7 +130,7 @@ extern "C" {
 /* ------------------------------------------------------------------------- */
 
 #define SA1_VERSION_MAJOR 0
-#define SA1_VERSION_MINOR 4
+#define SA1_VERSION_MINOR 5
 #define SA1_VERSION_PATCH 0
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
@@ -209,7 +211,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.4.0" */
+SA1_API const char *sa1_version_string(void);     /* "0.5.0" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -559,11 +561,12 @@ typedef struct sa1_pose {
 
 /* Controller input for sa1_character_tick. */
 #define SA1_BUTTON_JUMP    0x01u    /* A */
-#define SA1_BUTTON_ACTION  0x02u    /* B / X: spin dash, attack */
+#define SA1_BUTTON_ACTION  0x02u    /* B: spin dash, attack */
 #define SA1_BUTTON_ACTION2 0x04u    /* Y */
 #define SA1_BUTTON_L       0x08u
 #define SA1_BUTTON_R       0x10u
 #define SA1_BUTTON_START   0x20u
+#define SA1_BUTTON_X       0x40u    /* round 0.9.9 (SA1_API_PLAYABLE): the Dreamcast's X (pad bit 0x400). Eggman's and Tikal's debug button; for the other characters it is the game's action button, as B. Never set in a reference world */
 
 typedef struct sa1_input {
     uint32_t struct_size;
@@ -647,7 +650,7 @@ SA1_API sa1_status sa1_character_destroy(sa1_context *ctx, sa1_character_id id);
  * interpolated: sa1_character_render / sa1_character_mesh_lerp), before the first pair the CPU pose.  Returns SA1_OK, SA1_ERR_GAME_FAULT (the world is dead until the character
  * is recreated; sa1_last_error names the address and the game function), SA1_ERR_NOT_IMPLEMENTED (no
  * game code in this build, or the game reached a function libsa1 does not have), SA1_ERR_UNSUPPORTED
- * (this kind cannot tick yet: Eggman, Tikal; or a puppet) or the world creation error. Super Sonic ticks since API 0.4
+ * (a puppet, or a kind with no player row) or the world creation error. Super Sonic ticks since API 0.4
  * (SA1_API_SUPER: see "Super Sonic (API 0.4)"). */
 SA1_API sa1_status sa1_character_tick(sa1_context *ctx, sa1_character_id id, const sa1_input *input,
                                       float dt, sa1_state *state_out, sa1_mesh *mesh_out);
@@ -3097,13 +3100,15 @@ SA1_API sa1_status sa1_character_board_state(const sa1_context *ctx, sa1_charact
  * game's AI task 8C081D4E steers slot 1 with synthesised pad input (follow, jump, fly / glide, the respawn above the camera
  * by distance > 1000 or 300 frames off the leader's camera). The world is Sonic's game (CurrentCharacter 0) on stage 0x0100
  * with B_8C78B45A = 1, so the game's predicate 8C082820 holds without an override. Every sa1_character_* call on a follower
- * id reports and acts on slot 1 (state, render, events, the board, the look, host objects, per-character options); emotes,
- * faces and orders: SA1_ERR_UNSUPPORTED. Host deviations, each behind its flag: the view behind slot 1 for its displays
+ * id reports and acts on slot 1 (state, render, events, the board, the look, host objects, per-character options);
+ * faces and orders: SA1_ERR_UNSUPPORTED. sa1_character_emote and _emote_stop on a follower id act on slot 1 (0.5): the call also refuses "on the way" (over 30 units from its spot)
+ * and never needs mode 1: the AI's output (per[1].on, press, the analog stroke) is dropped while the emote plays or waits; its state machine and respawn test run on, so a drop-in ends it.
+ * SA1_EMOTE_IN_AIR on a follower id: refused (SA1_ERR_INVALID_ARGUMENT). Host deviations, each behind its flag: the view behind slot 1 for its displays
  * (SA1_FOLLOW_GAME_VIEW turns it off), the whole position history rewritten at a respawn for followers other than Tails
  * (SA1_FOLLOW_GAME_HISTORY turns it off). Always (no flag; the proxy is not a character): its csts, its item word 0 (an item
  * the game gives player 0 is reported as SA1_FOLLOW_EV_ITEM and taken off), the hidden pair drawn at slot 1. The reference
  * worlds never make a follower. */
-#define SA1_API_FOLLOWER 1
+#define SA1_API_FOLLOWER 2      /* 2 (libsa1 0.5, round 0.9.9): sa1_follower_speed, sa1_follower_spot, emotes on a follower id */
 
 typedef struct sa1_leader_state {       /* a host-fed leader (sa1_follower_feed): a GMod entity, a remote player, a point */
     uint32_t struct_size;               /* must cover kind */
@@ -3174,11 +3179,24 @@ typedef struct sa1_follower_info {
     uint32_t steps_behind;              /* a libsa1 leader's steps this follower has not run */
     uint32_t steps_dropped;             /* leader steps lost because the ring (17) overran */
     uint32_t hidden_pairs;              /* of the last 300 pairs, those whose game visibility test hid slot 1 (Review G2) */
+    float    speed_factor;              /* round 0.9.9, covered by struct_size: the k of the last step (sa1_follower_speed); 1 near the spot */
 } sa1_follower_info;
 #define SA1_FINFO_HOST_FED    0x1u
 #define SA1_FINFO_LEADER_LOST 0x2u      /* the leader was destroyed or faulted: host-fed from its last snapshot */
 #define SA1_FINFO_HELD        0x4u      /* sa1_follower_hold on */
 SA1_API sa1_status sa1_follower_info_get(const sa1_context *ctx, sa1_character_id f, sa1_follower_info *out);
+
+#define SA1_FOLLOWER_SPEED_MAX 8.0f
+/* How much faster than the game's own numbers a follower behind its spot may run; the host's option, never in a reference world. 1 (the default): the game's
+ * numbers, nothing is ever written. Above 1, inside the follower's world before each step: by the factor k = 1 + (speed - 1) * clamp((d - 20) / 30, 0, 1), d = the horizontal distance in
+ * units from slot 1 to the leader's data (its spot), the world's p.max_x_spd, jog_speed, run_speed, rush_speed, crash_speed, dash_speed, air_accel, slow_down, run_break, air_break, lim_h_spd,
+ * lim_frict, grd_frict_z and the run_accel of its own copy of the physics table (8C075214 reads it) are table value x k. No extra step runs: timers, drowning and
+ * animations are the game's (legs follow the speed). While speed is not 1 a speed-up box does nothing for this follower. Between ticks; SA1_ERR_INVALID_ARGUMENT: a follower id, speed finite in 1 .. SA1_FOLLOWER_SPEED_MAX. */
+SA1_API sa1_status sa1_follower_speed(sa1_context *ctx, sa1_character_id f, float speed);
+
+/* Where this follower stands around its leader: host-space offset added to the leader's horizontal position in the data its AI sees (the proxy; the host's up component is ignored).
+ * Eases 2 units per step; before the world's first step at once. {0,0,0} (the default): the game's own place. The game's AI, its jump rule and its stop are unchanged: it stops around that point. The info's distance stays the true leader's. Between ticks. */
+SA1_API sa1_status sa1_follower_spot(sa1_context *ctx, sa1_character_id f, const float offset[3]);
 
 #define SA1_EVENT_FOLLOW 16             /* sa1_event: id = SA1_FOLLOW_EV_*, position = slot 1 */
 #define SA1_FOLLOW_EV_RESPAWN     1u    /* arg: 0 distance > 1000, 1 off the leader's camera 300 frames, 2 sa1_follower_respawn */
@@ -3359,6 +3377,25 @@ SA1_API sa1_status sa1_frontend_render(sa1_frontend *fe, const sa1_render **out,
 /* The game's view in host space: eye (the SA1 origin), forward (SA1 -z), up (SA1 +y), the horizontal view angle (70 degrees:
  * 8C640500(0x31C7), screen distance 457.06, 640 x 480). */
 SA1_API sa1_status sa1_frontend_view(const sa1_frontend *fe, float eye[3], float forward[3], float up[3], float *fov_degrees);
+
+/* ---- Eggman and Tikal (SA1_API_PLAYABLE, round 0.9.9; sadc docs/research/gsa1_099_plan.md 5.3, playable099.md 2-3) ------------
+ * Kinds 1 and 4 tick: a world by the create path of every kind, running the game's own EggmanMain 8C0ED880 and TikalMain 0CB00000. The Dreamcast
+ * itself cannot start them as the player (8C09D980 hangs, LoadPlayerTask has no branch, 8C04F8FA no start table), and nothing here repairs what
+ * their code does not do: a hit does nothing (no hurt state; SA1_DAMAGE_KILL gives the events, Tikal's mode 10, and Eggman's mode stays: his code has no switch on the request), at the air timer's end their code does nothing (smode 39 stays, no pose, no voice; reported as SA1_DEATH_DROWN, and the shared
+ * countdown task still asks for the restart 240 steps later: SA1_EVENT_RESTART id 2), Eggman has
+ * no action and no jump pose, Tikal one run motion. tests/playable_test.c pins this. Their debug button is SA1_BUTTON_X, no flag: free movement until A; B there
+ * queues SA1_EVENT_RESPAWN (8C04F8FA's standing stub; on the Dreamcast an address error). SA1_CREATE_START_TABLE gives (0, 0, 0): the game has no table for them.
+ * SA1_ERR_UNSUPPORTED, with the reason in sa1_last_error: emotes, faces, the look, boards, sa1_follower_create with these kinds. A follower can follow them. */
+#define SA1_API_PLAYABLE 1
+
+/* ---- the question mark (SA1_API_QUESTION, round 0.9.9; sadc docs/research/gsa1_099_plan.md 5.3, playable099.md 5) ------------- */
+#define SA1_API_QUESTION 1
+#define SA1_CREATE_QUESTION   0x2000u  /* kind 8 only (a world; SA1_CREATE_WORLD or lazily): draws nothing of Super Sonic. sa1_character_render, _geometry and the
+                                          mesh give the game's objects, a board, the blob shadow, and the "?" of Character Select from ADVERTISE.PRS on the disc. The
+                                          world, its state, its events and its sounds are byte for byte kind 8's: only the output differs. SA1_ERR_NOT_LOADED without the disc's file */
+#define SA1_ARCHIVE_QUESTION  62u      /* sa1_texture_get / _archive (kind 8): AVA_CHSEL(_E) as on the disc, its 11 textures with their names. Not counted in
+                                          sa1_character_info.num_archives; not reached by enumerating the archives: nothing of a plain Super Sonic changes */
+#define SA1_COPT_QUESTION_SPIN 8u      /* sa1_character_set_option: 1 (default) spins as on the menu, 0 faces the way the character faces */
 
 #ifdef __cplusplus
 }

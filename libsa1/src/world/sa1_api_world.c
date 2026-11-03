@@ -378,7 +378,7 @@ sa1_status sa1w_world_create(struct sa1w_ctx *wc, const sa1w_create *c, struct s
         return SA1_ERR_NOT_IMPLEMENTED;
     }
     if (c->kind < 0 || c->kind > SA1_CHAR_SUPER_SONIC || sa1g_character_main(world_chr(c->kind)) == 0) {
-        return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "%s cannot tick yet (design 6.3a, D14)",
+        return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "%s has no player code in libsa1",
                         sa1_character_name(c->kind) ? sa1_character_name(c->kind) : "this character");
     }
     if (is_super && world_chr(c->kind) != SA1_CHAR_SONIC) {

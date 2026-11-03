@@ -1263,9 +1263,9 @@ static void test_api(sa1_context *ctx, const char *gdi)
     }
     {
         sa1g_world *we = NULL;
-        st = sa1g_character_world_create(&c, SA1_CHAR_EGGMAN, NULL, 0.0f, &we);
+        st = sa1g_character_world_create(&c, 99, NULL, 0.0f, &we);      /* round 0.9.9 (gsa1_099_plan.md 2.4 C6): every character has a row now; this test links only the spike TUs */
     }
-    CHECK(st == SA1_ERR_UNSUPPORTED, "Eggman worlds are out of scope (D14): %s", sa1g_status_string(st));
+    CHECK(st == SA1_ERR_INVALID_ARGUMENT, "kind 99 is no character: %s", sa1g_status_string(st));
     sa1g_character_world_destroy(&c, w);
     sa1g_character_world_destroy(&c, w2);
     sa1g_wctx_free(&c);

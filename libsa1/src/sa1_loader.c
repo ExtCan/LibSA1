@@ -12,6 +12,7 @@
 #include "sa1_internal.h"
 #include "sa1_capture.h"    /* sa1_texture_make_variants (round 0.9.4a) */
 #include "sa1_frontend.h"   /* round 0.9.8: sa1_frontend_close, sa1_loader_frontend_set */
+#include "sa1_question.h"   /* round 0.9.9 */
 
 #include <stdio.h>
 
@@ -683,6 +684,47 @@ sa1_status sa1_loader_frontend_set(sa1_context *ctx, const char *gdi_path, const
     return SA1_OK;
 }
 
+/* Round 0.9.9 (the question mark; src/sa1_question.h): ADVERTISE.PRS unpacked for the caller and AVA_CHSEL_E into cs, read and SHA-1 checked as a character's */
+sa1_status sa1_loader_question(sa1_context *ctx, const char *gdi_path, sa1_charset *cs, uint8_t **overlay, uint32_t *overlay_size)
+{
+    loader *L;
+    sa1_status st;
+    cs->arena.ctx = ctx;
+    cs->models.elem = sizeof(sa1_model);
+    cs->objects.elem = sizeof(sa1_object);
+    cs->motions.elem = sizeof(sa1_motion);
+    L = (loader *)sa1_mem_alloc(ctx, sizeof *L);
+    if (L == NULL) {
+        return SA1_ERR_OUT_OF_MEMORY;
+    }
+    L->ctx = ctx;
+    L->flags = 0;
+    st = sa1_disc_open(ctx, gdi_path, &L->disc);
+    if (st != SA1_OK) {
+        sa1_mem_free(ctx, L);
+        return st;
+    }
+    st = read_unpacked(L, "ADVERTISE.PRS", overlay, overlay_size);
+    if (st != SA1_OK) {
+        st = sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_QUESTION: ADVERTISE.PRS could not be read (%s)", sa1_status_string(st));
+    } else {
+        load_archive(L, cs, "AVA_CHSEL_E", 0u, NULL);
+        if (cs->num_archives != 1u || cs->archives[0].tex == NULL) {
+            st = sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_QUESTION: AVA_CHSEL_E.PRS could not be read");
+        } else {
+            cs->archives[0].texlist_count = cs->archives[0].num_textures;
+            cs->loaded = 1;
+        }
+    }
+    sa1_disc_close(&L->disc);
+    sa1_mem_free(ctx, L);
+    if (st != SA1_OK) {
+        sa1_mem_free(ctx, *overlay);
+        *overlay = NULL;
+    }
+    return st;
+}
+
 void sa1_unload_disc(sa1_context *ctx)
 {
     int32_t k;
@@ -695,6 +737,7 @@ void sa1_unload_disc(sa1_context *ctx)
     for (k = 0; k < SA1_CHAR_COUNT; k++)
         sa1_charset_free(ctx, &ctx->chars[k]);
     sa1_charset_free(ctx, &ctx->frontend_set);
+    sa1q_free(ctx);
     ctx->files.count = 0;
     ctx->num_image_names = 0;
     ctx->disc_loaded = 0;

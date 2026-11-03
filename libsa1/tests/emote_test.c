@@ -27,7 +27,7 @@
  *   dup_of: the list position of the first entry with the same DRAWN object and motion (k_panch0 39 and 54 are different
  *   motions: not dups; s_kimepose0 75 / 139 and ss_move2 133 / 134 are dups in the Super lists).
  * Refusals (sa1_last_error holds exactly these words): SA1_ERR_UNSUPPORTED "in the air", "hurt", "carrying something",
- *   "on the board", "moving", "busy" (and "<Name> cannot play emotes" for Eggman / Tikal, a puppet's own text);
+ *   "on the board", "moving", "busy" (and "Eggman has no emote list", "Tikal has no emote list", a puppet's own text; a follower id: "on the way" too, follower_test FEM3);
  *   SA1_ERR_INVALID_ARGUMENT "<internal name> is not available for <Sonic|Super Sonic|Tails|Knuckles|Amy|E-102|Big>" (or
  *   "row N" / "extra N" when the entry has no name); SA1_ERR_LIMIT "the game's memory is full"; SA1_ERR_NOT_FOUND no
  *   character. A call before the world's first pair is latched (SA1_OK) and checked at the pair start that applies it

@@ -1296,6 +1296,14 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
             continue;               /* round 0.9.5: a board task not held yet (presentation only) */
         if (o->only_exec != 0 && (r->exec & 0x1FFFFFFFu) != (o->only_exec & 0x1FFFFFFFu))
             continue;               /* round 0.9.8: the front end's one pass of the selected character */
+        if (o->question) {          /* round 0.9.9: the "?" keeps the game's objects, a board and the blob (sa1_capture.h) */
+            if (!SA1_CAP_IS_MODEL(r->kind)) {
+                if (!object)
+                    continue;
+            } else if (!object && !board && !(o->shadow_model && (r->obj & 0x1FFFFFFFu) == (o->shadow_model & 0x1FFFFFFFu))) {
+                continue;
+            }
+        }
         if (!SA1_CAP_IS_MODEL(r->kind)) {
             if (o->only_model || !o->effects ||
                 (r->kind != SA1_CAP_SPRITE3D && r->kind != SA1_CAP_LINE3D && r->kind != SA1_CAP_TRI3D &&

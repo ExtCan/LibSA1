@@ -57,6 +57,7 @@ static const struct {
 } k_need[] = {
     { 0x8C0A77BCu, "SonicMain", NULL }, { 0x8C0B6148u, "TailsMain", NULL }, { 0x8C0C0640u, "KnucklesMain", NULL },
     { 0x8C0CBE00u, "E102Main", NULL }, { 0x8C0D6B40u, "AmyMain", NULL }, { 0x8C0DFFA0u, "BigMain", NULL },
+    { 0x8C0ED880u, "EggmanMain", NULL },
     { 0x8C050BE4u, "pad update", NULL }, { 0x8C0988A4u, "executor", NULL }, { 0x8C0342E0u, "CCL", NULL },
     { 0x8C028E60u, "land init", NULL }, { 0x8C028EC2u, "land update", NULL }, { 0x8C0988C4u, "display pass", NULL },
     { 0x8C098A10u, "heap init", NULL }, { 0x8C09844Au, "task init", NULL }, { 0x8C098786u, "FreeTask", NULL },

@@ -12,7 +12,11 @@ globals visible to the host (everything lives in an `sa1_context`), a flat versi
 `sadc/tools/pclower.py` and run in a Dreamcast-layout arena per character (design:
 `sadc/docs/libsa1_integration.md`).
 
-## Status (0.4.0, 2026-11-02)
+## Status (0.5.0, 2026-11-03)
+
+0.5.0 (round 0.9.9): Tikal and Eggman tick, running the game's own code with its brokenness kept, with the debug button's input `SA1_BUTTON_X` (`SA1_API_PLAYABLE`); the Question Mark, a kind-8 world that draws only the menu's model (`SA1_CREATE_QUESTION`, `SA1_API_QUESTION`); followers' catch-up speed, their spots and emotes on a follower id (`SA1_API_FOLLOWER` 2). The strict replays stay bit-exact (78 traces, V7).
+
+### 0.4.0 (2026-11-02)
 
 0.4.0 (round 0.9.8): followers by the game's own 1.5P code, each in its own world, with Sonic's and Tails' boards on slot 1 (`SA1_API_FOLLOWER`); the game's head look (`SA1_API_LOOK`); a written parallel-tick contract, with per-thread registers on the Windows targets (`SA1_API_PARALLEL`); Big's fishing camera by the game's own push, pop and core (`SA1_API_CAMERA`); the game's own Character Select in a private world (`SA1_API_FRONTEND`). The strict replays stay bit-exact (74 traces, V7).
 
@@ -25,6 +29,12 @@ Round 0.9.8 in progress (`SA1_VERSION_MINOR` 4 at its release; `gsa1_098_plan.md
 * **Parallel ticks** (`SA1_API_PARALLEL`): the calls that may run at the same time on distinct characters of one context, per-thread `sa1_last_error`.
 * **The game's camera requests** (`SA1_API_CAMERA`): `SA1_INPUT_GAME_CAMERA` 0x8, `sa1_character_camera`, `sa1_camera_state`, `SA1_EVENT_CAMERA` 17.
 * **The game's own front end** (`SA1_API_FRONTEND`): `sa1_frontend_open`, `_close`, `_tick`, `_state_get`, `_poll`, `_screen`, `_render`, `_view`, `SA1_KIND_FRONTEND` 32, `SA1_EVENT_FRONTEND` 18.
+
+Round 0.9.9 in progress (`SA1_VERSION_MINOR` 5 at its release; `gsa1_099_plan.md`). Declared in the header; a call whose feature is not finished answers "not built yet" in the optimised archives:
+
+* **Followers, version 2** (`SA1_API_FOLLOWER` 2): `sa1_follower_speed`, `sa1_follower_spot`, `SA1_FOLLOWER_SPEED_MAX`, `sa1_follower_info.speed_factor`, emotes on a follower id.
+* **Eggman and Tikal** (`SA1_API_PLAYABLE`): kinds 1 and 4 tick, by the game's own code, with their brokenness; their debug button `SA1_BUTTON_X` 0x40.
+* **The question mark** (`SA1_API_QUESTION`): `SA1_CREATE_QUESTION` 0x2000, `SA1_ARCHIVE_QUESTION` 62, `SA1_COPT_QUESTION_SPIN` 8.
 
 0.3.0 (round 0.9.5, `SA1_API_BOARD`): Sonic's and Tails' sand / snow board by the game's own code (`sa1_character_board`, `sa1_board_state`, `SA1_EVENT_BOARD`, `SA1_DRAW_BOARD`, `SA1_SURFACE_BOARD_SNOW` / `_SAND`, `SA1_PREVIEW_BOARD`) and the host's camera position for the game's code that looks at the camera (`SA1_INPUT_HOST_CAMERA`); the header's section on the board names every host deviation. The strict replays stay bit-exact (67 traces, V7).
 
@@ -531,7 +541,7 @@ Files read per character (default flags `SA1_LOAD_BOARDS | SA1_LOAD_SUPER`):
 | Eggman | 1ST_READ | EGGMAN | 24 / 24 of 24 |
 | Tails | 1ST_READ, M_SBMOT | MILES | 131 / 132 of 132 |
 | Knuckles | 1ST_READ, K_MOT | KNUCKLES, KNU_EFF | 110 / 111 of 111 |
-| Tikal | 1ST_READ, TIKAL_PROG | TIKAL | no action table |
+| Tikal | 1ST_READ, TIKAL_PROG | TIKAL | 9 / 9 of 9 |
 | Amy | 1ST_READ, A_MOT | AMY, AMY_EFF | 97 / 98 of 98 |
 | Gamma | 1ST_READ, E_MOT | E102, E102BEAM, E102EFFECT, E102TIME, E102HIT | 86 / 87 of 87 |
 | Big | 1ST_READ, B_MOT | BIG, FISHING, BIG_KAERU | 93 / 94 of 101 (7 empty) |

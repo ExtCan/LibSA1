@@ -13,7 +13,7 @@
  *   - A look the game set wins unless SA1_LOOKF_OVERRIDE_GAME; look_owner tells the host (0 none or CAMERA, 1 the host's, 2 the game's).
  *   - sa1_state_ex tail (sizeof 0.3.0's 464 on): look_kind, look_owner, head_angle[2] (BAMS, + y left, + z down), eye_angle[2] (the left eye's); 0
  *     without a call. The state shows the last pair's end; a head moves at most 0x1000 BAMS a step: two pairs are at the clamp.
- *   - Refusals, SA1_ERR_UNSUPPORTED through sa1_refuse at DEBUG, the words in sa1_last_error: "E-102 has no look in the game", "Tikal cannot tick in
+ *   - Refusals, SA1_ERR_UNSUPPORTED through sa1_refuse at DEBUG, the words in sa1_last_error: "E-102 has no look in the game", "Tikal has no look in
  *     libsa1 yet", "this character has no look in libsa1", a puppet, "a replay world takes no look"; while the gate is closed: "the head look is
  *     not built yet". SA1_ERR_INVALID_ARGUMENT: struct_size below pitch's end, kind above 3, unknown flags, OVERRIDE with OFF or CAMERA, a value not
  *     finite or above 1e30 in magnitude (only the fields the kind uses). SA1_ERR_NOT_FOUND. A character without a world gets it built.

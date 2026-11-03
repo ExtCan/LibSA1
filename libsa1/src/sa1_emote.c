@@ -5,7 +5,7 @@
  *
  * Asset layer (review R.13: plain C99, -Iinclude -Isrc, no world headers): the world is reached through
  * src/sa1_emote.h's functions, defined in src/world/sa1_world_emote.c (the lane's hooks, the mechanism, its
- * documentation). Order of a call: the argument syntax, the character (Eggman and Tikal cannot tick),
+ * documentation). Order of a call: the argument syntax, the character (Eggman and Tikal have no emote list),
  * sa1w_character_world_ensure (a puppet: SA1_ERR_UNSUPPORTED), the (kind, form) list of the world as it is now (kind 0
  * with the General look while Super: SA1_EMOTE_FORM_SUPER), the gameplay check against the world's state now (a world
  * before its first pair: the check runs at the pair start that applies the latch), then the latch. A build without the
@@ -29,6 +29,15 @@ typedef char sa1em_class_check[(SA1_EMOTE_CLASS_SUPER == 14u && SA1_EMOTE_F_EXTR
                                  SA1_EMOTE_F_OTHER_OBJECT == 0x10u && SA1_EMOTE_ROW == 0u && SA1_EMOTE_EXTRA == 1u)
                                     ? 1
                                     : -1];
+
+/* round 0.9.9 (gsa1_099_plan.md 3.2, the gate per feature; the method of SA1FO_BUILT): emotes on a follower id. The optimised archives answer today's refusal until this is 1 (set right
+   before 099-lib-follow's final gate); the lane's own tests run the -O0 build */
+#define SA1EM_FOL_BUILT 1
+#if defined(__OPTIMIZE__) && !SA1EM_FOL_BUILT
+#define SA1EM_FOL_GATED 1
+#else
+#define SA1EM_FOL_GATED 0
+#endif
 
 #define SA1EM_KNOWN_FLAGS (SA1_EMOTE_CHAIN | SA1_EMOTE_NO_TRAIL | SA1_EMOTE_IN_AIR | SA1_EMOTE_KEEP_INPUT | SA1_EMOTE_NO_PROPS | \
                            SA1_EMOTE_HOLD)
@@ -209,20 +218,23 @@ sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
-    if (sa1w_character_is_follower(ctx, id)) {
+    if (SA1EM_FOL_GATED && sa1w_character_is_follower(ctx, id)) {
         return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
     }
     st = sa1em_syntax(ctx, emote);
     if (st != SA1_OK) {
         return st;
     }
+    if ((emote->flags & SA1_EMOTE_IN_AIR) && sa1w_character_is_follower(ctx, id)) {
+        /* round 0.9.9: the player's option; on a follower it would stop a running follower where it is */
+        return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_character_emote: SA1_EMOTE_IN_AIR is not for a follower");
+    }
     kind = sa1em_kind_of(ctx, id);
     if (kind < 0) {
         return sa1_fail(ctx, SA1_ERR_NOT_FOUND, "sa1_character_emote: no character %d", (int)id);
     }
     if (kind == SA1_CHAR_EGGMAN || kind == SA1_CHAR_TIKAL) {
-        return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "%s cannot play emotes (the character does not tick)",
-                        sa1em_who(kind, 0));
+        return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "%s has no emote list", sa1em_who(kind, 0));
     }
 #if defined(SA1_NO_WORLD)
     for (i = 0; i < emote->count; i++) {
@@ -286,7 +298,7 @@ sa1_status sa1_character_emote_stop(sa1_context *ctx, sa1_character_id id, uint3
     if (ctx == NULL) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
-    if (sa1w_character_is_follower(ctx, id)) {
+    if (SA1EM_FOL_GATED && sa1w_character_is_follower(ctx, id)) {
         return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "followers do not take emotes, faces or orders (0.9.8)");
     }
     if (how != SA1_EMOTE_STOP_NOW && how != SA1_EMOTE_STOP_BLEND) {
@@ -297,8 +309,7 @@ sa1_status sa1_character_emote_stop(sa1_context *ctx, sa1_character_id id, uint3
         return sa1_fail(ctx, SA1_ERR_NOT_FOUND, "sa1_character_emote_stop: no character %d", (int)id);
     }
     if (kind == SA1_CHAR_EGGMAN || kind == SA1_CHAR_TIKAL) {
-        return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "%s cannot play emotes (the character does not tick)",
-                        sa1em_who(kind, 0));
+        return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "%s has no emote list", sa1em_who(kind, 0));
     }
 #if defined(SA1_NO_WORLD)
     return sa1_fail(ctx, SA1_ERR_NOT_IMPLEMENTED, "this libsa1 build has no world core (SA1_NO_WORLD): no emotes");

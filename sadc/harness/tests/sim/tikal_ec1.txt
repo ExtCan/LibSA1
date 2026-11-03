@@ -1,0 +1,29 @@
+# args: --level 1 --act 0 --chr 4 --no-objects --cast
+# Round 0.9.9 (trace --cast, harness/README.md, docs/research/gsa1_099_plan.md B12): the game's own TikalMain as the stage's player,
+# Emerald Coast act 1, Sonic's start table. Fall, stand, walk, run, brake, turn, jump, B in the air, the other buttons.
+# STEPS X Y [BUTTONS]   (60 Hz logic steps, stick -128..127, Y < 0 = up/forward)
+60 0 0
+80 0 -127
+30 0 127
+30 127 0
+1 0 -127 A
+20 0 -127 A
+1 0 -127 B
+50 0 -127
+40 0 0
+1 0 0 Y
+15 0 0
+1 0 0 Z
+15 0 0
+1 0 0 L
+6 0 0
+1 0 0 R
+6 0 0
+1 0 0 B
+6 0 0
+1 0 0 C
+6 0 0
+1 0 0 D
+6 0 0
+1 0 0 A
+45 0 0

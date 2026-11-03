@@ -108,7 +108,7 @@ static int walk_keys(const sa1f_mem *m, uint32_t obj, uint32_t mdata, uint32_t *
 /* round 0.9.4c (sadc docs/research/phoneme_plan.md 4.6, phoneme_shapes.md 6): the loudness ladder of each kind, closed to open
  * by the measured mouth opening of the rest-pose renders (UNVERIFIED by the owner's eye in game). Round 0.9.4a used 0 5 4 6 7
  * for every kind with 20 or more keys; measured, that order is not monotonic (Sonic's mouth shrank to the small "o" at
- * three-quarter level, Knuckles' closed: his key 6 is closed). Tikal (not measured, he cannot tick) keeps 0.9.4a's. */
+ * three-quarter level, Knuckles' closed: his key 6 is closed). Tikal (not measured: her face is refused) keeps 0.9.4a's. */
 typedef struct sa1f_ladder {
     uint8_t n, keys[7];
 } sa1f_ladder;
@@ -322,7 +322,7 @@ static sa1_status face_world(sa1_context *ctx, sa1_character_id id, int silent, 
     if (kind < 0 || kind >= SA1_CHAR_COUNT || sa1f_kind_of(kind)->ev_head == 0u || kind == SA1_CHAR_TIKAL) {
         const char *why = kind == SA1_CHAR_GAMMA ? "E-102 has no face in the game (no face task)"
                         : kind == SA1_CHAR_SUPER_SONIC ? "Super Sonic has no event head in the game"
-                        : kind == SA1_CHAR_TIKAL ? "Tikal cannot tick in libsa1 yet"
+                        : kind == SA1_CHAR_TIKAL ? "Tikal has no face in libsa1 yet (her ladder was never measured)"
                         : "this character has no event face";
         return silent ? quiet(ctx, SA1_ERR_UNSUPPORTED, "%s: %s", what, why)
                       : sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "%s: %s", what, why);

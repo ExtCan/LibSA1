@@ -381,6 +381,31 @@ CreateElementalTask(2, 0, ..)`, the level task), before `LoadPlayerTask`.
   the spawn until its timer reaches 600 (`0C91525E-0C91526E`) and then follows the player; with bit 0x8000
   clear it sinks and kills the player (`8C07BBC2(0)`), so the free-roam scripts stand for 620 steps first.
 
+## Eggman and Tikal as the stage's player (`trace --cast`, round 0.9.9)
+
+The stock game cannot start `--chr 1` or `--chr 4`: `func_8C09D980` hangs (`for (;;)`, `[chr] fault: instruction budget
+exhausted`), `LoadPlayerTask` has no branch for them, `func_8C04F8FA` no start table (`docs/research/playable099.md` 2.1).
+`--cast`, with `--chr 1` or `--chr 4` only (else refused, exit 2), runs the game's own `EggmanMain` / `TikalMain` by four
+patches in **guest RAM** right after the ROM is loaded; no file changes and the header's CRCs stay the real ones:
+
+| Patch | Address | From -> to | Why |
+|---|---|---|---|
+| P1 | 8C09D980 | `RTS; NOP` | no motion file: their motions are in 1ST_READ (Eggman) or TIKAL_PROG (Tikal) |
+| P2 | 8C04F3EE | `BF` -> `NOP` | `LoadPlayerTask`'s "chr 0" branch runs for every character |
+| P3 | 8C04F554 | `SonicMain` -> `EggmanMain` / `TikalMain` | that branch's literal |
+| P4 | 8C04FA18 | `BRA` -> `NOP NOP` | `func_8C04F8FA` falls into Sonic's start table |
+
+* `--chr 4` loads `TIKAL_PROG` after the stage load (bumping `guard_epoch`, or the image guard would not route her C) and
+  refuses a stage whose overlay reaches 0CB00000: levels 26-34 before the load, any other by the overlay's size after it.
+* `func_8C09D980` has C: in a routed run its native copy would run instead of P1 and hang, so `--cast` takes that function
+  out of routing by itself (no `--route-except` needed); `--route-all` is refused, as the set-up's native code calls it directly.
+* `px_mains` holds both mains, so `px_*` is filled from step 0. No stock run has such an exec: the stock references do not move.
+* The four scripts `eggman_ec1`, `tikal_ec1` (fall, stand, walk, run, brake, turn, jump, B in the air, the other buttons; 425
+  steps) and `eggman_debug_ec1`, `tikal_debug_ec1` (X, idle, stick, X + stick, A, fall; 502 steps) carry `--cast` in their
+  `# args:` line and are strict references for libsa1 (`tests/build_replay.py`). **No B in debug:** on the Dreamcast's code it is
+  an address error, in libsa1 a stub queues `SA1_EVENT_RESPAWN` (`gsa1_099_plan.md` 4.2, D1). In a `# args:` script a `;` starts a
+  new segment, in a comment too.
+
 ## Trace sidecars (`--pno1`)
 
 `NAME.bin` stays version 2. `trace --pno1` writes `NAME.p1.bin` (`src/sa1_trace_ext.h`: a 48-byte header

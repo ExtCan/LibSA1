@@ -553,6 +553,8 @@ struct sa1_context {
     /* round 0.9.8 (SA1_API_FRONTEND; seam S11, zero: nothing loaded, none open): SA1_KIND_FRONTEND's archives, the open front end */
     sa1_charset        frontend_set;
     struct sa1_frontend *frontend_open;
+    /* round 0.9.9 (SA1_API_QUESTION; src/sa1_question.c): zero until the first create with SA1_CREATE_QUESTION, freed with the disc */
+    struct sa1q_state  *question;
 };
 
 void sa1_charset_free(sa1_context *ctx, sa1_charset *cs);

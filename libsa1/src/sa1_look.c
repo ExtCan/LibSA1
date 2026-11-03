@@ -9,7 +9,7 @@
  * yet" after their argument checks. The -O0 build runs the real code for the lane's own tests.
  *
  * Kinds (look096.md 3.1): Sonic, Tails, Knuckles, Amy, Big and Super Sonic have a look task in a libsa1 world (Super Sonic: Sonic's, on
- * Sonic's normal head, which the Super body does not draw: option 7); E-102's is never created in the game; Eggman and Tikal do not tick.
+ * Sonic's normal head, which the Super body does not draw: option 7); E-102's is never created in the game; Eggman's main makes none; Tikal's look task is not wired.
  */
 #include "sa1_internal.h"
 #include "sa1_api_world.h"
@@ -45,7 +45,7 @@ static const char *lk_kind_refusal(int32_t kind)
     case SA1_CHAR_GAMMA:
         return "E-102 has no look in the game";
     case SA1_CHAR_TIKAL:
-        return "Tikal cannot tick in libsa1 yet";
+        return "Tikal has no look in libsa1 yet";
     default:
         return "this character has no look in libsa1";
     }

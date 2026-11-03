@@ -51,6 +51,9 @@ void sa1em_world_form(const struct sa1g_world *w, int32_t *kind, uint32_t *form)
  * for it). `entries`: the queue entries the start needs at most (the heap headroom, review R.7) */
 sa1_status sa1em_world_check(const struct sa1g_world *w, const sa1_emote *e, uint32_t entries, char *why, size_t n);
 
+/* round 0.9.9, a follower's world (fw_ai_exec, inside the world): 1 while an emote plays or waits to start, so the AI's output is dropped */
+int sa1em_world_wants_hold(const struct sa1g_world *w);
+
 /* the latch (applied at the world's next pair start; the last call before a pair wins). Installs the lane's hooks at the
  * first call for a world. `early`: the call came before the world's first pair (sa1em_world_check said SA1_PARTIAL): the
  * request then also waits while the character settles (a new world starts falling onto its floor: "busy" / "in the

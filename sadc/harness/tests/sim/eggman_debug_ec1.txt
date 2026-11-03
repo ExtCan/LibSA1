@@ -1,0 +1,17 @@
+# args: --level 1 --act 0 --chr 1 --no-objects --cast
+# Round 0.9.9 (trace --cast, harness/README.md, docs/research/gsa1_099_plan.md B12): the game's own EggmanMain as the stage's player,
+# Emerald Coast act 1, Sonic's start table. The debug button: X, idle, stick, X + stick, A, fall. No B in debug: on the Dreamcast's code that is an address error (deviation D1).
+# STEPS X Y [BUTTONS]   (60 Hz logic steps, stick -128..127, Y < 0 = up/forward)
+60 0 0
+1 0 0 X
+30 0 0
+60 0 -127
+60 127 0
+30 0 0
+40 0 -127 X
+40 0 127 X
+30 0 0
+1 0 0 A
+90 0 0
+30 0 -127
+30 0 0

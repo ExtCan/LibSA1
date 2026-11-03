@@ -107,9 +107,6 @@ sa1_status sa1g_character_world_create(sa1g_wctx *c, int32_t kind, const float p
         return SA1_ERR_INVALID_ARGUMENT;
     }
     *out = NULL;
-    if (kind == SA1_CHAR_EGGMAN) {
-        return SA1_ERR_UNSUPPORTED;     /* D14: Eggman is out of scope (stubbed) */
-    }
     if (!isfinite(yaw)) {
         return SA1_ERR_INVALID_ARGUMENT;
     }

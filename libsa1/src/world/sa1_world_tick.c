@@ -328,6 +328,9 @@ void sa1g_pad_from_input(const sa1_input *in, sa1g_pad *pad)
     if (v.buttons & SA1_BUTTON_START) {
         pad->on |= SA1G_PAD_START;
     }
+    if (v.buttons & SA1_BUTTON_X) {             /* round 0.9.9: Eggman's and Tikal's debug button; a replay injects its pad words and never comes here */
+        pad->on |= SA1G_PAD_X;
+    }
     pad->l = (v.buttons & SA1_BUTTON_L) ? 255u : 0u;
     pad->r = (v.buttons & SA1_BUTTON_R) ? 255u : 0u;
     pad->x1 = sa1g_stick(v.stick_x);

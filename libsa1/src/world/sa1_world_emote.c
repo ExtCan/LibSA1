@@ -98,6 +98,12 @@
  * at nbFrame - 1); STOP_NOW clears. A looping last entry is not held (it loops until a cancel or a stop). A held entry
  * never ends, so it never becomes a blend source behind an unblended entry: no leak (review R.1 of round 0.9.4a; E20).
  *
+ * A FOLLOWER (round 0.9.9, SA1_API_FOLLOWER 2; sadc docs/research/follow099.md 2.4, 5.2). In a follower world "the character" is slot 1 (w->slot; em_player_of, the hammer) and there is no pad: its input is the AI's, which
+ * fw_ai_exec drops while sa1em_world_wants_hold says an emote plays or waits (per[1].on, press, the analog stroke; the AI's state machine and its respawn test run on, so a drop-in ends the emote). So em_input is 0
+ * there, and the call cannot demand the stand: the AI's stroke of 0.005 keeps four kinds out of mode 1 at rest (on in 0 of 60 pairs with the hold off, measured). em_refusal_of takes a call on the ground, not hurt, not on a
+ * board, not holding, under speed 1 and within 30 units of the proxy (its spot; else "on the way"), and the pair start waits up to 30 pairs for the stand. SA1_EMOTE_IN_AIR is refused in src/sa1_emote.c. No reference world
+ * makes the call: w->slot is 0 in every world but a follower's.
+ *
  * DEFERRED (faces_wheel_plan.md 4.8): the render hint and the CPU pose of a hidden pair read the gameplay action, not
  * the queue head (measured mid-pair deviation while emoting <= 0.81 against the gameplay's own 1.20; a later round
  * extends sa1_character.c's hint helper). UNVERIFIED: whether Big's rod shows in his fishing rows (the body's triangle
@@ -125,6 +131,7 @@
 #define EM_TEXLIST_SUPER    0x0C901EA0u     /* TEXLIST_SUPERSONIC (B_CHAOS7) */
 #define EM_TWP_FLAG         0x04u           /* taskwk.flag (Sint16): 0x0003 ground, 0x0800 holding an object */
 #define EM_TWP_WTIMER       0x06u           /* taskwk.wtimer (Uint16): hurt */
+#define EM_TWP_POS          0x20u           /* taskwk.pos */
 #define EM_TWP_EWP          0x3Cu           /* taskwk.ewp */
 #define EM_EWP_F3C          0x3Cu           /* eventwk.f3C: the queue head's frame */
 #define EM_EWP_LIST40       0x40u           /* eventwk.list40: the queue head */
@@ -205,6 +212,8 @@ typedef struct em_state {
     uint32_t starts, ends, cancels_input, cancels_state, stops, refused, dropped, groups_queued, entries_made;
     uint32_t waits_jvmode, heap_largest, waits_settle;
     uint32_t holds, hold_releases;
+    /* round 0.9.9 (an emote on a follower id, gsa1_099_plan.md 6.4 item 4): the world's character slot; pair starts a follower's start has waited for its stand */
+    uint32_t slot, settle_wait;
 } em_state;
 
 /* ---- guest memory: the arena and the allocated part of segment 0x18 (GT, GA and their actions live there) ----------- */
@@ -332,7 +341,7 @@ static void em_note(em_state *S, const char *why)
     S->note = 1;
 }
 
-/* ---- player 0 ---------------------------------------------------------------------------------------------------------- */
+/* ---- the world's character: player 0, slot 1 in a follower world (round 0.9.9) ---------------------------------------------- */
 typedef struct em_player {
     uint32_t twp, pwp, ewp, plact;
     int32_t kind;
@@ -351,13 +360,13 @@ static void em_kind_form(const sa1g_world *w, int32_t *kind, uint32_t *form)
     }
 }
 
-/* 1: player 0 has its taskwk, playerwk and event work */
+/* 1: the world's character has its taskwk, playerwk and event work */
 static int em_player_of(const sa1g_world *w, em_player *p)
 {
     memset(p, 0, sizeof *p);
     em_kind_form(w, &p->kind, &p->form);
-    p->twp = em_rd32(w, SA1G_ADDR_PLAYER_TWP);
-    p->pwp = em_rd32(w, SA1G_ADDR_PLAYER_PWP);
+    p->twp = em_rd32(w, SA1G_ADDR_PLAYER_TWP + 4u * (uint32_t)w->slot);
+    p->pwp = em_rd32(w, SA1G_ADDR_PLAYER_PWP + 4u * (uint32_t)w->slot);
     if (!em_arena(p->twp) || !em_arena(p->pwp)) {
         return 0;
     }
@@ -421,6 +430,21 @@ static const char *em_refusal(const em_player *p, uint32_t flags)
         return "in the air";
     }
     return p->speed > 0.01f ? "moving" : "busy";
+}
+
+/* round 0.9.9: a call on a follower id (follow099.md 5.2). At rest the AI's stroke of 0.005 keeps four kinds out of the stand's mode, so the call cannot demand it: on the ground, not hurt, not on a
+   board, not holding and with a speed under 1 it is taken when the follower has reached its place, within 30 units of the proxy (its spot); from the latch on the AI's output is dropped and the start
+   waits for the stand (em_pre). Everything else keeps the player's plain words */
+static const char *em_refusal_of(const sa1g_world *w, const em_player *p, uint32_t flags)
+{
+    const char *r = em_refusal(p, flags);
+    if (w->slot != 0 && (r == NULL || ((p->flag & EM_FLAG_GROUND) && p->wtimer == 0 && !em_board(p) && !(p->flag & EM_FLAG_HOLD) && p->speed < 1.0f))) {
+        uint32_t proxy = em_rd32(w, SA1G_ADDR_PLAYER_TWP);
+        float dx = em_rdf(w, p->twp + EM_TWP_POS) - em_rdf(w, proxy + EM_TWP_POS);
+        float dz = em_rdf(w, p->twp + EM_TWP_POS + 8u) - em_rdf(w, proxy + EM_TWP_POS + 8u);
+        r = dx * dx + dz * dz < 30.0f * 30.0f ? NULL : "on the way";
+    }
+    return r;
 }
 
 /* ---- the game heap (as sa1_world_set.c st_heap_largest) ---------------------------------------------------------------- */
@@ -727,7 +751,7 @@ static void em_clear(em_state *S, uint32_t twp)
 
 static void em_hammer(em_state *S, float f)
 {
-    ((em_hammer_fn)em_fn(EM_FN_HAMMER))(0, f);
+    ((em_hammer_fn)em_fn(EM_FN_HAMMER))((uint8_t)S->slot, f);
     S->hammer = f > 0.0f;
 }
 
@@ -857,6 +881,9 @@ static int em_input(const sa1g_world *w, const em_player *p)
 {
     uint32_t press = em_rd32(w, EM_ADDR_PADS + 0x10u);
     uint32_t masks = em_rd32(w, EM_ADDR_MASK_ACTION) | em_rd32(w, EM_ADDR_MASK_JUMP);
+    if (w->slot != 0) {
+        return 0;               /* round 0.9.9: a follower's input is the AI's, dropped while the emote plays (fw_ai_exec): only the host's stop and the state rules end it */
+    }
     if (((em_analog_fn)em_fn(EM_FN_ANALOG))(sa1_decode(p->twp), NULL, NULL) != 0) {
         return 1;
     }
@@ -992,6 +1019,13 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
             S->waits_jvmode++;  /* review R.8: 8C04BF00 needs jvmode 1; the start waits (latched) */
             return;
         }
+        if (w->slot != 0 && p.mode != em_stand_mode(p.kind) && (p.flag & EM_FLAG_GROUND) && p.wtimer == 0 && !em_board(&p) && S->settle_wait < 30u) {
+            /* round 0.9.9, a follower: the AI's output has been dropped since the latch (fw_ai_exec): it slows down and stands in a few steps; 30 pairs at most, then the rule decides */
+            S->settle_wait++;
+            S->waits_settle++;
+            return;
+        }
+        S->settle_wait = 0;
         S->req_start = 0;
         why = em_refusal(&p, S->req.flags);
         if (why == NULL && !(S->req.flags & SA1_EMOTE_KEEP_INPUT) && em_input(w, &p)) {
@@ -1183,7 +1217,7 @@ sa1_status sa1em_world_check(const struct sa1g_world *w, const sa1_emote *e, uin
     if (!em_player_of(w, &p) || p.jvmode != 1u) {
         return SA1_PARTIAL;     /* before the world's first pair: the start waits for it */
     }
-    r = em_refusal(&p, e->flags);
+    r = em_refusal_of(w, &p, e->flags);
     if (r != NULL) {
         snprintf(why, n, "%s", r);
         return SA1_ERR_UNSUPPORTED;
@@ -1206,12 +1240,19 @@ sa1_status sa1em_world_check(const struct sa1g_world *w, const sa1_emote *e, uin
     return SA1_OK;
 }
 
+int sa1em_world_wants_hold(const struct sa1g_world *w)
+{
+    const em_state *S = em_state_of(w);
+    return S != NULL && (S->state != SA1_EMOTE_STATE_NONE || S->req_start);
+}
+
 static em_state *em_attach(sa1_context *ctx, sa1g_world *w)
 {
     em_state *S = em_state_make(w);
     if (S == NULL) {
         return NULL;
     }
+    S->slot = (uint32_t)w->slot;
     w->emote.pre = em_pre;
     w->emote.post = em_post;
     w->emote.fill = em_fill;
