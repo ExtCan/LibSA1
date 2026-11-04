@@ -12,7 +12,11 @@ globals visible to the host (everything lives in an `sa1_context`), a flat versi
 `sadc/tools/pclower.py` and run in a Dreamcast-layout arena per character (design:
 `sadc/docs/libsa1_integration.md`).
 
-## Status (0.5.0, 2026-11-03)
+## Status (0.5.1, 2026-11-04)
+
+0.5.1 (round 0.9.9a): emotes leave and enter by a host-made bridge instead of the game's cutscene link, render-only fixes for a limb's turn between pairs, Knuckles' catalogue names and defaults, `sa1_follower_stand`. The strict replays stay bit-exact (78 traces, V7).
+
+### 0.5.0 (2026-11-03)
 
 0.5.0 (round 0.9.9): Tikal and Eggman tick, running the game's own code with its brokenness kept, with the debug button's input `SA1_BUTTON_X` (`SA1_API_PLAYABLE`); the Question Mark, a kind-8 world that draws only the menu's model (`SA1_CREATE_QUESTION`, `SA1_API_QUESTION`); followers' catch-up speed, their spots and emotes on a follower id (`SA1_API_FOLLOWER` 2). The strict replays stay bit-exact (78 traces, V7).
 

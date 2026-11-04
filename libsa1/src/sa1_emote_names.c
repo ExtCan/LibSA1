@@ -259,7 +259,7 @@ static const sa1em_entry k_tails[140] = {
     /* 135 */ { 1u,  3u, 0x20u,   4u,  -1,  16u, 0x8C3030E8u, "m_suberi0", "Tails_Sliding" },
     /* 136 */ { 1u,  3u, 0x20u,   5u,  -1,  16u, 0x8C30489Cu, "m_suberi1", "Tails_Stop_Sliding" },
     /* 137 */ { 1u,  2u, 0x20u,   6u,  -1,  51u, 0x8C3467A8u, "m_taiki0", "Tails_Begin_Yawn_Unused_Idle" },
-    /* 138 */ { 1u,  2u, 0x20u,   7u,  -1,  20u, 0x8C34885Cu, "m_taiki1", "Tails_Yawn_Unused_Idle" },
+    /* 138 */ { 1u,  2u, 0x60u,   7u,  -1,  20u, 0x8C34885Cu, "m_taiki1", "Tails_Yawn_Unused_Idle" },
     /* 139 */ { 1u,  2u, 0x20u,   8u,  -1,  24u, 0x8C34B0F0u, "m_taiki2", "Tails_Stop_Yawning_Unused_Idle" },
 };
 
@@ -302,7 +302,7 @@ static const sa1em_entry k_knuckles[122] = {
     /*  35 */ { 0u,  4u, 0x10u,  35u,  -1,   0u, 0x00000000u, "k_fly0", "Knuckles_Glide" },
     /*  36 */ { 0u, 10u, 0x02u,  37u,  25,   0u, 0x00000000u, "k_n_damage0", "Knuckles_Damage" },
     /*  37 */ { 0u, 10u, 0x02u,  38u,  -1,   0u, 0x00000000u, "k_chissoku0", "K_MOT_Knuckles_Drown" },
-    /*  38 */ { 0u,  7u, 0x02u,  39u,  -1,   0u, 0x00000000u, "k_panch0", "K_MOT_Knuckles_First_Punch" },
+    /*  38 */ { 0u,  2u, 0x02u,  39u,  -1,   0u, 0x00000000u, "k_kimepose0", "K_MOT_Knuckles_Level_Clear_Pose" },
     /*  39 */ { 0u,  2u, 0x00u,  40u,  -1,   0u, 0x00000000u, "k_kimepose1", "K_MOT_Knuckles_Level_Clear_Pose_to_Standing" },
     /*  40 */ { 0u,  7u, 0x00u,  41u,  -1,   0u, 0x00000000u, "k_anahori0", "K_MOT_Knuckles_Begin_Dig" },
     /*  41 */ { 0u,  7u, 0x00u,  42u,  -1,   0u, 0x00000000u, "k_anahori1", "K_MOT_Knuckles_Dig" },
@@ -376,15 +376,15 @@ static const sa1em_entry k_knuckles[122] = {
     /* 109 */ { 0u,  9u, 0x01u, 110u,  -1,   0u, 0x00000000u, "k_rocket0", "K_MOT_Knuckles_Hold_Vertical_Rocket" },
     /* 110 */ { 1u,  9u, 0x21u,   0u,  -1,  32u, 0x8C3AD538u, "k_kabe1", "Knuckles_Climb_Up_Ledge_1" },
     /* 111 */ { 1u,  2u, 0x20u,   1u,  -1,  24u, 0x8C3F6618u, "k_taiki0", "Knuckles_Begin_Shaking_Fists_Unused_Idle" },
-    /* 112 */ { 1u,  2u, 0x20u,   2u,  -1,  16u, 0x8C3F85BCu, "k_taiki1", "Knuckles_Shake_Fists_Unused_Idle" },
+    /* 112 */ { 1u,  2u, 0x60u,   2u,  -1,  16u, 0x8C3F85BCu, "k_taiki1", "Knuckles_Shake_Fists_Unused_Idle" },
     /* 113 */ { 1u,  2u, 0x20u,   3u,  -1,  35u, 0x8C3FC7D0u, "k_taiki2", "Knuckles_Stop_Shaking_Fists_Unused_Idle" },
     /* 114 */ { 1u,  2u, 0x20u,   4u,  -1,  20u, 0x8C417C60u, "k_wait_b0", "Knuckles_Begin_Fighting_Stance_Unused_Idle" },
-    /* 115 */ { 1u,  2u, 0x20u,   5u,  -1,  16u, 0x8C4198A4u, "k_wait_b1", "Knuckles_Fighting_Stance_Unused_Idle" },
+    /* 115 */ { 1u,  2u, 0x60u,   5u,  -1,  16u, 0x8C4198A4u, "k_wait_b1", "Knuckles_Fighting_Stance_Unused_Idle" },
     /* 116 */ { 1u,  2u, 0x20u,   6u,  -1,  26u, 0x0CC2DEE4u, "k_item_c0", "K_MOT_Knuckles_Begin_Looking_at_Shovel_Claws" },
-    /* 117 */ { 1u,  2u, 0x20u,   7u,  -1,  27u, 0x0CC30C48u, "k_item_c1", "K_MOT_Knuckles_Look_at_Shovel_Claws" },
+    /* 117 */ { 1u,  2u, 0x60u,   7u,  -1,  27u, 0x0CC30C48u, "k_item_c1", "K_MOT_Knuckles_Look_at_Shovel_Claws" },
     /* 118 */ { 1u,  2u, 0x20u,   8u,  -1,  17u, 0x0CC32ECCu, "k_item_c2", "K_MOT_Knuckles_Stop_Looking_at_Shovel_Claws" },
     /* 119 */ { 1u,  2u, 0x20u,   9u,  -1,  24u, 0x0CC35D40u, "k_item_fg0", "K_MOT_Knuckles_Begin_Looking_at_Fighting_Gloves" },
-    /* 120 */ { 1u,  2u, 0x20u,  10u,  -1,  23u, 0x0CC38644u, "k_item_fg1", "K_MOT_Knuckles_Look_at_Fighting_Gloves" },
+    /* 120 */ { 1u,  2u, 0x60u,  10u,  -1,  23u, 0x0CC38644u, "k_item_fg1", "K_MOT_Knuckles_Look_at_Fighting_Gloves" },
     /* 121 */ { 1u,  2u, 0x20u,  11u,  -1,  18u, 0x0CC3AA88u, "k_item_fg2", "K_MOT_Knuckles_Stop_Looking_at_Fighting_Gloves" },
 };
 
@@ -487,11 +487,11 @@ static const sa1em_entry k_amy[105] = {
     /*  95 */ { 0u,  4u, 0x00u,  96u,  18,   0u, 0x00000000u, "a_baneup2", "Amy_Fall" },
     /*  96 */ { 0u,  7u, 0x00u,  97u,  93,   0u, 0x00000000u, "a_runat2", "A_MOT_Amy_Landing" },
     /*  97 */ { 1u,  2u, 0x20u,   0u,  -1,  61u, 0x8C50ECD4u, "a_mogura0", "Amy_Begin_Crouching" },
-    /*  98 */ { 1u,  2u, 0x20u,   1u,  -1,  17u, 0x8C510908u, "a_mogura1", "Amy_Crouch" },
+    /*  98 */ { 1u,  2u, 0x60u,   1u,  -1,  17u, 0x8C510908u, "a_mogura1", "Amy_Crouch" },
     /*  99 */ { 1u,  2u, 0x20u,   2u,  -1,  22u, 0x8C51343Cu, "a_mogura2", "Amy_End_Crouching" },
     /* 100 */ { 1u,  2u, 0x20u,   3u,  -1,  16u, 0x0CC3EDB4u, "a_kakure0", "A_MOT_Amy_Hiding" },
     /* 101 */ { 1u,  2u, 0x20u,   4u,  -1,  49u, 0x0CC44458u, "a_taiki0", "A_MOT_Amy_Begin_Frustration" },
-    /* 102 */ { 1u,  2u, 0x20u,   5u,  -1,  14u, 0x0CC4600Cu, "a_taiki1", "A_MOT_Amy_Frustration" },
+    /* 102 */ { 1u,  2u, 0x60u,   5u,  -1,  14u, 0x0CC4600Cu, "a_taiki1", "A_MOT_Amy_Frustration" },
     /* 103 */ { 1u,  2u, 0x20u,   6u,  -1,  11u, 0x0CC476E0u, "a_taiki2", "A_MOT_Amy_End_Frustration" },
     /* 104 */ { 1u, 10u, 0x20u,   7u,  -1,  16u, 0x0CC8EAE0u, "a_zitabata", "A_MOT_Amy_Launched" },
 };
@@ -683,7 +683,7 @@ static const sa1em_entry k_big[96] = {
     /*  91 */ { 0u, 10u, 0x02u,  99u,  19,   0u, 0x00000000u, "b_n_damage0", "Big_Damage" },
     /*  92 */ { 0u, 10u, 0x02u, 100u,  -1,   0u, 0x00000000u, "(no label) B_MOT_0CC99638", "" },
     /*  93 */ { 1u,  2u, 0x20u,   0u,  -1,  29u, 0x0CC868F8u, "b_item_u0", "B_MOT_b_item_u0" },
-    /*  94 */ { 1u,  2u, 0x20u,   1u,  -1,  14u, 0x0CC882BCu, "b_item_u1", "B_MOT_b_item_u1" },
+    /*  94 */ { 1u,  2u, 0x60u,   1u,  -1,  14u, 0x0CC882BCu, "b_item_u1", "B_MOT_b_item_u1" },
     /*  95 */ { 1u,  2u, 0x20u,   2u,  -1,  17u, 0x0CC8A2D0u, "b_item_u2", "B_MOT_b_item_u2" },
 };
 

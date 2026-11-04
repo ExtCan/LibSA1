@@ -67,6 +67,7 @@
 #define FW_PWP_JOG      0xC0u
 #define FW_PWP_RUN      0xC4u
 #define FW_PWP_ACTION   0x126u
+#define FW_PWP_ACTTIMER 0x12Cu
 #define FW_CSTS_TNORM   0x1Cu
 
 #define FW_ITEM_INVINCIBLE 0x8000u
@@ -398,6 +399,40 @@ static void fw_view(sa1g_world *w)
     w->xmtrx[15] = 1.0f;
 }
 
+/* ---- round 0.9.9a: the stand (sa1_follower_stand; N7, sadc build/research/r099a/stop/diagnosis.md) ----------------------------- */
+/* A private bit of sa1g_follow.flags (no SA1_FOLLOW_* uses it): off, as every reference world, nothing here runs */
+#define FW_FLAG_STAND    0x80000000u
+#define FW_AI_REST_STICK 0.005f         /* code_8C082160.c:116, and no other branch of the AI writes exactly this */
+#define FW_TURN_BAMS     0x200          /* 2.8 degrees */
+#define FW_TURN_STEPS    40u
+
+/* Right after the AI's exec. The game's AI holds its stick at 0.005 whenever a follower at speed 0 is over 1 unit from its target (code_8C082160.c:112-117); that only turns it on the spot, and the game's
+   stand test needs a stick of exactly 0 (func_8C0B122E), so the follower stays in its walk at speed 0, on one frame: the real game's Tails does this too (the oracle: mode 2, action 9, frame 0, 20 s).
+   The stick is dropped once the AI's own turn has ended, so the game's own stand and idle run. Slot 1 in any other mode than its stand or its walk (a board, the air, E-102's hover) keeps the AI's stick */
+static void fw_stand_stick(sa1g_world *w)
+{
+    uint32_t twp, pwp;
+    int32_t mode;
+    if (fw_rdf(w, SA1G_ADDR_ANALOG + 8u + 4u) != FW_AI_REST_STICK) {
+        return;
+    }
+    twp = fw_rd32(w, SA1G_ADDR_PLAYER_TWP + 4u);
+    pwp = fw_rd32(w, SA1G_ADDR_PLAYER_PWP + 4u);
+    if (!fw_arena(twp) || !fw_arena(pwp)) {
+        return;
+    }
+    mode = (int32_t)(int8_t)fw_rd8(w, twp);
+    if (mode == 2) {
+        int32_t off = (int16_t)(fw_rd32(w, SA1G_ADDR_ANALOG + 8u) - fw_rd32(w, twp + FW_TWP_ANG + 4u));
+        if ((off > FW_TURN_BAMS || off < -FW_TURN_BAMS) && fw_rd16(w, pwp + FW_PWP_ACTTIMER) < FW_TURN_STEPS) {
+            return;
+        }
+    } else if (mode != 1) {
+        return;
+    }
+    fw_wrf(w, SA1G_ADDR_ANALOG + 8u + 4u, 0.0f);
+}
+
 /* ---- the AI's exec: respawn events and the history rewrite (decision 4.8) ------------------------------------------------- */
 static void fw_ai_exec(sa1g_world *w, uint32_t tp, void *user)
 {
@@ -412,6 +447,8 @@ static void fw_ai_exec(sa1g_world *w, uint32_t tp, void *user)
         fw_wr32(w, FW_A_PERIPHERAL + 0x34u + 0x08u, 0u);        /* per[1].on */
         fw_wr32(w, FW_A_PERIPHERAL + 0x34u + 0x10u, 0u);        /* per[1].press */
         fw_wrf(w, SA1G_ADDR_ANALOG + 8u + 4u, 0.0f);            /* B_8C754DCC[1].stroke */
+    } else if (f->flags & FW_FLAG_STAND) {
+        fw_stand_stick(w);
     }
     if (f->respawn_req) {
         /* sa1_follower_respawn, where the game's own respawn test makes the request (the AI's exec, list 0): order 24 reaches slot 1
@@ -788,6 +825,19 @@ sa1_status sa1wf_speed(struct sa1g_world *w, float speed)
         return w->dead_status;
     }
     w->fol.speed = speed;
+    return SA1_OK;
+}
+
+/* sa1_follower_stand: read at the AI's next exec */
+sa1_status sa1wf_stand(struct sa1g_world *w, int on)
+{
+    if (w == NULL || !w->fol.on) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    if (w->dead) {
+        return w->dead_status;
+    }
+    w->fol.flags = on ? w->fol.flags | FW_FLAG_STAND : w->fol.flags & ~FW_FLAG_STAND;
     return SA1_OK;
 }
 

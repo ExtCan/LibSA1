@@ -140,7 +140,7 @@ action	internal_name	label	class	wheel	play	frames	mtnmode	next	chain	link	racio
 -	m_suberi0	Tails_Sliding	extra:move	yes	once	16						2	Tails		1ST_READ	8C3030E8			not in the action table: EV_SetMotion (8C04B528) with the body object 8C25F968; the probe played it (no fault)		
 -	m_suberi1	Tails_Stop_Sliding	extra:move	yes	once	16						2	Tails		1ST_READ	8C30489C			not in the action table: EV_SetMotion (8C04B528) with the body object 8C25F968; the probe played it (no fault)		
 -	m_taiki0	Tails_Begin_Yawn_Unused_Idle	extra:pose	yes	once	51						2	Tails		1ST_READ	8C3467A8			not in the action table: EV_SetMotion (8C04B528) with the body object 8C25F968; the probe played it (no fault)		
--	m_taiki1	Tails_Yawn_Unused_Idle	extra:pose	yes	once	20						2	Tails		1ST_READ	8C34885C			not in the action table: EV_SetMotion (8C04B528) with the body object 8C25F968; the probe played it (no fault)		
+-	m_taiki1	Tails_Yawn_Unused_Idle	extra:pose	yes	loop	20						2	Tails		1ST_READ	8C34885C			not in the action table: EV_SetMotion (8C04B528) with the body object 8C25F968; the probe played it (no fault)		
 -	m_taiki2	Tails_Stop_Yawning_Unused_Idle	extra:pose	yes	once	24						2	Tails		1ST_READ	8C34B0F0			not in the action table: EV_SetMotion (8C04B528) with the body object 8C25F968; the probe played it (no fault)		
 -	mb_sbjump0	M_SBMOT_Tails_Jump_Board	no	no	once	16									M_SBMOT	0CB02A28			the board model's own motion (0.9.5), not a body motion		
 -	mb_sbjump1	M_SBMOT_Tails_Midair_Board	no	no	once	16									M_SBMOT	0CB02B6C			the board model's own motion (0.9.5), not a body motion		

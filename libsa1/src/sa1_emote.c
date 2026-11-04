@@ -107,7 +107,7 @@ sa1_status sa1_emote_get(const sa1_context *ctx, int32_t kind, uint32_t form, ui
     info.dup_of = e->dup_of;
     if (e->source == SA1_EMOTE_EXTRA) {
         info.frames = e->frames;
-        info.play = SA1_EMOTE_PLAY_ONCE;
+        info.play = (e->flags & SA1EM_F_LOOP) ? SA1_EMOTE_PLAY_LOOP : SA1_EMOTE_PLAY_ONCE;
     } else {
         sa1_action_info ai;
         memset(&ai, 0, sizeof ai);

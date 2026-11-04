@@ -32,10 +32,8 @@
  *              (review R.8)
  *   form       the form changed since the start (equipment 0x8000, the General look): cancel before the pair (its
  *              queued objects and texlists belong to the old form; the post rule would show them one pair longer)
- *   stop       NOW: 8C04B48C; BLEND: the groups not queued yet are dropped and the stand appended after the group being
- *              played (blended when it has that group's object; a loop of another object clears and queues the stand at
- *              its wrap, review R.1). (A group with several entries finishes before the stand: the queue's entries are
- *              never rewritten by the host.)
+ *   stop       NOW: 8C04B48C; BLEND: the groups not queued yet are dropped and a bridge back to the gameplay's pose
+ *              starts from where the character is (THE BRIDGES, below).
  *   start      only at a pair start that reads playerpwp[0]->mj.jvmode == 1 (8C04BF00 spins for ever otherwise: review
  *              R.8; else it stays latched); the gameplay rules (refusals in plain words: "in the air", "hurt",
  *              "carrying something", "on the board", "moving", "busy"; IN_AIR: only "hurt" and "on the board"), the
@@ -50,8 +48,8 @@
  *              included) non-zero, or the pad's press (B_8C754C08[0].press) has the action / jump masks (D_8C19E38C /
  *              D_8C19E390): 8C04B48C before the pair, which then runs exactly as in a world that never emoted.
  * After every step (post): the queue ran empty -> the next group (a clear, then its entries: review R.1, below) or,
- *   at the end, 8C04B48C (it frees the blend source the queue keeps: the heap is back where it was) and Amy's 8C0DE46C(0,
- *   0.0). After the pair (sub step 1): cancel when the gameplay left the standing state (mode 1; kind 8: 71; not with
+ *   at the end, the bridge back, then 8C04B48C (it frees the blend source the queue keeps: the heap is back where it was)
+ *   and Amy's 8C0DE46C(0, 0.0). After the pair (sub step 1): cancel when the gameplay left the standing state (mode 1; kind 8: 71; not with
  *   IN_AIR), wtimer != 0 (hurt), the held-object flag (taskwk.flag 0x800) changed, the form changed, or a board mode
  *   (Sonic 62-68, Tails 48-54) - IN_AIR keeps every one of these but the standing rule (review R.15).
  *
@@ -65,16 +63,39 @@
  * Speed (emote_wheel_lib.md 4.3, the TSVs' ev_speed): frames per 60 Hz step = racio (mtnmode 9 / 10 / 11: 1; mtnmode 12
  * or racio 0: 0.5) times the item's multiplier, times 2 for Sonic, Tails, Knuckles, Big and kind 8 (their displays
  * draw, and advance the queue, on sub step 0 only: the visibility test 8C038D00 fails on sub step 1) and 1 for Amy and
- * E-102 (twice per pair). The loop bit for the last entry when it plays LOOP; a once emote ends with a trailing stand
- * entry (the form's row 0 from plactptr; kind 8: 130) unless NO_TRAIL.
+ * E-102 (twice per pair). The loop bit for the last entry when it plays LOOP; a once emote ends with the bridge back to the
+ * gameplay's pose unless NO_TRAIL.
  *
  * GROUPS (review R.1). 8C04B57C's else branch keeps a finished entry as the blend source (buf44) WITHOUT freeing the
  * one it held (only the link branch frees it: sadc code_8C04B440.c), so an entry queued without a blend (linkframe 0)
  * behind another leaks 48 bytes of the game heap at its end (measured:
- * SADC/build/research/faces094a/review/out/probe_leak.txt). The lane never queues one: a blend (the emote's link,
- * default 8) only between entries of one object (a blend across objects of different node counts faults, 73 -> 74
- * nodes), and every unblended transition starts a new GROUP: when the queue has run empty, 8C04B48C (which frees the
- * blend source) and the next group's entries in the same post hook, so the next pair draws it.
+ * SADC/build/research/faces094a/review/out/probe_leak.txt). The lane never queues one: every entry is its own GROUP: when
+ * the queue has run empty, 8C04B48C (which frees the blend source) and the next group's entry in the same post hook, so the
+ * next pair draws it.
+ *
+ * THE BRIDGES (round 0.9.9a; sadc build/research/r099a/anim/diagnosis.md, the owner's N5 and N6). The queue's own link
+ * (8C04B57C with linkframe > 0, what 0.9.4a used between entries, at a stop and into the trailing stand) is the game's code,
+ * made for the cutscenes' neighbouring poses. From an arbitrary pose it breaks the model in three ways (all MEASURED in
+ * tests/anim_test.c and READ in sadc): the Euler angles blend as plain integers (8C0417C8): a key of 64947 towards 389 turns
+ * the node a whole turn (Tails, leaving m_kimepose0: the whole body turns over, 14 units off its way); the scale blend reads
+ * the position buffers (8C0417C8, the original's bug, kept in the decompilation): a motion with scale keys collapses the
+ * node (Big, leaving b_throw0: the torso gone, seams 29 units open); the welds are evaluated at the source pose for the
+ * first half and at the target for the second, not at the drawn one (8C04B57C: 8C04BF00 with link.motion[0 or 1]).
+ * So the lane never uses it. A transition is a BRIDGE: an entry of its own whose motion the lane makes in its block in
+ * segment 0x18, built like the gameplay's own link (PSetMotion's actwkptr, 8C079C76: nbFrame 2, the pose it comes from, the pose
+ * it goes to). The queue's plain branch draws it: 8C04BF00 and the draw at the same frame, so the welds fit the drawn pose
+ * exactly. Where the gameplay's link interpolates the three angles of each node on their own (a limb far from its target
+ * circles on the way: 21 units of detour leaving s_standup0, MEASURED), the bridge turns each node the shortest way: before every
+ * draw the lane writes both keys with the pose at the bridge's frame (each node's rotation as a quaternion, normalised lerp,
+ * back to the angles of the object's rotation order; position and scale lerped). No libm: the same bits on x86 and x64. It lasts
+ * `link` pairs for every kind (speed = rate / (2 link)). It needs both objects to have the same tree (node count and shape;
+ * the gameplay's link asks for the same object: the bodies and flight models of one character qualify, the curled body does
+ * not): otherwise the transition is the unblended pop it always was. Where it comes from: the queue head at its frame, or the
+ * gameplay's pose (its display's rule: the action's own, or actwkptr while it links). Where it goes: an entry's first frame, or,
+ * going back, the gameplay's pose LIVE: key 1 is written again after every pair, so it fades into whatever the gameplay is
+ * doing. A cancel (input, a hit, the gameplay leaving the stand) is the same fade with the emote already over: state NONE at
+ * once, the gameplay of that pair runs exactly as in a world that never emoted, the queue only draws (FADING; a new emote or a
+ * gameplay pose of another tree ends it). Nothing of this runs in a world that never gets an emote call.
  *
  * THE QUEUE MOVES ONLY ON DRAWN PAIRS (review R.17): 8C04B57C runs inside the display, which Sonic, Tails, Knuckles and
  * Big skip when the visibility test fails - live worlds test against the host camera (sa1_world_tick.c
@@ -93,9 +114,7 @@
  * rest (nbFrame - 1 - frame): the next drawn step lands on nbFrame - 1 and the loop rule (frame < nbFrame) keeps it there;
  * after that step the speed becomes 0 (a held step: every later drawn step draws nbFrame - 1). State HOLDING from then on.
  * The cancels are unchanged (input before a pair; the state, hurt, the held object, the form, the board after it; a new
- * emote clears the queue). STOP_BLEND releases the hold first: the entry gets back its once mode and its own speed, so it
- * ends at its next drawn step and the stand blends in from frame nbFrame - 1 (8C04B57C takes a once entry's blend source
- * at nbFrame - 1); STOP_NOW clears. A looping last entry is not held (it loops until a cancel or a stop). A held entry
+ * emote clears the queue). STOP_BLEND starts the bridge back from the held frame; STOP_NOW clears. A looping last entry is not held (it loops until a cancel or a stop). A held entry
  * never ends, so it never becomes a blend source behind an unblended entry: no leak (review R.1 of round 0.9.4a; E20).
  *
  * A FOLLOWER (round 0.9.9, SA1_API_FOLLOWER 2; sadc docs/research/follow099.md 2.4, 5.2). In a follower world "the character" is slot 1 (w->slot; em_player_of, the hammer) and there is no pad: its input is the AI's, which
@@ -138,6 +157,7 @@
 #define EM_EWP_BUF44        0x44u           /* eventwk.buf44: the blend source (the entry before) */
 #define EM_NODE_MODE        0x00u           /* EV_ACTION_LIST.mode (Uint8): bit 0 loop */
 #define EM_NODE_LINK        0x01u           /* EV_ACTION_LIST.linkframe (Uint8) */
+#define EM_NODE_OBJECT      0x04u           /* EV_ACTION_LIST.action.object */
 #define EM_NODE_MOTION      0x08u           /* EV_ACTION_LIST.action.motion */
 #define EM_NODE_NEXT        0x10u           /* EV_ACTION_LIST.next */
 #define EM_NODE_SPEED       0x14u           /* EV_ACTION_LIST.speed (Float): frames per drawn step */
@@ -146,8 +166,12 @@
 #define EM_HOLD_AT          0.001f          /* HOLD: the frame counts as the last one this close to it */
 #define EM_PWP_EQUIPMENT    0x004u          /* playerwk.equipment (0x8000 = Super Sonic) */
 #define EM_PWP_SPD          0x038u          /* playerwk.spd (player space) */
+#define EM_PWP_MTNMODE      0x120u          /* playerwk.mj.mtnmode (Sint16): 2 = linking, the display draws actwkptr */
 #define EM_PWP_JVMODE       0x122u          /* playerwk.mj.jvmode (Sint16): 1 = the welds are set up */
+#define EM_PWP_REQACTION    0x124u          /* playerwk.mj.reqaction (Uint16) */
+#define EM_PWP_NFRAME       0x130u          /* playerwk.mj.nframe (Float) */
 #define EM_PWP_PLACT        0x140u          /* playerwk.mj.plactptr: PL_ACTION[] (16 bytes) */
+#define EM_PWP_ACTWK        0x148u          /* playerwk.mj.actwkptr: NJS_ACTION, the gameplay's link */
 #define EM_FLAG_GROUND      0x0003u
 #define EM_FLAG_HOLD        0x0800u
 
@@ -162,6 +186,29 @@
 #define EM_HOW_ACTION       0u              /* 8C04B4D2 */
 #define EM_HOW_MOTION       1u              /* 8C04B528 */
 
+/* a node's pose in the bridge's block: the two ends of the bridge */
+typedef struct em_nodepose {
+    float pos[3], q[4], scl[3];
+} em_nodepose;
+
+/* the bridge's block in segment 0x18 (THE BRIDGES, the file comment): NJS_ACTION, NJS_MOTION, NJS_MDATA3[], then per node its three channels of two keys */
+#define EM_BRIDGE_NODES     128u            /* the node matrix table of 8C0583A0 holds 128 */
+#define EM_OBJ_POS          0x08u           /* NJS_OBJECT.pos */
+#define EM_OBJ_ANG          0x14u           /* NJS_OBJECT.ang */
+#define EM_OBJ_SCL          0x20u           /* NJS_OBJECT.scl */
+#define EM_OBJ_CHILD        0x2Cu
+#define EM_OBJ_SIBLING      0x30u
+#define EM_MOT_TYPE         0x08u           /* NJS_MOTION.type (Uint16): bit 0 pos, 1 ang, 2 scl */
+#define EM_MOT_INP          0x0Au           /* NJS_MOTION.inp_fn (Uint16): low nibble = the channels of its NJS_MDATAn */
+#define EM_MKEY             16u             /* NJS_MKEY_F / NJS_MKEY_A: keyframe, key[3] */
+#define EM_BR_ACTION        0x00u
+#define EM_BR_MOTION        0x08u
+#define EM_BR_MDATA         0x20u
+#define EM_BR_KEYS          (EM_BR_MDATA + EM_BRIDGE_NODES * 24u)
+#define EM_BR_POSES         (EM_BR_KEYS + EM_BRIDGE_NODES * 3u * 2u * EM_MKEY)
+#define EM_BR_SIZE          (EM_BR_POSES + EM_BRIDGE_NODES * 2u * (uint32_t)sizeof(em_nodepose))
+#define EM_ZXY_ANG          0x20u           /* NJS_OBJECT.evalflags: njRotateZXY; the root's decides for the whole draw (func_8C040C02) */
+
 typedef struct em_entry {
     uint32_t how;
     uint32_t action;            /* EM_HOW_ACTION: the NJS_ACTION (guest; the arena or segment 0x18) */
@@ -174,7 +221,6 @@ typedef struct em_entry {
     uint32_t group;
     int32_t item;               /* the host's item (0..count-1); count: a stand entry */
     int32_t row, extra;         /* -1 none */
-    uint32_t stand;             /* 1: a stand entry (the trailing stand, the stop's stand): ENDING */
     uint32_t hold;              /* 1: SA1_EMOTE_HOLD's entry (the emote's last, a once entry): held on its last frame */
     uint32_t node;              /* guest address of its queue entry once queued (0: not queued) */
 } em_entry;
@@ -196,9 +242,17 @@ typedef struct em_state {
     uint32_t hammer;            /* Amy's hammer shown by this emote */
     uint32_t link;              /* the emote's link (frames) */
     uint32_t n, group, groups;  /* entries, the group being played, groups */
-    uint32_t stop_wrap;         /* STOP_BLEND on a loop of another object: the stand group at the loop's wrap */
-    float last_f3c;
-    uint32_t last_head;
+    float rate;                 /* 2 (once per pair) or 1 (twice) */
+    uint32_t back;              /* a once emote: when its last entry ends, the bridge back */
+    uint32_t in_bridge;         /* the queue holds the bridge into group `group`, not its entry */
+    uint32_t in_back;           /* the queue holds the bridge back to the gameplay's pose: ENDING */
+    uint32_t fading;            /* the emote is over (state NONE), the queue only draws the fade into the gameplay's pose */
+    uint32_t bridge;            /* the bridge's block (guest), 0: none */
+    uint32_t br_obj;            /* the drawn object of the bridge in the queue */
+    uint32_t br_n, br_zxy;      /* its nodes, its rotation order */
+    float br_speed;             /* its speed: frames of 0..1 per draw */
+    float br_last;              /* its frame at the last pair; a pair that did not move it: the character is not drawn (br_stall) */
+    uint32_t br_stall;
     /* HOLD (round 0.9.4b): 0 none, 1 engaged (the entry steps onto its last frame), 2 held (speed 0, state HOLDING) */
     uint32_t hold_phase;
     uint32_t hold_node;         /* the held entry's queue node (guest), 0: none */
@@ -214,6 +268,7 @@ typedef struct em_state {
     uint32_t holds, hold_releases;
     /* round 0.9.9 (an emote on a follower id, gsa1_099_plan.md 6.4 item 4): the world's character slot; pair starts a follower's start has waited for its stand */
     uint32_t slot, settle_wait;
+    uint32_t bridges;           /* round 0.9.9a: bridges queued */
 } em_state;
 
 /* ---- guest memory: the arena and the allocated part of segment 0x18 (GT, GA and their actions live there) ----------- */
@@ -504,6 +559,7 @@ typedef struct em_plan_ctx {
     uint32_t num_actions;
     float rate;                 /* 2 (once per pair) or 1 (twice) */
     int lift_missing;
+    int back;                   /* the bridge back after its last entry */
     char why[SA1EM_WHY_MAX];
 } em_plan_ctx;
 
@@ -589,18 +645,6 @@ static int em_row_entry(em_plan_ctx *c, uint32_t row, float mult, em_entry *x)
     return 1;
 }
 
-/* the form's stand entry: row 0 of plactptr (kind 8: 130 on the Super body) */
-static int em_stand_entry(em_plan_ctx *c, em_entry *x)
-{
-    uint32_t row = c->p->kind == SA1_CHAR_SUPER_SONIC ? 130u : 0u;
-    if (!em_row_entry(c, row, 1.0f, x)) {
-        return 0;
-    }
-    x->loop = 0;
-    x->stand = 1;
-    return 1;
-}
-
 /* the entries of an emote in this world (0: refused, c->why says why) */
 static int em_plan(em_plan_ctx *c, const sa1_emote *e, em_entry *out, uint32_t *n_out, uint32_t *link_out)
 {
@@ -644,7 +688,7 @@ static int em_plan(em_plan_ctx *c, const sa1_emote *e, em_entry *out, uint32_t *
             x.row = -1;
             x.extra = (int32_t)it->index;
             x.item = (int32_t)i;
-            last_loops = last_item && it->play == SA1_EMOTE_PLAY_LOOP;
+            last_loops = last_item && (it->play == SA1_EMOTE_PLAY_LOOP || (it->play == SA1_EMOTE_PLAY_DEFAULT && (ce->flags & SA1EM_F_LOOP)));
             x.loop = (uint32_t)last_loops;
             out[n++] = x;
             continue;
@@ -691,31 +735,17 @@ static int em_plan(em_plan_ctx *c, const sa1_emote *e, em_entry *out, uint32_t *
         }
     }
     if (!last_loops && (e->flags & SA1_EMOTE_HOLD) && n > 0) {
-        out[n - 1u].hold = 1;   /* round 0.9.4b: held on its last frame instead of the trailing stand */
+        out[n - 1u].hold = 1;   /* round 0.9.4b: held on its last frame instead of going back */
     }
-    if (!last_loops && !(e->flags & (SA1_EMOTE_NO_TRAIL | SA1_EMOTE_HOLD)) && n < EM_MAX_ENTRIES) {
-        em_entry s;
-        if (em_stand_entry(c, &s)) {
-            s.item = (int32_t)e->count;
-            out[n++] = s;
-        }
-    }
-    /* groups (review R.1): a blend only between entries of one object; every unblended transition starts a group */
+    /* groups (review R.1): every entry its own; the transitions are bridges (the file comment) */
     for (j = 0; j < n; j++) {
-        if (j == 0) {
-            out[j].link = 0;
-            out[j].group = 0;
-        } else if (link > 0 && out[j].obj_key == out[j - 1u].obj_key) {
-            out[j].link = link;
-            out[j].group = out[j - 1u].group;
-        } else {
-            out[j].link = 0;
-            out[j].group = out[j - 1u].group + 1u;
-        }
+        out[j].link = 0;
+        out[j].group = j;
         out[j].node = 0;
     }
     *n_out = n;
     *link_out = link;
+    c->back = !last_loops && !(e->flags & (SA1_EMOTE_NO_TRAIL | SA1_EMOTE_HOLD));
     return n > 0;
 }
 
@@ -743,10 +773,11 @@ static void *em_fn(uint32_t dc)
 static void em_clear(em_state *S, uint32_t twp)
 {
     ((em_clear_fn)em_fn(EM_FN_CLEAR))(sa1_decode(twp));
-    S->last_head = 0;
-    S->last_f3c = 0.0f;
     S->hold_phase = 0;          /* the clear freed the held entry */
     S->hold_node = 0;
+    S->in_bridge = 0;
+    S->in_back = 0;
+    S->fading = 0;
 }
 
 static void em_hammer(em_state *S, float f)
@@ -827,33 +858,6 @@ static void em_hold_step(sa1g_world *w, em_state *S, const em_player *p)
     }
 }
 
-/* a stop with a blend (or anything that must end the emote by the queue's own rules): the held entry gets back its once
- * mode and its own speed (it ends at its next drawn step; a stand behind it blends in from nbFrame - 1), and no entry is
- * held any more */
-static void em_hold_release(sa1g_world *w, em_state *S, const em_player *p)
-{
-    uint32_t j;
-    if (S->hold_phase != 0 && S->hold_node != 0 && em_queue_last(w, p->ewp) != 0) {
-        uint32_t node = em_rd32(w, p->ewp + EM_EWP_LIST40), guard = 0;
-        while (em_arena(node) && node != S->hold_node && guard++ < 256u) {
-            node = em_rd32(w, node + EM_NODE_NEXT);
-        }
-        if (node == S->hold_node) {
-            em_wr8(w, node + EM_NODE_MODE, em_rd8(w, node + EM_NODE_MODE) & ~1u);
-            em_wrf(w, node + EM_NODE_SPEED, S->hold_speed);
-        }
-        S->hold_releases++;
-    }
-    for (j = 0; j < S->n; j++) {
-        S->e[j].hold = 0;
-    }
-    if (S->state == SA1_EMOTE_STATE_HOLDING) {
-        S->state = SA1_EMOTE_STATE_PLAYING;
-    }
-    S->hold_phase = 0;
-    S->hold_node = 0;
-}
-
 /* a clear, then group g's entries (review R.1: every group starts after a clear, so no entry is queued unblended behind
  * another and the blend source of the last group is freed) */
 static void em_queue_group(sa1g_world *w, em_state *S, const em_player *p, uint32_t g)
@@ -869,6 +873,526 @@ static void em_queue_group(sa1g_world *w, em_state *S, const em_player *p, uint3
     S->group = g;
     S->groups_queued++;
     em_hold_step(w, S, p);      /* HOLD: a held entry that ends at its first drawn step */
+}
+
+/* ---- the bridges (the file comment) ------------------------------------------------------------------------------------------ */
+typedef struct em_pose {
+    uint32_t obj, mot;
+    float frame;
+} em_pose;
+
+/* what the display draws when the queue is empty: the action's own motion at nframe, or the gameplay's link while it links (8C0AE17A and the other displays) */
+static int em_gameplay_pose(const sa1g_world *w, const em_player *p, em_pose *o)
+{
+    int32_t mtn = (int16_t)em_rd16(w, p->pwp + EM_PWP_MTNMODE);
+    uint32_t act = mtn == 2 ? em_rd32(w, p->pwp + EM_PWP_ACTWK) : em_rd32(w, p->plact + 16u * em_rd16(w, p->pwp + EM_PWP_REQACTION));
+    if (!em_valid(w, act)) {
+        return 0;
+    }
+    o->obj = em_rd32(w, act);
+    o->mot = em_rd32(w, act + 4u);
+    o->frame = em_rdf(w, p->pwp + EM_PWP_NFRAME);
+    return em_valid(w, o->obj) && em_valid(w, o->mot);
+}
+
+/* what is on the screen: the queue head at its frame, or the gameplay's pose */
+static int em_drawn_now(const sa1g_world *w, const em_player *p, em_pose *o)
+{
+    uint32_t head = em_rd32(w, p->ewp + EM_EWP_LIST40);
+    if (!em_arena(head)) {
+        return em_gameplay_pose(w, p, o);
+    }
+    o->obj = em_rd32(w, head + EM_NODE_OBJECT);
+    o->mot = em_rd32(w, head + EM_NODE_MOTION);
+    o->frame = em_rdf(w, p->ewp + EM_EWP_F3C);
+    return em_valid(w, o->obj) && em_valid(w, o->mot);
+}
+
+static int em_entry_pose(const sa1g_world *w, const em_entry *x, em_pose *o)
+{
+    if (x->how == EM_HOW_MOTION) {
+        o->obj = x->object;
+        o->mot = x->motion;
+    } else {
+        o->obj = em_rd32(w, x->action);
+        o->mot = em_rd32(w, x->action + 4u);
+    }
+    o->frame = 0.0f;
+    return em_valid(w, o->obj) && em_valid(w, o->mot);
+}
+
+/* an object's nodes in the order its motions key them (func_8C0567B0), with the tree's shape: 0 when it does not fit */
+typedef struct em_tree {
+    uint32_t n;
+    uint32_t node[EM_BRIDGE_NODES];
+    uint8_t shape[EM_BRIDGE_NODES];
+} em_tree;
+
+static int em_tree_walk(const sa1g_world *w, uint32_t obj, em_tree *t, uint32_t depth)
+{
+    uint32_t guard = 0;
+    while (obj != 0) {
+        uint32_t i = t->n, child, sib;
+        if (!em_valid(w, obj) || i >= EM_BRIDGE_NODES || depth > 64u || guard++ > EM_BRIDGE_NODES) {
+            return 0;
+        }
+        t->n = i + 1u;
+        t->node[i] = obj;
+        child = em_rd32(w, obj + EM_OBJ_CHILD);
+        sib = em_rd32(w, obj + EM_OBJ_SIBLING);
+        t->shape[i] = (uint8_t)((child != 0 ? 1u : 0u) | (sib != 0 ? 2u : 0u));
+        if (child != 0 && !em_tree_walk(w, child, t, depth + 1u)) {
+            return 0;
+        }
+        obj = sib;
+    }
+    return 1;
+}
+
+static int em_tree_of(const sa1g_world *w, uint32_t obj, em_tree *t)
+{
+    t->n = 0;
+    return em_tree_walk(w, obj, t, 0u) && t->n > 0;
+}
+
+/* a motion's channels: NJS_MDATAn is n pointers, then n counts */
+typedef struct em_mot {
+    uint32_t md, nf, n;
+    int ch_pos, ch_ang, ch_scl;
+} em_mot;
+
+static int em_mot_of(const sa1g_world *w, uint32_t mot, em_mot *m)
+{
+    uint32_t type = em_rd16(w, mot + EM_MOT_TYPE), c = 0;
+    m->md = em_rd32(w, mot);
+    m->nf = em_rd32(w, mot + EM_MOT_NBFRAME);
+    m->n = em_rd16(w, mot + EM_MOT_INP) & 0xFu;
+    m->ch_pos = (type & 1u) ? (int)c++ : -1;
+    m->ch_ang = (type & 2u) ? (int)c++ : -1;
+    m->ch_scl = (type & 4u) ? (int)c++ : -1;
+    return em_valid(w, m->md) && m->nf > 0u && m->n > 0u && c <= m->n;
+}
+
+/* the keys of a node's channel, 0: none */
+static uint32_t em_keys_of(const sa1g_world *w, const em_mot *m, uint32_t node, int ch, uint32_t *count)
+{
+    uint32_t e = m->md + 8u * m->n * node, p, nb;
+    if (ch < 0) {
+        return 0;
+    }
+    p = em_rd32(w, e + 4u * (uint32_t)ch);
+    nb = em_rd32(w, e + 4u * m->n + 4u * (uint32_t)ch);
+    if (nb == 0u || nb > 0x10000u || !em_valid(w, p)) {
+        return 0;
+    }
+    *count = nb;
+    return p;
+}
+
+/* the key before and after a frame as the gameplay's link builder finds them (8C079C76: past the last key it wraps to key 0 over nbFrame); t: how far between them */
+static void em_key_span(const sa1g_world *w, uint32_t keys, uint32_t nb, uint32_t nf, float f, uint32_t *k, uint32_t *j, float *t)
+{
+    uint32_t a = 0, b = 0, diff;
+    while (f > (float)em_rd32(w, keys + EM_MKEY * b)) {
+        if (b >= nb - 1u) {
+            b = 0;
+            a = nb - 1u;
+            break;
+        }
+        a = b++;
+    }
+    *k = a;
+    *j = b;
+    *t = 0.0f;
+    if (a != b) {
+        uint32_t fa = em_rd32(w, keys + EM_MKEY * a);
+        diff = em_rd32(w, keys + EM_MKEY * b) - fa;
+        if (b < a) {
+            diff += nf;
+        }
+        if (diff != 0u) {
+            *t = (f - (float)fa) / (float)diff;
+        }
+    }
+}
+
+/* the sample of a node's float channel (a position, a scale); no keys: the node's own */
+static void em_sample3(const sa1g_world *w, const em_mot *m, uint32_t node, int ch, float f, uint32_t own, float o[3])
+{
+    uint32_t nb = 0, keys = em_keys_of(w, m, node, ch, &nb), c;
+    if (keys == 0) {
+        for (c = 0; c < 3u; c++) {
+            o[c] = em_rdf(w, own + 4u * c);
+        }
+        return;
+    }
+    {
+        uint32_t k, j;
+        float t;
+        em_key_span(w, keys, nb, m->nf, f, &k, &j, &t);
+        for (c = 0; c < 3u; c++) {
+            float a = em_rdf(w, keys + EM_MKEY * k + 4u + 4u * c), b = em_rdf(w, keys + EM_MKEY * j + 4u + 4u * c);
+            o[c] = a + (b - a) * t;
+        }
+    }
+}
+
+/* the sample of a node's angles: between two keys the short way (SubAngle, as 8C079C76), reduced to signed 16 bits */
+static void em_sample_ang(const sa1g_world *w, const em_mot *m, uint32_t node, int ch, float f, uint32_t own, int32_t o[3])
+{
+    uint32_t nb = 0, keys = em_keys_of(w, m, node, ch, &nb), c;
+    if (keys == 0) {
+        for (c = 0; c < 3u; c++) {
+            o[c] = (int16_t)(uint16_t)em_rd32(w, own + 4u * c);
+        }
+        return;
+    }
+    {
+        uint32_t k, j;
+        float t;
+        em_key_span(w, keys, nb, m->nf, f, &k, &j, &t);
+        for (c = 0; c < 3u; c++) {
+            uint32_t a = em_rd32(w, keys + EM_MKEY * k + 4u + 4u * c), b = em_rd32(w, keys + EM_MKEY * j + 4u + 4u * c);
+            int32_t d = (int16_t)(uint16_t)(b - a);
+            o[c] = (int16_t)(uint16_t)(a + (uint32_t)(int32_t)((float)d * t));
+        }
+    }
+}
+
+/* no libm: the same bits on x86 and x64 (the arithmetic is SSE in both builds) */
+#define EM_PI 3.14159265358979323846
+
+static void em_sincos(double a, double *s, double *c)
+{
+    double k = a / (0.5 * EM_PI), x, x2, sn, cs;
+    int64_t q = (int64_t)(k + (k < 0.0 ? -0.5 : 0.5));
+    x = a - (double)q * (0.5 * EM_PI);
+    x2 = x * x;
+    sn = x * (1.0 + x2 * (-1.0 / 6.0 + x2 * (1.0 / 120.0 + x2 * (-1.0 / 5040.0 + x2 * (1.0 / 362880.0 + x2 * (-1.0 / 39916800.0))))));
+    cs = 1.0 + x2 * (-0.5 + x2 * (1.0 / 24.0 + x2 * (-1.0 / 720.0 + x2 * (1.0 / 40320.0 + x2 * (-1.0 / 3628800.0 + x2 * (1.0 / 479001600.0))))));
+    switch ((int)(q & 3)) {
+    case 0: *s = sn; *c = cs; break;
+    case 1: *s = cs; *c = -sn; break;
+    case 2: *s = -sn; *c = -cs; break;
+    default: *s = -cs; *c = sn; break;
+    }
+}
+
+static double em_sqrt(double v)
+{
+    double x = v > 1.0 ? v : 1.0;
+    int i;
+    if (!(v > 0.0)) {
+        return 0.0;
+    }
+    for (i = 0; i < 64; i++) {
+        double n = 0.5 * (x + v / x);
+        if (n >= x) {
+            break;
+        }
+        x = n;
+    }
+    return x;
+}
+
+/* the angle of (x, y), a start from a polynomial and Newton on sin / cos */
+static double em_atan2(double y, double x)
+{
+    double ax = x < 0.0 ? -x : x, ay = y < 0.0 ? -y : y, z, a, r;
+    int i;
+    if (ax == 0.0 && ay == 0.0) {
+        return 0.0;
+    }
+    z = ax > ay ? ay / ax : ax / ay;
+    a = z * (0.995354 + z * z * (-0.288679 + z * z * 0.079331));
+    if (ay > ax) {
+        a = 0.5 * EM_PI - a;
+    }
+    if (x < 0.0) {
+        a = EM_PI - a;
+    }
+    if (y < 0.0) {
+        a = -a;
+    }
+    r = em_sqrt(x * x + y * y);
+    for (i = 0; i < 3; i++) {
+        double sn, cs;
+        em_sincos(a, &sn, &cs);
+        a += (y * cs - x * sn) / r;
+    }
+    return a;
+}
+
+static void em_qmul(const double a[4], const double b[4], double o[4])
+{
+    double t[4];
+    t[0] = a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3];
+    t[1] = a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2];
+    t[2] = a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1];
+    t[3] = a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0];
+    memcpy(o, t, sizeof t);
+}
+
+/* a node's angles (BAMS) as a quaternion: njRotateXYZ is Rz Ry Rx in column vectors, njRotateZXY Ry Rx Rz (sa1_pose.c mtx_local) */
+static void em_quat_of(const int32_t ang[3], uint32_t zxy, float q[4])
+{
+    double qx[4] = { 1.0, 0.0, 0.0, 0.0 }, qy[4] = { 1.0, 0.0, 0.0, 0.0 }, qz[4] = { 1.0, 0.0, 0.0, 0.0 }, o[4], sn, cs;
+    uint32_t k;
+    em_sincos((double)ang[0] * (EM_PI / 65536.0), &sn, &cs);
+    qx[0] = cs;
+    qx[1] = sn;
+    em_sincos((double)ang[1] * (EM_PI / 65536.0), &sn, &cs);
+    qy[0] = cs;
+    qy[2] = sn;
+    em_sincos((double)ang[2] * (EM_PI / 65536.0), &sn, &cs);
+    qz[0] = cs;
+    qz[3] = sn;
+    if (zxy) {
+        em_qmul(qy, qx, o);
+        em_qmul(o, qz, o);
+    } else {
+        em_qmul(qz, qy, o);
+        em_qmul(o, qx, o);
+    }
+    for (k = 0; k < 4u; k++) {
+        q[k] = (float)o[k];
+    }
+}
+
+static int32_t em_bams(double rad)
+{
+    double b = rad * (65536.0 / (2.0 * EM_PI));
+    return (int32_t)(b + (b < 0.0 ? -0.5 : 0.5));
+}
+
+/* the angles back (the two orders' extractions; at the gimbal the last angle 0) */
+static void em_angles_of(const double q[4], uint32_t zxy, int32_t ang[3])
+{
+    double w = q[0], x = q[1], y = q[2], z = q[3];
+    double r00 = 1.0 - 2.0 * (y * y + z * z), r01 = 2.0 * (x * y - w * z), r02 = 2.0 * (x * z + w * y);
+    double r10 = 2.0 * (x * y + w * z), r11 = 1.0 - 2.0 * (x * x + z * z), r12 = 2.0 * (y * z - w * x);
+    double r20 = 2.0 * (x * z - w * y), r21 = 2.0 * (y * z + w * x), r22 = 1.0 - 2.0 * (x * x + y * y), v, c;
+    if (zxy) {
+        /* R = Ry Rx Rz: r12 = -sin x, r10 = cos x sin z, r11 = cos x cos z, r02 = sin y cos x, r22 = cos y cos x */
+        v = -r12;
+        v = v > 1.0 ? 1.0 : (v < -1.0 ? -1.0 : v);
+        c = em_sqrt(1.0 - v * v);
+        ang[0] = em_bams(em_atan2(v, c));
+        if (c > 1e-6) {
+            ang[1] = em_bams(em_atan2(r02, r22));
+            ang[2] = em_bams(em_atan2(r10, r11));
+        } else {
+            ang[1] = em_bams(em_atan2(-r20, r00));
+            ang[2] = 0;
+        }
+    } else {
+        /* R = Rz Ry Rx: r20 = -sin y, r21 = cos y sin x, r22 = cos y cos x, r10 = sin z cos y, r00 = cos z cos y */
+        v = -r20;
+        v = v > 1.0 ? 1.0 : (v < -1.0 ? -1.0 : v);
+        c = em_sqrt(1.0 - v * v);
+        ang[1] = em_bams(em_atan2(v, c));
+        if (c > 1e-6) {
+            ang[0] = em_bams(em_atan2(r21, r22));
+            ang[2] = em_bams(em_atan2(r10, r00));
+        } else {
+            ang[0] = em_bams(em_atan2(-r12, r11));
+            ang[2] = 0;
+        }
+    }
+    (void)r01;
+}
+
+/* one end of the bridge (0: where it comes from, 1: where it goes) from a pose; 0: the pose's motion cannot be read */
+static int em_bridge_end(sa1g_world *w, const em_state *S, const em_tree *tree, const em_pose *pose, uint32_t side)
+{
+    em_mot m;
+    uint32_t i, zxy = em_rd32(w, pose->obj) & EM_ZXY_ANG;
+    em_nodepose *P;
+    if (!em_mot_of(w, pose->mot, &m)) {
+        return 0;
+    }
+    P = (em_nodepose *)(void *)(w->ext + (S->bridge & 0xFFFFFFu) + EM_BR_POSES);
+    for (i = 0; i < tree->n; i++) {
+        em_nodepose *o = &P[2u * i + side];
+        int32_t ang[3];
+        em_sample3(w, &m, i, m.ch_pos, pose->frame, tree->node[i] + EM_OBJ_POS, o->pos);
+        em_sample_ang(w, &m, i, m.ch_ang, pose->frame, tree->node[i] + EM_OBJ_ANG, ang);
+        em_sample3(w, &m, i, m.ch_scl, pose->frame, tree->node[i] + EM_OBJ_SCL, o->scl);
+        em_quat_of(ang, zxy, o->q);
+    }
+    return 1;
+}
+
+/* both keys of every node: the pose at the bridge's frame f (0: where it comes from; the last draw, 1 - speed: where it goes, exactly) */
+static void em_bridge_write(sa1g_world *w, const em_state *S, float f3c)
+{
+    uint8_t *B = w->ext + (S->bridge & 0xFFFFFFu);
+    const em_nodepose *P = (const em_nodepose *)(const void *)(B + EM_BR_POSES);
+    uint32_t i, c, f;
+    float t = S->br_speed < 1.0f ? f3c / (1.0f - S->br_speed) : 1.0f;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    for (i = 0; i < S->br_n; i++) {
+        const em_nodepose *a = &P[2u * i], *b = &P[2u * i + 1u];
+        uint8_t *K = B + EM_BR_KEYS + 3u * 2u * EM_MKEY * i;
+        float pos[3], scl[3];
+        double q[4], d = 0.0, l = 0.0;
+        int32_t ang[3];
+        for (c = 0; c < 3u; c++) {
+            pos[c] = a->pos[c] + (b->pos[c] - a->pos[c]) * t;
+            scl[c] = a->scl[c] + (b->scl[c] - a->scl[c]) * t;
+        }
+        for (c = 0; c < 4u; c++) {
+            d += (double)a->q[c] * (double)b->q[c];
+        }
+        for (c = 0; c < 4u; c++) {
+            q[c] = (double)a->q[c] * (1.0 - (double)t) + (double)b->q[c] * (d < 0.0 ? -(double)t : (double)t);
+            l += q[c] * q[c];
+        }
+        if (l > 1e-12) {
+            l = em_sqrt(l);
+            for (c = 0; c < 4u; c++) {
+                q[c] /= l;
+            }
+        } else {
+            for (c = 0; c < 4u; c++) {
+                q[c] = (double)b->q[c];     /* exactly half a turn apart at its middle: on to the end */
+            }
+        }
+        em_angles_of(q, S->br_zxy, ang);
+        for (f = 0; f < 2u; f++) {
+            memcpy(K + EM_MKEY * f, &f, 4);
+            memcpy(K + EM_MKEY * f + 4u, pos, 12);
+            memcpy(K + 2u * EM_MKEY + EM_MKEY * f, &f, 4);
+            memcpy(K + 2u * EM_MKEY + EM_MKEY * f + 4u, ang, 12);
+            memcpy(K + 4u * EM_MKEY + EM_MKEY * f, &f, 4);
+            memcpy(K + 4u * EM_MKEY + EM_MKEY * f + 4u, scl, 12);
+        }
+    }
+}
+
+/* makes the bridge from one pose to another and fills its queue entry; 0: no bridge (no block, trees that differ, the heap): the transition is the plain pop */
+static int em_bridge_make(sa1g_world *w, em_state *S, const em_pose *from, const em_pose *to, uint32_t texlist, em_entry *x)
+{
+    em_tree *a, *b;
+    uint32_t i, t7 = (3u << 16) | 7u;
+    uint8_t *B;
+    int ok;
+    /* (the two trees on the world's stack would do; a struct on the host stack costs less than a page) */
+    em_tree ta, tb;
+    a = &ta;
+    b = &tb;
+    if (S->bridge == 0 || S->link == 0u || !em_tree_of(w, from->obj, a) || !em_tree_of(w, to->obj, b) || a->n != b->n || memcmp(a->shape, b->shape, a->n) != 0) {
+        return 0;
+    }
+    if (!em_heap_ok(w, 1u, &S->heap_largest)) {
+        return 0;
+    }
+    B = w->ext + (S->bridge & 0xFFFFFFu);
+    ok = em_bridge_end(w, S, a, from, 0u);
+    if (ok) {
+        ok = em_bridge_end(w, S, b, to, 1u);
+    }
+    if (!ok) {
+        return 0;
+    }
+    {
+        uint32_t mot = S->bridge + EM_BR_MOTION, md = S->bridge + EM_BR_MDATA, two = 2u;
+        memcpy(B + EM_BR_ACTION, &to->obj, 4);
+        memcpy(B + EM_BR_ACTION + 4u, &mot, 4);
+        memcpy(B + EM_BR_MOTION, &md, 4);
+        memcpy(B + EM_BR_MOTION + 4u, &two, 4);
+        memcpy(B + EM_BR_MOTION + 8u, &t7, 4);
+        for (i = 0; i < b->n; i++) {
+            uint8_t *E = B + EM_BR_MDATA + 24u * i;
+            uint32_t c;
+            for (c = 0; c < 3u; c++) {
+                uint32_t keys = S->bridge + EM_BR_KEYS + 3u * 2u * EM_MKEY * i + 2u * EM_MKEY * c;
+                memcpy(E + 4u * c, &keys, 4);
+                memcpy(E + 12u + 4u * c, &two, 4);
+            }
+        }
+    }
+    memset(x, 0, sizeof *x);
+    x->how = EM_HOW_ACTION;
+    x->action = S->bridge + EM_BR_ACTION;
+    x->texlist = texlist;
+    x->obj_key = em_key(to->obj);
+    x->speed = S->rate / (2.0f * (float)S->link);
+    x->row = -1;
+    x->extra = -1;
+    S->br_obj = to->obj;
+    S->br_n = b->n;
+    S->br_zxy = em_rd32(w, to->obj) & EM_ZXY_ANG;
+    S->br_speed = x->speed;
+    S->br_last = 0.0f;
+    S->br_stall = 0;
+    em_bridge_write(w, S, 0.0f);
+    return 1;
+}
+
+/* a clear, then the bridge's queue entry */
+static void em_bridge_queue(sa1g_world *w, em_state *S, const em_player *p, em_entry *x)
+{
+    (void)w;
+    em_clear(S, p->twp);
+    em_push(S, p->twp, x);
+    S->bridges++;
+}
+
+/* group g, by a bridge from `from` when one can be made */
+static void em_begin_group(sa1g_world *w, em_state *S, const em_player *p, uint32_t g, const em_pose *from)
+{
+    uint32_t j;
+    for (j = 0; j < S->n; j++) {
+        if (S->e[j].group == g) {
+            em_pose to;
+            em_entry x;
+            if (from != NULL && em_entry_pose(w, &S->e[j], &to) && em_bridge_make(w, S, from, &to, S->e[j].texlist, &x)) {
+                em_bridge_queue(w, S, p, &x);
+                S->group = g;
+                S->in_bridge = 1;
+                S->groups_queued++;
+                return;
+            }
+            break;
+        }
+    }
+    em_queue_group(w, S, p, g);
+}
+
+/* the bridge back: from `from` to the gameplay's pose (live: em_bridge_live). 0: no bridge */
+static int em_begin_back(sa1g_world *w, em_state *S, const em_player *p, const em_pose *from)
+{
+    em_pose to;
+    em_entry x;
+    if (p->jvmode != 1u || !em_gameplay_pose(w, p, &to) || !em_bridge_make(w, S, from, &to, 0u, &x)) {
+        return 0;
+    }
+    em_bridge_queue(w, S, p, &x);
+    return 1;
+}
+
+/* key 1 of the bridge back follows the gameplay (after every pair); 0: the gameplay draws another tree now: nothing to fade into. Also 0 when the bridge has
+   stood still for two pairs: the queue moves only on drawn pairs (review R.17), and nobody sees a character off the host's camera; it must not wait there (a follower's AI is dropped until its emote is over) */
+static int em_bridge_live(sa1g_world *w, em_state *S, const em_player *p)
+{
+    em_pose to;
+    em_tree t;
+    float f3c = em_rdf(w, p->ewp + EM_EWP_F3C);
+    S->br_stall = f3c == S->br_last ? S->br_stall + 1u : 0u;
+    S->br_last = f3c;
+    if (p->jvmode != 1u || S->br_stall > 2u || !em_gameplay_pose(w, p, &to)) {
+        return 0;
+    }
+    if (to.obj != S->br_obj) {
+        em_tree d;
+        if (!em_tree_of(w, to.obj, &t) || !em_tree_of(w, S->br_obj, &d) || t.n != d.n || memcmp(t.shape, d.shape, t.n) != 0) {
+            return 0;
+        }
+    } else if (!em_tree_of(w, to.obj, &t)) {
+        return 0;
+    }
+    return em_bridge_end(w, S, &t, &to, 1u);
 }
 
 /* ---- rules -------------------------------------------------------------------------------------------------------------- */
@@ -899,10 +1423,20 @@ static void em_end(em_state *S, const em_player *p, int call_clear)
         em_hammer(S, 0.0f);
     }
     S->state = SA1_EMOTE_STATE_NONE;
-    S->stop_wrap = 0;
     S->n = 0;
     S->hold_phase = 0;
     S->hold_node = 0;
+    S->in_bridge = 0;
+    S->in_back = 0;
+}
+
+/* a cancel: the emote is over now (state NONE, the gameplay of this pair is a world's that never emoted); the queue only draws the fade into the gameplay's pose, when one can be made */
+static void em_leave(sa1g_world *w, em_state *S, const em_player *p)
+{
+    em_pose from;
+    int fade = p->jvmode == 1u && em_drawn_now(w, p, &from) && em_begin_back(w, S, p, &from);
+    em_end(S, p, !fade);
+    S->fading = fade != 0;
 }
 
 static void em_drop(em_state *S)
@@ -910,10 +1444,12 @@ static void em_drop(em_state *S)
     /* the player task was made again: its new event work holds no queue; no call into the game */
     S->state = SA1_EMOTE_STATE_NONE;
     S->hammer = 0;
-    S->stop_wrap = 0;
     S->n = 0;
     S->hold_phase = 0;
     S->hold_node = 0;
+    S->in_bridge = 0;
+    S->in_back = 0;
+    S->fading = 0;
     S->dropped++;
 }
 
@@ -928,55 +1464,25 @@ static uint32_t em_head_index(const em_state *S, uint32_t head)
     return 0xFFFFFFFFu;
 }
 
-/* STOP_BLEND (at a pair start): the groups not queued yet go; the stand after the group being played */
+/* STOP_BLEND (at a pair start): the groups not queued yet go; the bridge back from where the character is, at once (a held frame, a loop in its cycle) */
 static void em_stop_blend(sa1g_world *w, em_state *S, const em_player *p)
 {
-    em_plan_ctx c;
-    em_entry s;
-    uint32_t j, last = 0xFFFFFFFFu, keep = 0;
-    em_hold_release(w, S, p);   /* round 0.9.4b: a held pose ends by the queue's own rules, into the stand */
-    for (j = 0; j < S->n; j++) {
-        if (S->e[j].group <= S->group) {
-            S->e[keep++] = S->e[j];
-        }
+    em_pose from;
+    if (S->in_back) {
+        return;                 /* it is on its way back */
     }
-    S->n = keep;
+    if (S->hold_phase != 0) {
+        S->hold_releases++;
+    }
     S->groups = S->group + 1u;
-    for (j = 0; j < S->n; j++) {
-        if (S->e[j].group == S->group) {
-            last = j;
-        }
-    }
-    if (last == 0xFFFFFFFFu || S->e[last].stand || S->n >= EM_MAX_ENTRIES) {
-        return;                 /* nothing queued, or the stand is already its end */
-    }
-    memset(&c, 0, sizeof c);
-    c.w = w;
-    c.p = p;
-    c.list = sa1em_list_of(p->kind, p->form);
-    c.desc = sa1_manifest_char(p->kind);
-    c.num_actions = c.desc != NULL ? c.desc->num_actions : 0u;
-    c.rate = em_gated(p->kind) ? 2.0f : 1.0f;
-    if (!em_stand_entry(&c, &s)) {
+    S->back = 0;
+    if (em_drawn_now(w, p, &from) && em_begin_back(w, S, p, &from)) {
+        S->in_back = 1;
+        S->state = SA1_EMOTE_STATE_ENDING;
         return;
     }
-    s.item = (int32_t)S->count;
-    if (S->link > 0 && s.obj_key == S->e[last].obj_key && em_queue_last(w, p->ewp) == S->e[last].node &&
-        S->e[last].node != 0 && em_heap_ok(w, 1u, &S->heap_largest)) {
-        s.link = S->link;
-        s.group = S->group;
-        em_push(S, p->twp, &s);
-        s.node = em_queue_last(w, p->ewp);
-        S->e[S->n++] = s;
-        return;
-    }
-    s.link = 0;
-    s.group = S->group + 1u;
-    s.node = 0;
-    S->e[S->n++] = s;
-    S->groups = s.group + 1u;
-    /* a loop never runs empty: the stand group at its wrap (post) */
-    S->stop_wrap = S->e[last].loop != 0;
+    em_end(S, p, 1);            /* another tree: the plain pop */
+    S->ends++;
 }
 
 /* ---- the hooks ---------------------------------------------------------------------------------------------------------- */
@@ -991,12 +1497,15 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
     if (!em_player_of(w, &p)) {
         return;                 /* not ready: everything stays latched */
     }
-    if (S->state != SA1_EMOTE_STATE_NONE && p.twp != S->ptwp) {
+    if ((S->state != SA1_EMOTE_STATE_NONE || S->fading) && p.twp != S->ptwp) {
         em_drop(S);
     }
     if (S->state != SA1_EMOTE_STATE_NONE && em_form_changed(S, &p)) {
         em_end(S, &p, 1);
         S->cancels_state++;
+    }
+    if (S->fading && em_form_changed(S, &p)) {
+        em_clear(S, p.twp);
     }
     if (S->req_stop && (S->req_how == SA1_EMOTE_STOP_NOW || p.jvmode == 1u)) {
         /* STOP_BLEND queues the stand entry: like every queueing only with jvmode 1 (review R.8), else it stays latched */
@@ -1008,12 +1517,16 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
             } else {
                 em_end(S, &p, 1);
             }
+        } else if (S->fading && S->req_how == SA1_EMOTE_STOP_NOW) {
+            em_clear(S, p.twp);
         }
     }
     if (S->req_start) {
         em_plan_ctx c;
         const char *why;
         uint32_t n = 0, link = 0;
+        em_pose from;
+        int have_from;
         em_entry plan[EM_MAX_ENTRIES];  /* round 0.9.4b: a refused start leaves a running emote's entries as they are */
         if (p.jvmode != 1u) {
             S->waits_jvmode++;  /* review R.8: 8C04BF00 needs jvmode 1; the start waits (latched) */
@@ -1075,10 +1588,12 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
         S->super_bit = p.equipment & 0x8000u;
         S->look = p.look;
         S->held = p.flag & EM_FLAG_HOLD;
-        S->stop_wrap = 0;
+        S->back = (uint32_t)c.back;
+        S->rate = c.rate;
         /* the state before the queue: a held entry may be held right away (HOLDING, em_hold_step) */
-        S->state = S->e[0].stand ? SA1_EMOTE_STATE_ENDING : SA1_EMOTE_STATE_PLAYING;
-        em_queue_group(w, S, &p, 0);
+        S->state = SA1_EMOTE_STATE_PLAYING;
+        have_from = em_drawn_now(w, &p, &from);
+        em_begin_group(w, S, &p, 0u, have_from ? &from : NULL);
         if (p.kind == SA1_CHAR_AMY && !(S->flags & SA1_EMOTE_NO_PROPS)) {
             uint32_t j, attack = 0;
             for (j = 0; j < S->n; j++) {
@@ -1094,7 +1609,7 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
         return;
     }
     if (S->state != SA1_EMOTE_STATE_NONE && !(S->flags & SA1_EMOTE_KEEP_INPUT) && em_input(w, &p)) {
-        em_end(S, &p, 1);
+        em_leave(w, S, &p);
         S->cancels_input++;
     }
 }
@@ -1103,14 +1618,22 @@ static void em_post(sa1g_world *w, int32_t sub, void *user)
 {
     em_state *S = em_state_of(w);
     em_player p;
-    uint32_t head, h;
-    float f3c;
+    uint32_t head;
     (void)user;
-    if (S == NULL || S->state == SA1_EMOTE_STATE_NONE) {
+    if (S == NULL || (S->state == SA1_EMOTE_STATE_NONE && !S->fading)) {
         return;
     }
     if (!em_player_of(w, &p) || p.twp != S->ptwp) {
         em_drop(S);
+        return;
+    }
+    if (S->state == SA1_EMOTE_STATE_NONE) {
+        /* the fade after a cancel: until the queue has run empty, or the gameplay draws another tree */
+        if (!em_arena(em_rd32(w, p.ewp + EM_EWP_LIST40)) || (sub == 1 && !em_bridge_live(w, S, &p))) {
+            em_clear(S, p.twp);
+        } else {
+            em_bridge_write(w, S, em_rdf(w, p.ewp + EM_EWP_F3C));
+        }
         return;
     }
     if (sub == 1) {
@@ -1119,50 +1642,76 @@ static void em_post(sa1g_world *w, int32_t sub, void *user)
             cancel = 1;
         }
         if (cancel) {
-            em_end(S, &p, 1);
+            if (em_form_changed(S, &p)) {
+                em_end(S, &p, 1);
+            } else {
+                em_leave(w, S, &p);
+            }
             S->cancels_state++;
             return;
         }
     }
     head = em_rd32(w, p.ewp + EM_EWP_LIST40);
-    f3c = em_rdf(w, p.ewp + EM_EWP_F3C);
     if (!em_arena(head)) {
-        if (S->group + 1u < S->groups) {
+        if (S->in_back) {
+            em_end(S, &p, 1);           /* the natural end: the clear frees the blend source the queue keeps */
+            S->ends++;
+            return;
+        }
+        if (S->in_bridge || S->group + 1u < S->groups) {
+            uint32_t g = S->in_bridge ? S->group : S->group + 1u;
             if (p.jvmode != 1u) {
                 S->waits_jvmode++;      /* review R.8: the next group waits for jvmode 1 */
                 return;
             }
-            if (!em_heap_ok(w, em_group_entries(S->e, S->n, S->group + 1u), &S->heap_largest)) {
+            if (!em_heap_ok(w, em_group_entries(S->e, S->n, g), &S->heap_largest)) {
                 em_note(S, "the game's memory is full");
                 em_end(S, &p, 1);
                 S->cancels_state++;
                 return;
             }
-            em_queue_group(w, S, &p, S->group + 1u);
-            S->stop_wrap = 0;
-            head = em_rd32(w, p.ewp + EM_EWP_LIST40);
-            f3c = em_rdf(w, p.ewp + EM_EWP_F3C);
+            if (S->in_bridge) {
+                S->in_bridge = 0;
+                em_queue_group(w, S, &p, g);
+            } else {
+                em_pose from;
+                uint32_t j, have = 0;
+                for (j = 0; j < S->n && !have; j++) {
+                    if (S->e[j].group == S->group && em_entry_pose(w, &S->e[j], &from)) {
+                        from.frame = (float)em_rd32(w, from.mot + EM_MOT_NBFRAME) - 1.0f;
+                        have = 1;
+                    }
+                }
+                em_begin_group(w, S, &p, g, have ? &from : NULL);
+            }
         } else {
+            em_pose from;
+            uint32_t j, have = 0;
+            for (j = 0; S->back && j < S->n && !have; j++) {
+                if (S->e[j].group == S->group && em_entry_pose(w, &S->e[j], &from)) {
+                    from.frame = (float)em_rd32(w, from.mot + EM_MOT_NBFRAME) - 1.0f;
+                    have = 1;
+                }
+            }
+            if (have && em_begin_back(w, S, &p, &from)) {
+                S->in_back = 1;
+                S->state = SA1_EMOTE_STATE_ENDING;
+                return;
+            }
             em_end(S, &p, 1);           /* the natural end: the clear frees the blend source the queue keeps */
             S->ends++;
             return;
         }
-    } else if (S->stop_wrap && head == S->last_head && f3c < S->last_f3c && S->group + 1u < S->groups) {
-        /* STOP_BLEND on a loop of another object than the stand: at the loop's wrap, the stand as its own group */
-        if (p.jvmode == 1u && em_heap_ok(w, 1u, &S->heap_largest)) {
-            em_queue_group(w, S, &p, S->group + 1u);
-            S->stop_wrap = 0;
-            head = em_rd32(w, p.ewp + EM_EWP_LIST40);
-            f3c = em_rdf(w, p.ewp + EM_EWP_F3C);
-        }
+    } else if (S->in_back && sub == 1 && !em_bridge_live(w, S, &p)) {
+        em_end(S, &p, 1);               /* the gameplay draws another tree now */
+        S->ends++;
+        return;
     }
-    em_hold_step(w, S, &p);     /* round 0.9.4b: HOLD keeps the last entry on its last frame (never writes f3C) */
-    h = em_head_index(S, head);
-    if (h != 0xFFFFFFFFu && S->e[h].stand) {
-        S->state = SA1_EMOTE_STATE_ENDING;
+    if (S->in_bridge || S->in_back) {
+        em_bridge_write(w, S, em_rdf(w, p.ewp + EM_EWP_F3C));
+    } else {
+        em_hold_step(w, S, &p); /* round 0.9.4b: HOLD keeps the last entry on its last frame (never writes f3C); a freed node's address may be a bridge's now */
     }
-    S->last_head = head;
-    S->last_f3c = f3c;
 }
 
 static void em_fill(const sa1g_world *w, sa1w_pstate *o)
@@ -1178,13 +1727,18 @@ static void em_fill(const sa1g_world *w, sa1w_pstate *o)
     }
     head = em_rd32(w, p.ewp + EM_EWP_LIST40);
     o->emote_state = S->state;
-    o->emote_frame = em_arena(head) ? em_rdf(w, p.ewp + EM_EWP_F3C) : 0.0f;
+    /* in a bridge: the entry it goes to, frame 0; on the way back: past the last item (count, no row) */
+    o->emote_frame = em_arena(head) && !S->in_bridge && !S->in_back ? em_rdf(w, p.ewp + EM_EWP_F3C) : 0.0f;
+    if (S->in_back) {
+        o->emote_item = (int32_t)S->count;
+        return;
+    }
     h = em_head_index(S, head);
     if (h == 0xFFFFFFFFu) {
-        uint32_t j;
+        uint32_t j, g = S->in_bridge ? S->group : S->group + 1u;
         for (j = 0; j < S->n && h == 0xFFFFFFFFu; j++) {
-            if (S->e[j].group == S->group + 1u) {
-                h = j;          /* between groups (waiting for jvmode): the next one */
+            if (S->e[j].group == g) {
+                h = j;          /* in a bridge, or between groups (waiting for jvmode): the next one */
             }
         }
     }
@@ -1253,6 +1807,10 @@ static em_state *em_attach(sa1_context *ctx, sa1g_world *w)
         return NULL;
     }
     S->slot = (uint32_t)w->slot;
+    if (S->bridge == 0) {
+        /* round 0.9.9a: the bridge's block (a failure leaves the transitions as plain pops) */
+        S->bridge = sa1g_world_ext_alloc(w, EM_BR_SIZE, 16, NULL);
+    }
     w->emote.pre = em_pre;
     w->emote.post = em_post;
     w->emote.fill = em_fill;

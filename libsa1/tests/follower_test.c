@@ -20,12 +20,14 @@
  *   - SA1_FOLLOW_EV_ITEM reports what the game gave player 0 (arg 1 invincibility, 5 barrier, 8 magnetic barrier); speed shoes go to the hitter, slot 1, with no event.
  *   - Host water reaches slot 1: the air timer runs; a drowning follower is knocked back once (SA1_EVENT_HURT, the game's player-1 rule), never dies. E-102 has no air timer.
  *   - Faces and orders on a follower id are refused. Emotes act on slot 1 (0.9.9): the call refuses "on the way" (over 30 units from its spot) and SA1_EMOTE_IN_AIR; the AI's output is dropped while one plays or waits. SA1_INPUT_GAME_CAMERA on a follower id is ignored; sa1_character_camera on it reports a request made in that world (never RUNNING).
+ *   - sa1_follower_stand (0.9.9a): on = a stopped follower reaches the game's own stand and idle (FST1, FST3); never called = the game's AI: its stick of 0.005 keeps it in its walk at speed 0 on one frame, as the real game's Tails (FST2). E-102's hover keeps its static pose under any stick (FST4).
  *   - sa1_follower_speed: 1 writes nothing; above 1 the k of follow099.md 3.5. sa1_follower_spot: a host-space offset of the proxy (it scales as a point: 64 HU are 16 units), eased 2 units per step, at once before the first step; a lone follower needs none. The fall rule is always on when a spot is set.
  *   - With SA1_FOLLOW_GAME_VIEW the game's visibility test hides slot 1 in 194-258 of 600 `run` pairs; the render output is there anyway, the CPU pose at slot 1. Default: 0 hidden.
  *   - A follower costs about 17.1 MB (64-bit) / 17.5 MB (32-bit) of private memory and about 0.17 ms per pair (-O2, FM2's 99 Knuckles; COST prints the view's share).
  *
  * Cases (follow096_lib.md 5.12 with the plan's additions); a pass value is in each case's CHECK:
  *   FS1 FA1 FA2 FA3 FA4 FW1 FV1 FV2 FT1 FT2 FT3 FP1 FP2 FP3 FC1 FL1 FH1 FH2 FH3 FH4 FD1 FU1 FI1 FN1 FB1 FB2 FB3 FB4 FB5 FB6 FR1 FR2 FR3 FM1 FM2 FX1 FK1 FE1,
+ *   round 0.9.9a (N7, sadc build/research/r099a/stop/diagnosis.md): FST1-7, a third DETERMINISM line (DET099A);
  *   FG1 FG2 (a Big and a Tails follower with the fishing C and the camera bit, gsa1_098_plan.md 6.2), BRINGUP (--long, F4: every kind on
  *   the bring-up courses), SOAK (--long: 30,000 random-leader pairs per kind), COST (--long: the view's share of the time);
  *   round 0.9.9 (gsa1_099_plan.md 6.4, follow099.md 9): FSP1-9, FSA1-6, FEM1-3, 5, 6, FEM4 (--long), FCOST (--long), a second DETERMINISM line for the new paths; the combinations of follow099.md 8: FEM7 (speed, a spot's change and a head look during an emote), FSB1 (a board), FSA7 (a chain).
@@ -2890,6 +2892,8 @@ static void test_fsp1(void)
 }
 
 /* ---- FSP2, FSP3, the straight run behind a Sonic at sustained top speed ----------------------------------------------------------------- */
+static int g_fst_on;     /* FST5: fsp_run with the stand on */
+
 typedef struct fsp_out {
     uint32_t respawn_d, respawn_o, faults;
     double mean_dh, max_dh, mean_v, lead_v, worst, frames, lead_frames;
@@ -2907,6 +2911,9 @@ static void fsp_run(int32_t kind, float speed, uint32_t pairs, fsp_out *o)
     memset(&st, 0, sizeof st);
     if (speed != 1.0f) {
         sa1_follower_speed(g_ctx, F, speed);
+    }
+    if (g_fst_on) {
+        sa1_follower_stand(g_ctx, F, 1);
     }
     for (p = 0; p < pairs; p++) {
         sa1_state ls, fs;
@@ -4271,6 +4278,457 @@ static void test_det099(void)
     printf("DETERMINISM follower099 %08X\n", (unsigned)h);
 }
 
+/* ---- round 0.9.9a: a follower that stops reaches the game's own stand and idle (sa1_follower_stand; N7, sadc build/research/r099a/stop/diagnosis.md) ------------------------------------------- */
+#define PWP_WAITTIMER   0x00Eu
+#define PWP_ACTION_W    0x124u          /* mj.reqaction, mj.action */
+
+typedef struct fst_sample {
+    int32_t mode;
+    uint32_t action, wait;
+    float frame, spd, stroke, off_deg;
+} fst_sample;
+
+static void fst_sample_of(const sa1g_world *w, uint32_t slot, fst_sample *s)
+{
+    uint32_t t = rd(w, A_PLAYER_TWP + 4u * slot), p = rd(w, A_PLAYER_PWP + 4u * slot);
+    memset(s, 0, sizeof *s);
+    s->mode = -1;
+    if (in_arena(t)) {
+        int32_t d = (int16_t)(rd(w, SA1G_ADDR_ANALOG + 8u * slot) - rd(w, t + 0x14u + 4u));
+        s->mode = (int32_t)(int8_t)rd8(w, t);
+        s->off_deg = fabsf((float)d) * 360.0f / 65536.0f;
+    }
+    if (in_arena(p)) {
+        s->action = rd(w, p + PWP_ACTION_W) >> 16;
+        s->wait = (rd(w, p + (PWP_WAITTIMER & ~3u)) >> 16) & 0xFFFFu;
+        s->frame = rdf(w, p + PWP_NFRAME);
+        s->spd = rdf(w, p + PWP_SPD);
+    }
+    s->stroke = rdf(w, SA1G_ADDR_ANALOG + 8u * slot + 4u);
+}
+
+typedef struct fst_out {
+    fst_sample end;
+    int first_stand;            /* pairs after the stop: the first sample in mode 1 action 0; -1 never */
+    uint32_t not_stand_after;   /* samples after it not in mode 1 */
+    float frames_per_pair;      /* the last 100 pairs */
+    float off_at_stand;
+    uint32_t drops, faults;
+} fst_out;
+
+/* a run of run_p pairs, a stop, hold_p pairs; slot 1 of every follower */
+static void fst_run(int32_t kind, int n, float speed, float spacing, int on, uint32_t run_p, uint32_t hold_p, fst_out *o)
+{
+    static crowd c;
+    int i;
+    uint32_t p;
+    float last[8];
+    crowd_make(&c, &kind, 1, n, speed, n >= 2 ? spacing : 0.0f, 0.0f, 12.0f, 0.0f);
+    for (i = 0; i < n; i++) {
+        memset(&o[i], 0, sizeof o[i]);
+        o[i].first_stand = -1;
+        last[i] = 0.0f;
+        if (on) {
+            sa1_status st = sa1_follower_stand(g_ctx, c.F[i], 1);
+            if (st != SA1_OK) {
+                printf("  FAIL  sa1_follower_stand: %s\n", sa1_status_string(st));
+                g_fail++;
+            }
+        }
+    }
+    for (p = 0; p < run_p + hold_p; p++) {
+        crowd_tick(&c, 0.0f, p < run_p ? 1.0f : 0.0f, 0u);
+        for (i = 0; i < n; i++) {
+            fst_sample s;
+            fst_sample_of(c.w[i], 1u, &s);
+            if (p >= run_p) {
+                if (o[i].first_stand >= 0) {
+                    o[i].not_stand_after += s.mode != 1;
+                } else if (s.mode == 1 && s.action == 0u) {
+                    o[i].first_stand = (int)(p - run_p);
+                    o[i].off_at_stand = s.off_deg;
+                }
+                if (p + 100u >= run_p + hold_p && s.frame >= last[i]) {
+                    o[i].frames_per_pair += (s.frame - last[i]) / 100.0f;
+                }
+            }
+            last[i] = s.frame;
+            o[i].end = s;
+        }
+    }
+    for (i = 0; i < n; i++) {
+        o[i].drops = c.drops[i];
+        o[i].faults = c.faults;
+    }
+    crowd_free(&c);
+}
+
+/* FST1: the configurations of the lane's text, on: every kind stands. E-102 in his hover (mode 31) is the game's own whoever steers him: FST4 */
+static void test_fst1(void)
+{
+    static const struct { const char *name; int n; float speed, spacing; } k_c[] = {
+        { "alone, speed 1", 1, 1.0f, 0.0f }, { "three, speed 1, no room", 3, 1.0f, 0.0f }, { "three, speed 1, 64 HU", 3, 1.0f, 16.0f }, { "three, speed 3, 64 HU", 3, 3.0f, 16.0f },
+        { "alone, speed 3", 1, 3.0f, 0.0f }, { "three, speed 1, 16 HU", 3, 1.0f, 4.0f }, { "three, speed 1.31, 16 HU", 3, 1.31f, 4.0f },
+    };
+    unsigned ci;
+    int ki, i;
+    printf("FST1 on: 240 pairs of a run, the stop, 700 pairs: the game's own stand, frames moving, for every kind in every configuration:\n");
+    build_strip();
+    set_ground();
+    for (ci = 0; ci < sizeof k_c / sizeof k_c[0]; ci++) {
+        for (ki = 0; ki < 6; ki++) {
+            fst_out o[3];
+            fst_run(k_kinds[ki], k_c[ci].n, k_c[ci].speed, k_c[ci].spacing, 1, 240u, 700u, o);
+            for (i = 0; i < k_c[ci].n; i++) {
+                if (o[i].end.mode == 31 && k_kinds[ki] == SA1_CHAR_GAMMA) {
+                    CHECK(k_c[ci].speed > 1.0f && o[i].end.spd == 0.0f, "FST1 %-26s %-8s f%d: his hover, mode 31, speed %.3f (the game's own, FST4; only above speed 1 here)", k_c[ci].name, kind_name(k_kinds[ki]), i, (double)o[i].end.spd);
+                    continue;
+                }
+                CHECK(o[i].first_stand >= 0 && o[i].first_stand < 300 && o[i].not_stand_after == 0u && o[i].end.mode == 1 && o[i].end.action == 0u && o[i].end.spd == 0.0f && o[i].end.stroke == 0.0f && o[i].frames_per_pair > 0.1f && o[i].faults == 0u,
+                      "FST1 %-26s %-8s f%d: stands from pair %d (after it %u pairs elsewhere), at the end mode %d action %u speed %.3f stick %.4f, %.2f frames a pair, facing off by %.0f degrees at the stand; %u drop-ins, %u faults", k_c[ci].name, kind_name(k_kinds[ki]), i,
+                      o[i].first_stand, (unsigned)o[i].not_stand_after, (int)o[i].end.mode, (unsigned)o[i].end.action, (double)o[i].end.spd, (double)o[i].end.stroke, (double)o[i].frames_per_pair, (double)o[i].off_at_stand, (unsigned)o[i].drops, (unsigned)o[i].faults);
+            }
+        }
+    }
+}
+
+/* FST2: off, as never called: the game's own AI, the static pose the real game's Tails has on the oracle (mode 2, action 9, frame frozen, stick 0.005; r099a/stop stop_wv2) */
+static void test_fst2(void)
+{
+    int ki;
+    printf("FST2 off: the game's own: the walk at speed 0 on one frame:\n");
+    build_strip();
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        fst_out o[1];
+        fst_run(k_kinds[ki], 1, 1.0f, 0.0f, 0, 240u, 700u, o);
+        if (k_kinds[ki] == SA1_CHAR_AMY) {
+            CHECK(o[0].end.mode == 1 || o[0].end.mode == 2, "FST2 %-8s (she may stop within 1 unit of the AI's point, the one stand the game gives): mode %d action %u", kind_name(k_kinds[ki]), (int)o[0].end.mode, (unsigned)o[0].end.action);
+        } else {
+            CHECK(o[0].end.mode == 2 && o[0].end.spd == 0.0f && o[0].end.stroke == 0.005f && o[0].frames_per_pair == 0.0f, "FST2 %-8s mode %d action %u speed %.3f stick %.4f, %.3f frames a pair", kind_name(k_kinds[ki]), (int)o[0].end.mode, (unsigned)o[0].end.action,
+                  (double)o[0].end.spd, (double)o[0].end.stroke, (double)o[0].frames_per_pair);
+        }
+    }
+    /* on at any moment, off at any moment */
+    {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f), F = follower_new(SA1_CHAR_TAILS, L, SA1_FOLLOW_NO_SET);
+        const sa1g_world *w = sa1_character_world(g_ctx, F);
+        fst_sample s;
+        stats st;
+        int m0, m1, m2, m3;
+        memset(&st, 0, sizeof st);
+        pairs_of(L, F, 120u, 1.0f, &st);
+        pairs_of(L, F, 200u, 0.0f, &st);
+        fst_sample_of(w, 1u, &s);
+        m0 = s.mode;
+        sa1_follower_stand(g_ctx, F, 1);
+        pairs_of(L, F, 60u, 0.0f, &st);
+        fst_sample_of(w, 1u, &s);
+        m1 = s.mode;
+        sa1_follower_stand(g_ctx, F, 0);
+        pairs_of(L, F, 30u, 0.0f, &st);
+        fst_sample_of(w, 1u, &s);
+        m2 = s.mode;
+        pairs_of(L, F, 120u, 1.0f, &st);
+        pairs_of(L, F, 200u, 0.0f, &st);
+        fst_sample_of(w, 1u, &s);
+        m3 = s.mode;
+        CHECK(m0 == 2 && m1 == 1 && m3 == 2 && st.faults + st.unimpl == 0u, "FST2 the option at any moment: static (mode %d), on: stands (mode %d), off: the AI's stick is back and it is in mode %d, the next stop the game's own again (mode %d); %u faults", m0, m1, m2, m3, (unsigned)(st.faults + st.unimpl));
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+/* FST3: the idle: the same first idle action as the kind's own player, 1800 steps after it stood */
+static void test_fst3(void)
+{
+    int ki;
+    printf("FST3 on: the game's idle comes, as for a player (the wait of 1800 steps = 900 pairs):\n");
+    build_strip();
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        sa1_character_id P = leader_new(k_kinds[ki], 0.0f, 12.0f, 0.0f);
+        const sa1g_world *pw = sa1_character_world(g_ctx, P);
+        sa1_character_id L = 0, F = 0;
+        const sa1g_world *w;
+        uint32_t p, idle_p = 0, idle_f = 0;
+        int at_p = -1, at_f = -1, stand_at = -1;
+        for (p = 0; p < 1000u; p++) {
+            fst_sample s;
+            tick_input(P, 0.0f, p < 30u ? 1.0f : 0.0f, 0u, 0.0f, 1.0f / 30.0f);
+            fst_sample_of(pw, 0u, &s);
+            if (at_p < 0 && s.mode == 1 && s.action != 0u && p > 200u) {
+                at_p = (int)p;
+                idle_p = s.action;
+            }
+        }
+        poll_events(0, NULL);
+        sa1_character_destroy(g_ctx, P);
+        L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+        F = follower_new(k_kinds[ki], L, SA1_FOLLOW_NO_SET);
+        w = sa1_character_world(g_ctx, F);
+        sa1_follower_stand(g_ctx, F, 1);
+        for (p = 0; p < 1200u; p++) {
+            fst_sample s;
+            tick_input(L, 0.0f, p < 30u ? 1.0f : 0.0f, 0u, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(0, NULL);
+            fst_sample_of(w, 1u, &s);
+            if (stand_at < 0 && s.mode == 1 && s.action == 0u && p > 30u) {
+                stand_at = (int)p;
+            }
+            if (at_f < 0 && stand_at >= 0 && s.mode == 1 && s.action != 0u) {
+                at_f = (int)p;
+                idle_f = s.action;
+            }
+        }
+        CHECK(at_p >= 0 && at_f >= 0 && idle_f == idle_p && at_f - stand_at > 850 && at_f - stand_at < 950, "FST3 %-8s the follower stands at pair %d, its first idle action %u at pair %d (%d later); the kind's own player: action %u at pair %d", kind_name(k_kinds[ki]), stand_at, (unsigned)idle_f, at_f,
+              at_f - stand_at, (unsigned)idle_p, at_p);
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+/* FST4: E-102's hover is the game's own: under a player's stick he stays in it too (the oracle: r099a/stop stop_ec, mode 33 on water, speed 0, 600 steps) */
+static void test_fst4(void)
+{
+    sa1_character_id P;
+    const sa1g_world *w;
+    uint32_t p;
+    fst_sample s;
+    printf("FST4 E-102's hover, under a player's stick let go:\n");
+    build_strip();
+    set_ground();
+    P = leader_new(SA1_CHAR_GAMMA, 0.0f, 12.0f, 0.0f);
+    w = sa1_character_world(g_ctx, P);
+    for (p = 0; p < 1000u; p++) {
+        tick_input(P, 0.0f, p < 400u ? 1.0f : 0.0f, 0u, 0.0f, 1.0f / 30.0f);
+        poll_events(0, NULL);
+    }
+    fst_sample_of(w, 0u, &s);
+    CHECK(s.mode == 31 && s.spd == 0.0f, "FST4 a player's E-102, 600 pairs after the stick was let go: mode %d action %u speed %.3f", (int)s.mode, (unsigned)s.action, (double)s.spd);
+    sa1_character_destroy(g_ctx, P);
+}
+
+/* FST5: what N2 praises: the catch-up numbers of follow099.md 3.4, 3.5 are the same with the stand on: the straight run at each kind's own value, stop and go */
+static void test_fst5(void)
+{
+    static const struct { int32_t kind; float speed; } k_v[] = {
+        { SA1_CHAR_SONIC, 1.2f }, { SA1_CHAR_KNUCKLES, 1.3f }, { SA1_CHAR_TAILS, 1.5f }, { SA1_CHAR_GAMMA, 2.5f }, { SA1_CHAR_BIG, 3.5f }, { SA1_CHAR_AMY, 4.0f },
+    };
+    unsigned i;
+    printf("FST5 the catch-up, off against on (follow099.md 3.4): the straight run behind a Sonic at top speed, 900 pairs, and stop and go:\n");
+    build_strip();
+    set_ground();
+    for (i = 0; i < sizeof k_v / sizeof k_v[0]; i++) {
+        fsp_out a, b;
+        g_fst_on = 0;
+        fsp_run(k_v[i].kind, k_v[i].speed, 900u, &a);
+        g_fst_on = 1;
+        fsp_run(k_v[i].kind, k_v[i].speed, 900u, &b);
+        g_fst_on = 0;
+        CHECK(a.respawn_o + a.respawn_d == b.respawn_o + b.respawn_d && fabs(a.mean_dh - b.mean_dh) < 1.0 && fabs(a.mean_v - b.mean_v) < 0.02 && a.respawn_o + a.respawn_d == 0u && b.faults == 0u,
+              "FST5 %-8s speed %.2f: off: dh %.2f, speed %.3f, %u drop-ins; on: dh %.2f, speed %.3f, %u drop-ins", kind_name(k_v[i].kind), (double)k_v[i].speed, a.mean_dh, a.mean_v, (unsigned)(a.respawn_o + a.respawn_d), b.mean_dh, b.mean_v, (unsigned)(b.respawn_o + b.respawn_d));
+    }
+    /* 5 s of a run, 3 s of a stand, 4 cycles: every stand stands, and it leaves the stand when the leader runs again */
+    for (i = 0; i < sizeof k_v / sizeof k_v[0]; i++) {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f), F = follower_new(k_v[i].kind, L, SA1_FOLLOW_NO_SET);
+        const sa1g_world *w = sa1_character_world(g_ctx, F);
+        stats st;
+        uint32_t p, stood = 0, left = 0, hover = 0;
+        int this_stood = 0;
+        float maxd = 0.0f;
+        memset(&st, 0, sizeof st);
+        sa1_follower_speed(g_ctx, F, k_v[i].speed);
+        sa1_follower_stand(g_ctx, F, 1);
+        for (p = 0; p < 960u; p++) {
+            uint32_t ph = p % 240u;
+            fst_sample s;
+            sa1_state ls, fs;
+            tick_input(L, 0.0f, ph < 150u ? 1.0f : 0.0f, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &st);
+            fst_sample_of(w, 1u, &s);
+            state_of(L, &ls);
+            state_of(F, &fs);
+            if (ph == 0u) {
+                this_stood = 0;
+            }
+            if (ph >= 150u && !this_stood && s.mode == 1 && s.action == 0u) {
+                this_stood = 1;
+                stood++;
+            }
+            if (ph == 60u && s.mode != 1 && p >= 240u) {
+                left++;
+            }
+            if (ph == 239u && !this_stood && s.mode == 31 && s.spd == 0.0f && k_v[i].kind == SA1_CHAR_GAMMA) {
+                hover++;        /* the game's own, FST4 */
+            }
+            if (ph >= 60u && ph < 150u) {
+                float d = dist_h(ls.position, fs.position);
+                maxd = d > maxd ? d : maxd;
+            }
+        }
+        CHECK(stood + hover == 4u && left == 3u && st.respawn[0] + st.respawn[1] == 0u && st.faults + st.unimpl == 0u, "FST5 %-8s speed %.2f, stop and go: stood in %u of 4 stops, in his hover in %u (the game's own, FST4), left the stand in %u of 3 restarts, dh at most %.1f while running; drop-ins %u; %u faults",
+              kind_name(k_v[i].kind), (double)k_v[i].speed, (unsigned)stood, (unsigned)hover, (unsigned)left, (double)maxd, (unsigned)(st.respawn[0] + st.respawn[1]), (unsigned)(st.faults + st.unimpl));
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+/* FST6: the arguments */
+static void test_fst6(void)
+{
+    sa1_character_id L, F;
+    printf("FST6 sa1_follower_stand's arguments:\n");
+    build_strip();
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    F = follower_new(SA1_CHAR_TAILS, L, SA1_FOLLOW_NO_SET);
+    CHECK(sa1_follower_stand(NULL, F, 1) == SA1_ERR_INVALID_ARGUMENT, "FST6 no context");
+    CHECK(sa1_follower_stand(g_ctx, L, 1) == SA1_ERR_INVALID_ARGUMENT, "FST6 a character that is not a follower");
+    CHECK(SA1_FAILED(sa1_follower_stand(g_ctx, 99999, 1)), "FST6 no such character");
+    CHECK(sa1_follower_stand(g_ctx, F, 1) == SA1_OK && sa1_follower_stand(g_ctx, F, 0) == SA1_OK && sa1_follower_stand(g_ctx, F, 7) == SA1_OK, "FST6 on, off, any other value is on");
+    sa1_character_destroy(g_ctx, F);
+    sa1_character_destroy(g_ctx, L);
+}
+
+/* FST7: an emote on a standing follower, its end; a slope; a random leader: nothing stays in its walk at speed 0, nothing faults */
+static void test_fst7(void)
+{
+    int ki;
+    printf("FST7 on: an emote and its end, a slope, a random leader:\n");
+    build_strip();
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f), F = follower_new(k_kinds[ki], L, SA1_FOLLOW_NO_SET);
+        const sa1g_world *w = sa1_character_world(g_ctx, F);
+        stats st;
+        fst_sample s;
+        sa1_status took;
+        sa1_state_ex x;
+        int was_on;
+        memset(&st, 0, sizeof st);
+        sa1_follower_stand(g_ctx, F, 1);
+        pairs_of(L, F, 240u, 0.0f, &st);
+        took = emote_of(F, top_row(k_kinds[ki]), SA1_EMOTE_HOLD);
+        pairs_of(L, F, 60u, 0.0f, &st);
+        ex_of(F, &x);
+        was_on = x.emote_state != SA1_EMOTE_STATE_NONE;
+        sa1_character_emote_stop(g_ctx, F, SA1_EMOTE_STOP_BLEND);
+        pairs_of(L, F, 60u, 0.0f, &st);
+        fst_sample_of(w, 1u, &s);
+        CHECK(took == SA1_OK && was_on && s.mode == 1 && s.action == 0u && st.faults + st.unimpl == 0u, "FST7 %-8s an emote: taken %d, playing %d; 60 pairs after its end mode %d action %u; %u faults", kind_name(k_kinds[ki]), took == SA1_OK, was_on, (int)s.mode, (unsigned)s.action,
+              (unsigned)(st.faults + st.unimpl));
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+    {
+        static const float deg[2] = { 15.0f, 30.0f };
+        int di;
+        for (di = 0; di < 2; di++) {
+            build_slope(deg[di], SA1_SURFACE_SOLID);
+            set_ground();
+            for (ki = 0; ki < 6; ki++) {
+                sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, ground_y(0.0f) + 12.0f, 0.0f), P = leader_new(k_kinds[ki], 0.0f, ground_y(0.0f) + 12.0f, 40.0f), F;
+                const sa1g_world *w, *pw = sa1_character_world(g_ctx, P);
+                stats st;
+                fst_sample s, ps;
+                uint32_t p, run = 0, worst = 0;
+                F = follower_new(k_kinds[ki], L, SA1_FOLLOW_NO_SET);
+                w = sa1_character_world(g_ctx, F);
+                memset(&st, 0, sizeof st);
+                sa1_follower_stand(g_ctx, F, 1);
+                for (p = 0; p < 400u; p++) {
+                    tick_input(L, 0.0f, p < 60u ? 1.0f : 0.0f, 0, 0.0f, 1.0f / 30.0f);
+                    tick_input(P, 0.0f, p < 60u ? 1.0f : 0.0f, 0, 0.0f, 1.0f / 30.0f);
+                    tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                    poll_events(F, &st);
+                    fst_sample_of(w, 1u, &s);
+                    run = s.mode == 2 && s.spd == 0.0f ? run + 1u : 0u;
+                    worst = run > worst ? run : worst;
+                }
+                fst_sample_of(w, 1u, &s);
+                fst_sample_of(pw, 0u, &ps);
+                /* with its stick at 0 a follower on a slope is what a player who lets go is: there both may stay in the walk with a speed of a hair (the game's own), so what counts is that the rest stick holds nothing */
+                CHECK(worst <= 45u && st.faults + st.unimpl == 0u, "FST7 %-8s on a %.0f degree slope: at most %u pairs in its walk at speed 0; the follower mode %d action %u speed %.3f; a player of the kind after the same run mode %d action %u speed %.3f; %u faults", kind_name(k_kinds[ki]), (double)deg[di], (unsigned)worst,
+                      (int)s.mode, (unsigned)s.action, (double)s.spd, (int)ps.mode, (unsigned)ps.action, (double)ps.spd, (unsigned)(st.faults + st.unimpl));
+                sa1_character_destroy(g_ctx, F);
+                sa1_character_destroy(g_ctx, P);
+                sa1_character_destroy(g_ctx, L);
+            }
+        }
+    }
+    build_strip();
+    set_ground();
+    for (ki = 0; ki < 6; ki++) {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f), F = follower_new(k_kinds[ki], L, SA1_FOLLOW_NO_SET);
+        const sa1g_world *w = sa1_character_world(g_ctx, F);
+        stats st;
+        uint32_t p, run = 0, worst = 0;
+        memset(&st, 0, sizeof st);
+        g_lcg = 0x099A0001u + (uint32_t)ki;
+        sa1_follower_stand(g_ctx, F, 1);
+        for (p = 0; p < 6000u; p++) {
+            float sx, sy;
+            uint32_t b;
+            sa1_state ls;
+            fst_sample s;
+            state_of(L, &ls);
+            script_soak(p, ls.position, &sx, &sy, &b);
+            tick_input(L, sx, sy, b, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &st);
+            fst_sample_of(w, 1u, &s);
+            run = s.mode == 2 && s.spd == 0.0f ? run + 1u : 0u;
+            worst = run > worst ? run : worst;
+        }
+        CHECK(worst <= 45u && st.faults + st.unimpl == 0u, "FST7 %-8s a random leader, 6000 pairs: the longest stay in its walk at speed 0 is %u pairs; %u drop-ins; %u faults", kind_name(k_kinds[ki]), (unsigned)worst, (unsigned)(st.respawn[0] + st.respawn[1]), (unsigned)(st.faults + st.unimpl));
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+}
+
+/* the new path on the two Windows targets */
+static void test_det099a(void)
+{
+    static const int32_t kinds[3] = { SA1_CHAR_TAILS, SA1_CHAR_KNUCKLES, SA1_CHAR_BIG };
+    sa1_character_id L, F[3];
+    uint32_t p, h = 2166136261u;
+    int i;
+    printf("the stand on the two Windows targets:\n");
+    build_strip();
+    set_ground();
+    L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
+    for (i = 0; i < 3; i++) {
+        float x, z;
+        F[i] = follower_new(kinds[i], L, SA1_FOLLOW_NO_SET);
+        sa1_follower_stand(g_ctx, F[i], 1);
+        sa1_follower_speed(g_ctx, F[i], 2.5f);
+        spot_of(i + 1, 16.0f, &x, &z);
+        set_spot(F[i], x, z);
+    }
+    for (p = 0; p < 900u; p++) {
+        tick_input(L, 0.0f, p % 300u < 120u ? 1.0f : 0.0f, 0u, 0.0f, 1.0f / 30.0f);
+        for (i = 0; i < 3; i++) {
+            sa1_state a;
+            fst_sample s;
+            tick_input(F[i], 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            state_of(F[i], &a);
+            fst_sample_of(sa1_character_world(g_ctx, F[i]), 1u, &s);
+            h = fnv(h, a.position, sizeof a.position);
+            h = fnv(h, &s.frame, sizeof s.frame);
+            h = fnv(h, &s.action, sizeof s.action);
+        }
+        poll_events(0, NULL);
+    }
+    for (i = 0; i < 3; i++) {
+        sa1_character_destroy(g_ctx, F[i]);
+    }
+    sa1_character_destroy(g_ctx, L);
+    printf("DETERMINISM follower099a %08X\n", (unsigned)h);
+}
+
 /* the cost at 99 followers, one thread (--only FCOST, --long): the same course today, with the speed, with spots, with both; three rounds: the machine may be shared, so the spread counts */
 static void test_fcost(void)
 {
@@ -4401,6 +4859,14 @@ int main(int argc, char **argv)
     if (want("FSB1")) test_fsb1();
     if (want("FSA7")) test_fsa7();
     if (want("DET099")) test_det099();
+    if (want("FST1")) test_fst1();
+    if (want("FST2")) test_fst2();
+    if (want("FST3")) test_fst3();
+    if (want("FST4")) test_fst4();
+    if (want("FST5")) test_fst5();
+    if (want("FST6")) test_fst6();
+    if (want("FST7")) test_fst7();
+    if (want("DET099A")) test_det099a();
     if (g_long || (g_only != NULL && !strcmp(g_only, "FEM4"))) test_fem4();
     if (g_long || (g_only != NULL && !strcmp(g_only, "FCOST"))) test_fcost();
     if (g_long || (g_only != NULL && !strcmp(g_only, "COST"))) test_cost();

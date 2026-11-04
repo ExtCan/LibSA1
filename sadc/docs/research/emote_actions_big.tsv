@@ -106,5 +106,5 @@ action	internal_name	label	class	wheel	play	frames	mtnmode	next	chain	link	racio
 -	f_f0022_frog	Froggy_Floating_in_Water	no	no	once	30									1ST_READ	8C56CA10			another object's motion (Froggy / Birdie)		
 -	f_f0023_frog	Froggy_Struggling_in_Water	no	no	once	60									1ST_READ	8C56FF94			another object's motion (Froggy / Birdie)		
 -	b_item_u0	B_MOT_b_item_u0	extra:pose	yes	once	29						2	Big		B_MOT	0CC868F8			not in the action table: EV_SetMotion (8C04B528) with the body object 8C52F298; the probe played it (no fault)		
--	b_item_u1	B_MOT_b_item_u1	extra:pose	yes	once	14						2	Big		B_MOT	0CC882BC			not in the action table: EV_SetMotion (8C04B528) with the body object 8C52F298; the probe played it (no fault)		
+-	b_item_u1	B_MOT_b_item_u1	extra:pose	yes	loop	14						2	Big		B_MOT	0CC882BC			not in the action table: EV_SetMotion (8C04B528) with the body object 8C52F298; the probe played it (no fault)		
 -	b_item_u2	B_MOT_b_item_u2	extra:pose	yes	once	17						2	Big		B_MOT	0CC8A2D0			not in the action table: EV_SetMotion (8C04B528) with the body object 8C52F298; the probe played it (no fault)		

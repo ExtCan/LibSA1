@@ -131,7 +131,7 @@ extern "C" {
 
 #define SA1_VERSION_MAJOR 0
 #define SA1_VERSION_MINOR 5
-#define SA1_VERSION_PATCH 0
+#define SA1_VERSION_PATCH 1
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
 #define SA1_API_VERSION ((SA1_VERSION_MAJOR << 16) | SA1_VERSION_MINOR)
@@ -211,7 +211,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.5.0" */
+SA1_API const char *sa1_version_string(void);     /* "0.5.1" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -2925,20 +2925,20 @@ typedef struct sa1_emote {
     uint32_t       struct_size;
     uint32_t       count;       /* 1..SA1_EMOTE_MAX_ITEMS, played in order; only the last may loop */
     sa1_emote_item items[SA1_EMOTE_MAX_ITEMS];
-    int32_t        link;        /* blend frames between items of one object and into the stand; -1 = 8, 0 = none */
+    int32_t        link;        /* pairs of the bridge between items and on the way back; -1 = 8, 0 = none */
     uint32_t       flags;       /* SA1_EMOTE_* */
 } sa1_emote;
 #define SA1_EMOTE_CHAIN      0x1u  /* a once item: also the game's PL_ACTION.next chain up to its loop (75 > 76 > stand) */
-#define SA1_EMOTE_NO_TRAIL   0x2u  /* no trailing stand entry after a once emote (the gameplay stand pops back) */
+#define SA1_EMOTE_NO_TRAIL   0x2u  /* no way back after a once emote: the plain pop */
 #define SA1_EMOTE_IN_AIR     0x4u  /* may start when not standing; then cancelled only by input, hurt and the object changes
                                        (the form, the board, the held object; review R.15) */
 #define SA1_EMOTE_KEEP_INPUT 0x8u  /* no input cancel (the host cancels) */
 #define SA1_EMOTE_NO_PROPS   0x10u /* Amy: do not show the hammer (8C0DE46C) for her attack rows */
 #define SA1_EMOTE_HOLD       0x20u /* round 0.9.4b: an emote that ends in a pose (its last entry plays once) keeps that
                                        entry's LAST FRAME, the way the game's own hold rows do (mtnmode 5, PSetMotion
-                                       8C079476: frame nbFrame - 1), instead of the trailing stand entry: state HOLDING
+                                       8C079476: frame nbFrame - 1), instead of the way back: state HOLDING
                                        until the cancels above (input, the state, hurt, the form, the board, the held
-                                       object), a stop (STOP_BLEND blends from the held frame into the stand) or another
+                                       object), a stop (STOP_BLEND goes back from the held frame) or another
                                        emote end it. No effect when the last entry loops (it loops until a cancel or stop) */
 #define SA1_API_EMOTE_HOLD 1
 /* Errors: SA1_ERR_NOT_FOUND (no character), SA1_ERR_UNSUPPORTED (a puppet, Eggman, Tikal; or not standing without
@@ -2949,7 +2949,7 @@ typedef struct sa1_emote {
  * sa1_last_error is unchanged */
 SA1_API sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_emote *emote);
 #define SA1_EMOTE_STOP_NOW   0u    /* EV_ClrAction at the next pair start: the gameplay pose */
-#define SA1_EMOTE_STOP_BLEND 1u    /* the stand blended in after the current item (a loop finishes its cycle) */
+#define SA1_EMOTE_STOP_BLEND 1u    /* back to the gameplay's pose at once, by a bridge, also from a loop */
 SA1_API sa1_status sa1_character_emote_stop(sa1_context *ctx, sa1_character_id id, uint32_t how);
 #define SA1_EMOTE_STATE_NONE    0u
 #define SA1_EMOTE_STATE_PLAYING 1u
@@ -3197,6 +3197,10 @@ SA1_API sa1_status sa1_follower_speed(sa1_context *ctx, sa1_character_id f, floa
 /* Where this follower stands around its leader: host-space offset added to the leader's horizontal position in the data its AI sees (the proxy; the host's up component is ignored).
  * Eases 2 units per step; before the world's first step at once. {0,0,0} (the default): the game's own place. The game's AI, its jump rule and its stop are unchanged: it stops around that point. The info's distance stays the true leader's. Between ticks. */
 SA1_API sa1_status sa1_follower_spot(sa1_context *ctx, sa1_character_id f, const float offset[3]);
+
+/* round 0.9.9a: on = a follower that has stopped reaches the game's own stand and idle. Never called, or off: the game's AI, which keeps
+ * a stroke of 0.005 while more than 1 unit from the point it aims at, so the walk stands frozen at speed 0, as the real Tails does. */
+SA1_API sa1_status sa1_follower_stand(sa1_context *ctx, sa1_character_id f, int on);
 
 #define SA1_EVENT_FOLLOW 16             /* sa1_event: id = SA1_FOLLOW_EV_*, position = slot 1 */
 #define SA1_FOLLOW_EV_RESPAWN     1u    /* arg: 0 distance > 1000, 1 off the leader's camera 300 frames, 2 sa1_follower_respawn */

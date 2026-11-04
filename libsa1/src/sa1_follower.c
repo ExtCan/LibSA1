@@ -390,6 +390,33 @@ sa1_status sa1_follower_spot(sa1_context *ctx, sa1_character_id f, const float o
 #endif
 }
 
+/* round 0.9.9a (N7, sadc build/research/r099a/stop/diagnosis.md). on: a follower that stops reaches the game's own stand and idle; off, as if never called: the game's AI, whose stick keeps it in its walk at speed 0 on one frame (the real game's Tails does that) */
+
+sa1_status sa1_follower_stand(sa1_context *ctx, sa1_character_id f, int on)
+{
+    sa1_status st;
+    if (ctx == NULL) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    st = sa1w_character_peek(ctx, f, NULL, NULL, NULL);
+    if (st != SA1_OK) {
+        return sa1_fail(ctx, st, "sa1_follower_stand: no character %d", (int)f);
+    }
+#if defined(SA1_NO_WORLD)
+    (void)on;
+    return sa1_fail(ctx, SA1_ERR_NOT_IMPLEMENTED, "this libsa1 build has no world core (SA1_NO_WORLD): no followers");
+#else
+    {
+        struct sa1g_world *w = fo_world(ctx, f);
+        if (w == NULL) {
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_follower_stand: character %d is not a follower", (int)f);
+        }
+        st = sa1wf_stand(w, on);
+        return st == SA1_OK ? SA1_OK : sa1_fail(ctx, st, "sa1_follower_stand: %s", sa1w_world_fault(w));
+    }
+#endif
+}
+
 /* a const call: sa1_last_error is not touched */
 sa1_status sa1_follower_info_get(const sa1_context *ctx, sa1_character_id f, sa1_follower_info *out)
 {

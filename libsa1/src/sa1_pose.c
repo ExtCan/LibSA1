@@ -1728,29 +1728,42 @@ int32_t sa1_pose_node_of_model(const sa1_charset *cs, int32_t object, uint32_t m
 
 /* sample_ang for the motion hint: the same except that the loop closure (the last key towards the first at nbFrame)
  * goes the shorter way round. The game's evaluator 8C03FF90 interpolates it as plain integers (Sonic's spin ball:
- * 61887 -> 0 sweeps back 340 degrees between frames 6 and 7), which no drawn pair of frames is meant to show. */
+ * 61887 -> 0 sweeps back 340 degrees between frames 6 and 7), which no drawn pair of frames is meant to show.
+ * Round 0.9.9a (the owner's note "Eggmans leg break while moving"; sadc build/research/r099a/anim/diagnosis.md N1): so does
+ * a key pair inside the motion whose plain difference is above half a turn: an angle written around its wrap (Eggman's
+ * thigh, 32174 -> -32767 from frame 9 to 10; all 5 of his motions have such pairs, 85 axes). The motions key every frame
+ * and his frames are whole, so the Dreamcast never draws the sweep; the hint followed it at quarter frames, said 338
+ * degrees for a thigh that turns 22, and the leg swung round through the body between the pairs (a seam 12.7 units open). */
 static void sample_ang_loop(const sa1_keya *k, uint32_t n, float f, uint32_t nf, double out[3])
 {
     uint32_t lo, j;
-    const sa1_keya *a;
+    const sa1_keya *a, *b;
     float t;
     if (n == 1 || f <= (float)k[0].frame || n == 0) {
         sample_ang(k, n, f, nf, out);
         return;
     }
     KEY_SEARCH(k, n, f, lo);
-    if (lo + 1u < n) {
-        sample_ang(k, n, f, nf, out);
-        return;
-    }
     a = &k[lo];
-    if (!key_pair(n, a->frame, k[0].frame, lo, f, nf, 1, &t)) {
+    b = lo + 1u < n ? &k[lo + 1u] : &k[0];
+    if (lo + 1u < n) {
+        int wrap = 0;
+        for (j = 0; j < 3; j++) {
+            int64_t dl = (int64_t)b->v[j] - (int64_t)a->v[j];
+            wrap |= dl > 32768 || dl < -32768;
+        }
+        if (!wrap) {
+            sample_ang(k, n, f, nf, out);
+            return;
+        }
+    }
+    if (!key_pair(n, a->frame, b->frame, lo, f, nf, lo + 1u >= n, &t)) {
         for (j = 0; j < 3; j++)
             out[j] = (double)a->v[j];
         return;
     }
     for (j = 0; j < 3; j++) {
-        double d = (double)(int16_t)(uint16_t)(((uint32_t)k[0].v[j] - (uint32_t)a->v[j]) & 0xFFFFu);
+        double d = (double)(int16_t)(uint16_t)(((uint32_t)b->v[j] - (uint32_t)a->v[j]) & 0xFFFFu);
         out[j] = (double)a->v[j] + d * (double)t;
     }
 }
@@ -1798,8 +1811,8 @@ double sa1_pose_node_turn(const sa1_charset *cs, int32_t object, int32_t motion,
 {
     const sa1_object *o;
     const sa1_motion *mo;
-    double r0[9], r1[9], rel[9], q[4] = { 1.0, 0.0, 0.0, 0.0 }, nf, vn;
-    uint32_t n, s;
+    double r0[9], r1[9], rel[9], q[4] = { 1.0, 0.0, 0.0, 0.0 }, nf, vn, adf, dir, t = 0.0, step;
+    uint32_t s;
     if (!cs || object < 0 || (uint32_t)object >= cs->objects.count || motion < 0 ||
         (uint32_t)motion >= cs->motions.count || df != df || f0 != f0)
         return -1.0;
@@ -1808,32 +1821,38 @@ double sa1_pose_node_turn(const sa1_charset *cs, int32_t object, int32_t motion,
     if (node < 0 || (uint32_t)node >= o->num_nodes || mo->num_frames == 0)
         return -1.0;
     nf = (double)mo->num_frames;
-    n = (uint32_t)ceil(fabs(df) * 4.0);
-    if (n < 1u)
-        n = 1u;
-    if (n > 512u)
-        n = 512u;
+    adf = fabs(df);
+    dir = df < 0.0 ? -1.0 : 1.0;
+    step = adf > 512.0 ? adf / 512.0 : 1.0;
     /* the rotation composed step by step as a continuous quaternion (each step's short way): its angle is the net turn
        the motion makes, up to a whole one, and beyond half a turn when the motion goes the long way round (a path
-       that wobbles between axes is not counted as turning) */
-    for (s = 0; s <= n; s++) {
-        double f = fmod(f0 + df * (double)s / (double)n, nf), dq[4];
+       that wobbles between axes is not counted as turning).
+       Round 0.9.9a (N1): the steps land on the whole frames: the frames the game draws and the motions key. Between two keys
+       an angle may be written the other way round (Eggman's thigh, action 5, frame 0 -> 1: (65112, -1925, -1804) -> (32355,
+       -30846, -33802): nearly the same rotation, and at quarter frames a sweep the hint counted as 355 degrees) */
+    for (s = 0;; s++) {
+        double at = f0 + dir * t, f = fmod(at, nf), dq[4], next;
         if (f < 0.0)
             f += nf;
         if (!node_chain_rot(o, mo, node, (float)f, s ? r1 : r0))
             return -1.0;
-        if (!s)
-            continue;
-        mul3_tn(r0, r1, rel);
-        quat_of(rel, dq);
-        if (dq[0] < 0.0) {
-            dq[0] = -dq[0];
-            dq[1] = -dq[1];
-            dq[2] = -dq[2];
-            dq[3] = -dq[3];
+        if (s) {
+            mul3_tn(r0, r1, rel);
+            quat_of(rel, dq);
+            if (dq[0] < 0.0) {
+                dq[0] = -dq[0];
+                dq[1] = -dq[1];
+                dq[2] = -dq[2];
+                dq[3] = -dq[3];
+            }
+            quat_mul(q, dq, q);
+            memcpy(r0, r1, sizeof r0);
         }
-        quat_mul(q, dq, q);
-        memcpy(r0, r1, sizeof r0);
+        if (t >= adf || s >= 600u)
+            break;
+        next = dir > 0.0 ? floor((at + 1e-9) / step) * step + step : ceil((at - 1e-9) / step) * step - step;
+        next = fabs(next - f0);
+        t = next < adf ? next : adf;
     }
     vn = sqrt(q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
     return 2.0 * atan2(vn, q[0]);

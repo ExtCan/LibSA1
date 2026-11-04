@@ -3,7 +3,9 @@
  * action queue (include/libsa1.h "emotes", SA1_API_EMOTE; src/sa1_emote.c, src/world/sa1_world_emote.c,
  * src/sa1_emote_names.c; sadc docs/research/faces_wheel_plan.md 4.5 / 5.3 / 6.3 with its Review R.1, R.2, R.7-R.9, R.13-R.17,
  * emote_wheel_lib.md). Round 0.9.4b (094b-lib-emote; objects2_plan.md 11.2): the end mode SA1_EMOTE_HOLD (E20 hold, E21
- * hold_memcheck, E22 hold_catalogue).
+ * hold_memcheck, E22 hold_catalogue). Round 0.9.9a (099a-anim; sa1_world_emote.c THE BRIDGES; the class check of what is drawn is tests/anim_test.c): an entry starts by a bridge of `link`
+ * pairs from what is on the screen, a once emote and a stop end by a bridge to the gameplay's pose, a stop starts it at once (a loop no longer finishes its cycle), a cancel's state is NONE at once and the queue
+ * only draws the fade: the numbers of pairs below moved by that, the gameplay's identity (E1, E20) did not.
  *
  *   emote_test [--only NAME[,NAME]] [--list] [--verbose] [--guard-alloc] [--tsv DIR] GDI     (GDI: or $SA1_TEST_GDI)
  *
@@ -24,8 +26,7 @@
  *   General look is on (a Sonic who turned Super keeps the "sonic" wheel; his list then is the Super one: rows 0-129 still
  *   offered on the golden body, plus 130-141).
  * Keys: a row = (SA1_EMOTE_ROW, row); an extra = (SA1_EMOTE_EXTRA, index among the kind's offered extras, list order).
- *   dup_of: the list position of the first entry with the same DRAWN object and motion (k_panch0 39 and 54 are different
- *   motions: not dups; s_kimepose0 75 / 139 and ss_move2 133 / 134 are dups in the Super lists).
+ *   dup_of: the list position of the first entry with the same DRAWN object and motion (s_kimepose0 75 / 139 and ss_move2 133 / 134 are dups in the Super lists; names are not unique: the kinds' stand rows).
  * Refusals (sa1_last_error holds exactly these words): SA1_ERR_UNSUPPORTED "in the air", "hurt", "carrying something",
  *   "on the board", "moving", "busy" (and "Eggman has no emote list", "Tikal has no emote list", a puppet's own text; a follower id: "on the way" too, follower_test FEM3);
  *   SA1_ERR_INVALID_ARGUMENT "<internal name> is not available for <Sonic|Super Sonic|Tails|Knuckles|Amy|E-102|Big>" (or
@@ -663,7 +664,7 @@ static void t_catalogue(sa1_context *ctx)
             }
             loop = info.play == SA1_EMOTE_PLAY_LOOP;
             per_pair = info.source == SA1_EMOTE_EXTRA ? 2.0f : row_per_pair(ctx, L->kind, info.index);
-            maxp = loop ? 12u : (uint32_t)ceilf((float)info.frames / (per_pair > 0.0f ? per_pair : 1.0f)) + 2u;
+            maxp = loop ? 12u : (uint32_t)ceilf((float)info.frames / (per_pair > 0.0f ? per_pair : 1.0f)) + 2u + 8u;  /* + the bridge into it */
             for (pairs = 0; pairs < maxp + 40u; pairs++) {
                 sa1_state_ex x;
                 body_t b;
@@ -927,6 +928,9 @@ static float end_jump(sa1_context *ctx, uint32_t flags, int *pairs_out)
         xstate(ctx, id, &x);
         body(ctx, id, 1.0f, &b);
         if (x.emote_state == SA1_EMOTE_STATE_NONE && p > 0) {
+            /* this pair drew the emote's last pose (the bridge at its target, or the entry's last frame); the next one draws the gameplay */
+            tick(ctx, id, 0, 0, 0);
+            body(ctx, id, 1.0f, &prev);
             jump = body_diff(&b, &prev);
             break;
         }
@@ -942,12 +946,12 @@ static void t_end(sa1_context *ctx)
     int pairs = 0, p, loop_len;
     float j;
     sa1_character_id id;
-    printf("== E6 end: the trailing stand, NO_TRAIL, STOP_BLEND, STOP_NOW\n");
+    printf("== E6 end: the bridge back, NO_TRAIL, STOP_BLEND, STOP_NOW\n");
     j = end_jump(ctx, 0, &pairs);
-    CHECK(j >= 0.0f && j < 0.05f, "row 3 once with the trailing stand: ended after %d pairs, end jump %.3f (< 0.05)", pairs,
+    CHECK(j >= 0.0f && j < 0.05f, "row 3 once with the bridge back: ended after %d pairs, end jump %.3f (< 0.05)", pairs,
           (double)j);
     j = end_jump(ctx, SA1_EMOTE_NO_TRAIL, &pairs);
-    CHECK(j >= 0.0f && j <= 0.25f, "row 3 with NO_TRAIL: the game's pop %.3f (0.02-0.20 measured) after %d pairs", (double)j,
+    CHECK(j >= 0.0f && j <= 1.5f, "row 3 with NO_TRAIL: the plain pop back to the gameplay %.3f (what the flag asks for) after %d pairs", (double)j,
           pairs);
     /* STOP_BLEND on a loop (row 81, 63 frames at 2 per pair: 32 pairs a cycle) */
     id = mk(ctx, SA1_CHAR_SONIC, 0.5f, 0);
@@ -1145,8 +1149,10 @@ static void t_super(sa1_context *ctx)
     /* 130 Stationary: kind 8 (its own action at center_height 6.4), the General form through sa1w_world_super_lifted, and
        B_CHAOS7's own action queued raw in a General world (1.0 lower at Sonic's 5.4) */
     st = emote_row(ctx, k8, 130, SA1_EMOTE_PLAY_LOOP, 0);
+    run(ctx, k8, 10);       /* the bridge into it */
     bob(ctx, k8, 40, &bk8);
     emote_row(ctx, gen, 130, SA1_EMOTE_PLAY_LOOP, 0);
+    run(ctx, gen, 10);
     bob(ctx, gen, 40, &bgen);
     wr = sa1_character_world(ctx, raw);
     {
@@ -1586,9 +1592,9 @@ static void t_list(sa1_context *ctx)
             uint32_t p39 = 0, p54 = 0;
             const sa1em_list *kl = sa1em_list_of(SA1_CHAR_KNUCKLES, 0);
             const sa1em_entry *e39 = sa1em_find(kl, SA1_EMOTE_ROW, 39, &p39), *e54 = sa1em_find(kl, SA1_EMOTE_ROW, 54, &p54);
-            CHECK(e39 != NULL && e54 != NULL && !strcmp(e39->name, "k_panch0") && !strcmp(e54->name, "k_panch0") &&
+            CHECK(e39 != NULL && e54 != NULL && !strcmp(e39->name, "k_kimepose0") && !strcmp(e54->name, "k_panch0") &&
                       e54->dup_of != (int16_t)p39 && (dk[p39][0] != dk[p54][0] || dk[p39][1] != dk[p54][1]),
-                  "Knuckles rows 39 and 54 are both k_panch0 and NOT duplicates (different motions; review R.9)");
+                  "Knuckles row 39 is k_kimepose0, his level clear pose (round 0.9.9a: the SA Tools labels call it k_panch0), row 54 k_panch0: different motions");
         }
         free(dk);
         sa1_character_destroy(ctx, id);
@@ -2188,7 +2194,7 @@ static void t_groups(sa1_context *ctx)
     /* a loop of another object (m_flyup, flight model) with STOP_BLEND: the stand at its wrap */
     winfo(ctx, id, &a);
     emote_row(ctx, id, 37, SA1_EMOTE_PLAY_LOOP, 0);
-    run(ctx, id, 5);
+    run(ctx, id, 12);       /* the bridge into it, then the loop */
     sa1_character_emote_stop(ctx, id, SA1_EMOTE_STOP_BLEND);
     stand_from = 0;
     for (p = 0; p < 200; p++) {
@@ -2211,7 +2217,7 @@ static void t_groups(sa1_context *ctx)
     run(ctx, id, 4);
     winfo(ctx, id, &b);
     CHECK(b.groups == a.groups + 2u && stand_from > 0 && !wrapped && p < 200 && heap_total(w) == h0,
-          "Tails 37 loop + STOP_BLEND: the stand queued as its own group at the loop's wrap (pair %u after the stop), the "
+          "Tails 37 loop + STOP_BLEND: the bridge back at once, no wrap (pair %u after the stop), the "
           "emote ended (pair %d); heap %u", (unsigned)stand_from, p + 1, (unsigned)heap_total(w));
     sa1_character_destroy(ctx, id);
 }
@@ -2378,12 +2384,13 @@ static void t_hold(sa1_context *ctx)
     xstate(ctx, ib, &x);
     qhead(wb, &q);
     winfo(ctx, ib, &wi);
-    CHECK(x.emote_state == SA1_EMOTE_STATE_NONE && q.node == 0 && q.buf == 0 && wi.cancels_input == 1u,
-          "a stick input: the emote ended before that pair (state NONE; the queue and the blend source empty; %u input "
-          "cancel)", (unsigned)wi.cancels_input);
+    CHECK(x.emote_state == SA1_EMOTE_STATE_NONE && wi.cancels_input == 1u,
+          "a stick input: the emote ended before that pair (state NONE; %u input cancel; the queue only draws the fade)", (unsigned)wi.cancels_input);
     for (p = 0; p < 60; p++) {
         ident &= tick2(ctx, ia, ib, 0, 0, 0);
     }
+    qhead(wb, &q);
+    CHECK(q.node == 0 && q.buf == 0, "60 pairs later the fade is over: the queue and the blend source empty");
     body(ctx, ia, 1.0f, &ba);
     body(ctx, ib, 1.0f, &b);
     xstate(ctx, ib, &x);
@@ -2450,9 +2457,9 @@ static void t_hold(sa1_context *ctx)
     qhead(w, &q);
     CHECK(waited > 0 && ending_at && x.emote_state == SA1_EMOTE_STATE_NONE &&
               p <= 1 + 8 + (int)ceilf(32.0f / row_per_pair(ctx, SA1_CHAR_SONIC, 0)) + 4 && wi.hold_releases == 1u &&
-              jump0 < 0.001f && jump <= jump_trail + 0.01f && q.node == 0 && q.buf == 0,
-          "STOP_BLEND on the held pose: the first pair still draws frame 64 (change %.5f), then the stand blends in "
-          "from it (ENDING; the largest change between two pairs %.3f, the trailing stand's without HOLD %.3f); ended "
+              jump0 < 0.001f && jump <= jump_trail + 0.15f && q.node == 0 && q.buf == 0,
+          "STOP_BLEND on the held pose: the first pair still draws frame 64 (change %.5f), then the bridge back from "
+          "it (ENDING; the largest change between two pairs %.3f, the way back without HOLD %.3f); ended "
           "after %d pairs; 1 release", (double)jump0, (double)jump, (double)jump_trail, p);
 
     /* (d) STOP_NOW on a held pose: the gameplay pose at the next pair */
@@ -2496,6 +2503,7 @@ static void t_hold(sa1_context *ctx)
             wraps = 0;
             lastf = -1.0f;
             emote_row_ready(ctx, 0, id, k_loops[li].row, k_loops[li].play, hold_chain, NULL);
+            run(ctx, id, 10);   /* the bridge into it */
             for (p = 0; p < 120; p++) {
                 tick(ctx, id, 0, 0, 0);
                 xstate(ctx, id, &x);

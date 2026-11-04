@@ -3081,11 +3081,48 @@ static sa1_status plan_build(sa1_context *ctx, sa1_char *ch)
             pn->group >= SCREW_MIN_GROUP)
             o->stats.screw++;
     }
-    /* welded copies: the unchanged vertices in a hash of their cells, every other matched vertex of a draw looked up */
+    /* Round 0.9.9a (sadc build/research/r099a/anim/diagnosis.md): a pose the game jumps to between two pairs. When a body model turns half a turn (above 3 radians)
+       with no hint (Sonic's brake into the turn, mode 2 action 30: the game flips his angle by half a turn in one pair) that model takes the last pair's rotation, the others slerp: bent limbs an
+       edge 4.45 units longer at alpha 0.25 where both pairs have 0.42. So too when the game draws another object of the character (Knuckles' run: rows 11 and 12 draw two trees that share only the hands):
+       the shared models would swing while the others stand as the last pair drew them (a seam 1.69 units open). The whole figure goes together, as the Dreamcast showed it: the last pair's vertices, moved with the root */
+    {
+        int pop = 0;
+        uint32_t unmatched = 0;
+        for (a = 0; a < o->norder && !pop; a++) {
+            const sa1_rnode *pn = &o->plan[o->order[a]];
+            pop = pn->mode != RN_VERTEX && pn->x.kind == SA1_XLERP_SNAP && pn->x.theta > 3.0 && pn->anchor < 0 && !pn->world &&
+                  !(cur->node_fl[o->order[a]] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE));
+        }
+        for (k = 0; k < nn && !pop && !same; k++) {
+            if (o->plan[k].prev < 0 && !(cur->node_fl[k] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE)) && charset_model(cs, cur->node_model[k]))
+                unmatched++;
+            pop = unmatched >= 4u && o->norder > 0u;    /* more than a prop that comes and goes (Amy's hammer has its parts in other draws) */
+        }
+        if (pop) {
+            for (a = 0; a < o->norder; a++) {
+                uint32_t i, v0, n;
+                sa1_rnode *pn;
+                k = o->order[a];
+                pn = &o->plan[k];
+                if (cur->node_fl[k] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW))
+                    continue;
+                v0 = cur->node_v[2u * k];
+                n = cur->node_v[2u * k + 1u];
+                for (i = 0; i < n; i++) {
+                    o->pidx[v0 + i] = PIDX_NONE;
+                    o->vstat[v0 + i] = 0;
+                }
+                pn->mode = RN_VERTEX;
+            }
+        }
+    }
+    /* welded copies: the unchanged vertices in a hash of their cells, every other matched vertex of a draw looked up. Round 0.9.9a: also two CHANGED vertices of different models that coincide at both
+       pairs (a weld that averages both models: PJoinVertexes case 1, and the game's limbs are full of them): each model's own transform would part them between two pairs of a fast motion (Knuckles' run
+       1.69 units, Big's throw 3.02): the first found stays, the others follow it */
     o->nfol = 0;
     mask = o->cap_hash - 1u;
     memset(o->hash, 0, (size_t)o->cap_hash * sizeof(uint32_t));
-    if (nstat) {
+    {
         for (v = 0; v < nv; v++) {
             int64_t c[3];
             uint32_t h;
@@ -3138,6 +3175,12 @@ static sa1_status plan_build(sa1_context *ctx, sa1_char *ch)
                             }
                         }
                     }
+                }
+                if (!found && !(cur->node_fl[k] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE))) {
+                    uint32_t h = cell_hash(c) & mask;
+                    while (o->hash[h])
+                        h = (h + 1u) & mask;
+                    o->hash[h] = v + 1u;
                 }
             }
         }

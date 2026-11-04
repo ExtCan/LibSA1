@@ -101,11 +101,11 @@ action	internal_name	label	class	wheel	play	frames	mtnmode	next	chain	link	racio
 -	wing_act	Amy_s_Birdie_Normal_Animation	no	no	once	16									1ST_READ	8C4BEF84			another object's motion (Froggy / Birdie)		
 -	amy_face_a_head.nas	amy_face_a_head	no	no	once	20									1ST_READ	8C4E591C			an EV-head shape motion (the face, faces_events.md), not a body motion		
 -	a_mogura0	Amy_Begin_Crouching	extra:pose	yes	once	61						1	Amy		1ST_READ	8C50ECD4			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
--	a_mogura1	Amy_Crouch	extra:pose	yes	once	17						1	Amy		1ST_READ	8C510908			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
+-	a_mogura1	Amy_Crouch	extra:pose	yes	loop	17						1	Amy		1ST_READ	8C510908			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
 -	a_mogura2	Amy_End_Crouching	extra:pose	yes	once	22						1	Amy		1ST_READ	8C51343C			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
 -	a_kakure0	A_MOT_Amy_Hiding	extra:pose	yes	once	16						1	Amy		A_MOT	0CC3EDB4			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
 -	a_taiki0	A_MOT_Amy_Begin_Frustration	extra:pose	yes	once	49						1	Amy		A_MOT	0CC44458			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
--	a_taiki1	A_MOT_Amy_Frustration	extra:pose	yes	once	14						1	Amy		A_MOT	0CC4600C			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
+-	a_taiki1	A_MOT_Amy_Frustration	extra:pose	yes	loop	14						1	Amy		A_MOT	0CC4600C			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
 -	a_taiki2	A_MOT_Amy_End_Frustration	extra:pose	yes	once	11						1	Amy		A_MOT	0CC476E0			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
 -	a_zitabata	A_MOT_Amy_Launched	extra:hurt	yes	once	16						1	Amy		A_MOT	0CC8EAE0			not in the action table: EV_SetMotion (8C04B528) with the body object 8C4C7C3C; the probe played it (no fault)		
 -	ad_dwalk	A_MOT_Amy_Walking_Motions_Barrel	no	no	once	32									A_MOT	0CC9368C			the barrel's motion: on Amy's body it crashed the probe process (0xC0000005)		

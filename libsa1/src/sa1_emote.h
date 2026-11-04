@@ -33,6 +33,9 @@ typedef struct sa1em_list {
     const sa1em_entry *e;
 } sa1em_list;
 
+/* round 0.9.9a: sa1em_entry.flags of an extra that loops by default (the rows have their play mode from the character set): the middle of a begin / loop / end triple */
+#define SA1EM_F_LOOP 0x40u
+
 /* the list of a character kind and form (kind 8: any form), NULL: none (Eggman, Tikal, a form a kind does not have) */
 const sa1em_list *sa1em_list_of(int32_t kind, uint32_t form);
 

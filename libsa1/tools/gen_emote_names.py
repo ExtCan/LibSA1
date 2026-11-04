@@ -12,10 +12,11 @@ of the emote catalogue, in list order (the table rows in row order, then the val
     label       the SA Tools label
     class       SA1_EMOTE_CLASS_*
     flags       SA1_EMOTE_F_* (NEEDS_PROP from `needs`, HOLD from `play`, SUPER_ONLY 130-141, BOARD, OTHER_OBJECT from
-                the drawn object, EXTRA)
+                the drawn object, EXTRA) and, for an extra whose `play` is loop (round 0.9.9a: the middle of a begin / loop /
+                end triple, Knuckles' k_taiki1: played once it is a twitch and a freeze), SA1EM_F_LOOP (src/sa1_emote.h)
     dup_of      the list position of the first entry with the same DRAWN object and motion (kind 8: the substituted
-                Super body / ball; the General form: GT's objects) - never the name: names are not unique (review R.9:
-                Knuckles' k_panch0 = rows 39 and 54, two motions)
+                Super body / ball; the General form: GT's objects) - never the name: names are not unique (review R.9;
+                Sonic's s_spin0 is four rows)
     frames      extras only: NJS_MOTION.nbFrame (review R.2: no extra motion is left to read without a world); rows take
                 their frames and play modes from the loaded character set (sa1_action_info_get)
     motion      extras only: the DC address of the motion (the body object is the kind's main object, sa1_manifest_char)
@@ -35,7 +36,7 @@ DEFAULT_OUT = os.path.join(LIB, "src", "sa1_emote_names.c")
 # SA1_EMOTE_CLASS_* (include/libsa1.h, faces_wheel_plan.md 5.3)
 CLASSES = {"stand": 0, "idle": 1, "pose": 2, "move": 3, "air": 4, "brake": 5, "ball": 6, "attack": 7, "carry": 8,
            "setpiece": 9, "hurt": 10, "fish": 11, "swim": 12, "board": 13, "super": 14}
-F_NEEDS_PROP, F_HOLD, F_SUPER_ONLY, F_BOARD, F_OTHER_OBJECT, F_EXTRA = 0x1, 0x2, 0x4, 0x8, 0x10, 0x20
+F_NEEDS_PROP, F_HOLD, F_SUPER_ONLY, F_BOARD, F_OTHER_OBJECT, F_EXTRA, F_LOOP = 0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40
 
 # kind -> (TSV, the main body's SA Tools object label)
 CHARS = [
@@ -138,6 +139,8 @@ def build(tsv_dir):
                 f |= F_NEEDS_PROP
             if r.get("play") == "hold":
                 f |= F_HOLD
+            if r.get("play") == "loop":
+                f |= F_LOOP
             entries.append({"source": 1, "index": nx, "name": r["internal_name"], "label": r["label"],
                             "cls": CLASSES[cls[6:]], "flags": f, "frames": int(r["frames"]),
                             "motion": r["motion_addr"], "maddr": int(r["motion_addr"], 16), "obj": main})
