@@ -22,6 +22,8 @@ typedef struct sa1k_char sa1k_char;
 typedef struct sa1k_drive {
     int32_t row;            /* the action row the display drew */
     int32_t steady;         /* not linking between rows: frame is the row's motion frame */
+    int32_t linking;        /* round 0.9.9g: not steady, an emote excepted: the game's own blend between two of Sonic's rows (mtnmode 2, or a row asked for) */
+    float speed;            /* round 0.9.9g: playerwk.spd.x */
     float frame;
     int32_t have_root;      /* pos, ang hold the drawn step */
     float pos[3];           /* SA1 space */
@@ -40,6 +42,8 @@ sa1_status sa1k_char_new(sa1_context *ctx, uint32_t anim, sa1k_char **out);
 void sa1k_char_free(sa1_context *ctx, sa1k_char *sc);
 void sa1k_set_anim(sa1k_char *sc, uint32_t anim);
 
+/* round 0.9.9g: a draw of the game's aura this pair, with its draw state: the shells take its colours */
+void sa1k_note_glow(sa1k_char *sc, const sa1_draw_state *ds);
 /* sa1_capture_emit_into: at the top of an emit, the world's own tree -> the lookup (RM.1, RM.2) */
 void sa1k_note_begin(sa1k_char *sc, sa1_capture *c, const sa1_charset *cs);
 /* 1: this model is the spin ball */
@@ -89,8 +93,15 @@ typedef struct sa1k_test_info {
     uint32_t lookups;
     uint32_t model_bytes;               /* held */
     int32_t drive_row, has_fix52;
+    /* round 0.9.9g */
+    float live_mix;                     /* how much of Sonic's own pose of this pair is in the parts, 0 to 1 */
+    int32_t have_flown;                 /* flown_r, src_r hold this pair's */
+    double flown_r[SA1K_PARTS_MAX][9];  /* the flown pose */
+    double src_r[SA1K_PARTS_MAX][9];    /* what it fades from, against the root */
+    int32_t glow_passes;
 } sa1k_test_info;
 void sa1k_test_get(const sa1k_char *sc, sa1k_test_info *out);
+uint32_t sa1k_test_glow_bytes(const sa1k_char *sc);
 /* the sa1_frontend's state (NULL: no skin), for the same */
 sa1k_char *sa1fe_test_skin(const sa1_frontend *fe);
 

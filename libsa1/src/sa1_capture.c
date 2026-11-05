@@ -750,13 +750,19 @@ static int cap_gold_texlist(const sa1_capture *c, uint32_t texlist)
     return c->super_gold && (t == CAP_GOLD_STREAK || t == CAP_GOLD_SPARKLE);
 }
 
-static int cap_gold_glow(const sa1_capture *c, const sa1_cap_rec *r)
+/* a record of the aura's skeleton: Ninja's action draw of a model with the aura's materials */
+static int cap_aura_rec(const sa1_capture *c, const sa1_cap_rec *r)
 {
     const uint8_t *mp;
-    if (!c->super_gold || r->kind != SA1_CAP_NJMOTION || !(r->flags & SA1_CAPF_NJ_ACTION))
+    if (r->kind != SA1_CAP_NJMOTION || !(r->flags & SA1_CAPF_NJ_ACTION))
         return 0;
     mp = sa1_capture_read((void *)(uintptr_t)c, r->obj, 0x28u);
     return mp != NULL && (sa1_rd32(mp + 16) & 0x1FFFFFFFu) == CAP_GLOW_MATS;
+}
+
+static int cap_gold_glow(const sa1_capture *c, const sa1_cap_rec *r)
+{
+    return c->super_gold && cap_aura_rec(c, r);
 }
 
 /* T2 on the corner colours of triangles [t0, t1) of b */
@@ -1370,6 +1376,8 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
             /* round 0.9.9f: note and drop. Effects, sprites, objects, a board and the blob take their usual way */
             skin_ball = sa1k_note_ball(o->skin, r->obj);
             if (!skin_ball) {
+                if (cap_aura_rec(c, r))
+                    sa1k_note_glow(o->skin, &ds);       /* round 0.9.9g: the aura's own colours and pulse, for the skin's shells */
                 sa1k_note_draw(o->skin, r->obj, m, &ds);
                 c->excluded++;
                 continue;

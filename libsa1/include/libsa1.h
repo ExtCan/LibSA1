@@ -131,7 +131,7 @@ extern "C" {
 
 #define SA1_VERSION_MAJOR 0
 #define SA1_VERSION_MINOR 5
-#define SA1_VERSION_PATCH 2
+#define SA1_VERSION_PATCH 3
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
 #define SA1_API_VERSION ((SA1_VERSION_MAJOR << 16) | SA1_VERSION_MINOR)
@@ -211,7 +211,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.5.2" */
+SA1_API const char *sa1_version_string(void);     /* "0.5.3" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -3411,9 +3411,10 @@ SA1_API sa1_status sa1_frontend_view(const sa1_frontend *fe, float eye[3], float
                                           a board and the blob as they are. HOST DEVIATIONS, render step only: the parts table and scale, running rows drawn with another row's motion, the spin ball's
                                           texture. Not with SA1_CREATE_SUPER_CAPABLE. SA1_ERR_NOT_LOADED, named in sa1_last_error, without the disc's files */
 #define SA1_ARCHIVE_SKIN      61u      /* sa1_texture_get / _archive (kind 0): the skin's textures, by position in tex_keep. Not counted in num_archives; SA1_ERR_NOT_LOADED before the skin's first use */
-#define SA1_COPT_SKIN_ANIM    9u       /* sa1_character_set_option: SA1_SKIN_ANIM_* (default FLY). At once, no re-creation */
+#define SA1_COPT_SKIN_ANIM    9u       /* sa1_character_set_option: SA1_SKIN_ANIM_* (default FLY and GLOW). At once, no re-creation */
 #define SA1_SKIN_ANIM_FLY     1u       /* the rows of sa1_skin_desc.anim draw their flown row */
 #define SA1_SKIN_ANIM_WALK    2u       /* and of anim_walk (with FLY) */
+#define SA1_SKIN_ANIM_GLOW    4u       /* round 0.9.9g: where the game draws Sonic's charged aura, the parts again as shells of glow_rgb: blended, unlit, additive, archive -1, source MODEL: the aura's own state */
 #define SA1_SKIN_TURN_NONE    0        /* the figure is built like Sonic's body (faces -X) */
 #define SA1_SKIN_TURN_MINUS_Z 1        /* the figure faces -Z, its bones run along -Y */
 typedef struct sa1_skin_part {
@@ -3440,6 +3441,12 @@ typedef struct sa1_skin_desc {
     uint32_t num_anim;
     const uint16_t (*anim_walk)[2];    /* the same under SA1_SKIN_ANIM_WALK */
     uint32_t num_anim_walk;
+    /* round 0.9.9g; read when struct_size covers them (zero: none) */
+    const uint16_t (*anim_fast)[2];    /* the same for a walking row while he moves faster than a held walk can (with FLY): the top of the row, the way between a walk and a run */
+    uint32_t num_anim_fast;
+    float fast_on, fast_off;           /* playerwk.spd.x: the row flies from fast_on, until under fast_off */
+    float glow_rgb[3];                 /* the colour of the charged glow, 0 to 1; all zero: no glow */
+    float glow_inflate;                /* the outermost shell stands this far off the part along its normals, SA1 units; three shells at a third, two thirds and all of it */
 } sa1_skin_desc;
 /* Character Select's slot 0 draws the skin in place of Sonic, from the next frame (NULL: Sonic). The world, its events and the screen do not change. First use reads the disc's files */
 SA1_API sa1_status sa1_frontend_set_skin(sa1_frontend *fe, const sa1_skin_desc *skin);

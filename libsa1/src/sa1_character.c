@@ -629,7 +629,7 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
     ch->inst.kind = d.kind;
     ch->create_flags = d.flags;
     if (d.flags & SA1_CREATE_SKIN) {
-        st = sa1k_char_new(ctx, SA1_SKIN_ANIM_FLY, &ch->skin);
+        st = sa1k_char_new(ctx, SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_GLOW, &ch->skin);
         if (st != SA1_OK) {
             sa1_mem_free(ctx, ch);
             return st;
@@ -1563,10 +1563,13 @@ static void skin_drive(const sa1_charset *cs, const sa1_char *ch, sa1k_drive *d)
         d->row = ch->last.drawn_valid && ch->last.drawn_frame_valid ? (int32_t)ch->last.drawn_action
                                                                      : (int32_t)(ch->last.mtnmode == 2 ? ch->last.action : ch->last.reqaction);
         d->steady = ch->last.mtnmode != 2 && ch->last.action == ch->last.reqaction;
+        d->linking = !d->steady;    /* (the game asks a new row one pair before mtnmode says 2) */
+        d->speed = ch->last.pspd[0];
         /* an emote plays its row through the game's action pointer: the action fields do not name it */
         if (ch->last.emote_row >= 0 && ch->last.emote_state != SA1_EMOTE_STATE_NONE) {
             d->row = ch->last.emote_row;
             d->steady = 0;
+            d->linking = 0;
         }
         d->frame = ch->last.drawn_valid && ch->last.drawn_frame_valid ? ch->last.drawn_frame : ch->last.nframe;
         d->have_root = 1;
@@ -3216,7 +3219,7 @@ static sa1_status plan_build(sa1_context *ctx, sa1_char *ch)
                   !(cur->node_fl[o->order[a]] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE));
         }
         for (k = 0; k < nn && !pop && !same; k++) {
-            if (o->plan[k].prev < 0 && !(cur->node_fl[k] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE)) && (charset_model(cs, cur->node_model[k]) || (ch->skin != NULL && sa1k_part_mesh(ch->skin, cur->node_model[k]) >= 0)))
+            if (o->plan[k].prev < 0 && !(cur->node_fl[k] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE | SA1_NODE_SKIN_GLOW)) && (charset_model(cs, cur->node_model[k]) || (ch->skin != NULL && sa1k_part_mesh(ch->skin, cur->node_model[k]) >= 0)))
                 unmatched++;
             pop = unmatched >= 4u && o->norder > 0u;    /* more than a prop that comes and goes (Amy's hammer has its parts in other draws) */
         }

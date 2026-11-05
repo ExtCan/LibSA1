@@ -268,6 +268,7 @@ typedef struct sa1_meshbuf {
 #define SA1_NODE_SHADOW  0x2u   /* the blob shadow (emitted with SA1_DRAW_SHADOW) */
 #define SA1_NODE_FADE    0x4u   /* drawn under a fading constant material (emitted with SA1_DRAW_AFTERIMAGE; round 0.9.1:
                                    the render plan matches draws regardless of it, but drops the motion hint across it) */
+#define SA1_NODE_SKIN_GLOW 0x10u /* round 0.9.9g: a skin's shell (sa1_skin.c): the n-th draw of a part's model that comes and goes with the glow, no reason to give up the mid-pair output */
 #define SA1_NODE_OBJECT  0x8u   /* round 0.9.4: drawn by a game object's task (emitted with SA1_DRAW_OBJECT; set by
                                    sa1_capture_emit_into after the emitter wrote the node's other flags): the render plan
                                    matches it by its place in the world, never with a draw that is not one (R-F1) */

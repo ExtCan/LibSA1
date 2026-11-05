@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "libsa1.h"
 #include "sa1_internal.h"
@@ -62,6 +63,7 @@ static const sa1_skin_part k_parts[25] = {
 };
 static const uint16_t k_anim[4][2] = { {10, 132}, {11, 133}, {12, 134}, {13, 134} };
 static const uint16_t k_walk[1][2] = { {9, 131} };
+static const uint16_t k_fast[1][2] = { {9, 132} };
 static sa1_skin_desc g_skin;
 
 static void skin_init(void)
@@ -88,6 +90,14 @@ static void skin_init(void)
     g_skin.num_anim = 4;
     g_skin.anim_walk = k_walk;
     g_skin.num_anim_walk = 1;
+    g_skin.anim_fast = k_fast;
+    g_skin.num_anim_fast = 1;
+    g_skin.fast_on = 0.25f;
+    g_skin.fast_off = 0.215f;
+    g_skin.glow_rgb[0] = 0.55f;
+    g_skin.glow_rgb[1] = 0.10f;
+    g_skin.glow_rgb[2] = 1.00f;
+    g_skin.glow_inflate = 0.30f;
 }
 
 /* ---- the scene --------------------------------------------------------------------------------------------------------------------------- */
@@ -1121,6 +1131,453 @@ static void test_s7(void)
     sa1_character_destroy(g_ctx, id);
 }
 
+/* ---- S10: the way between a walk and a run (round 0.9.9g; the owner: "Metal Sonic's transition from run>walk and walk>run uses Sonic's animation instead of Super Sonic's") ------------------------- */
+typedef struct t_out {
+    int walk_pairs, rise_pairs, rise_live, link_pairs, link_live, fast_pairs, fast_live;
+    int src_moved, formula_pairs;
+    double worst_src, worst_formula, worst_turn, worst_step;
+} t_out;
+
+static void t_run(const char *what, int n, float (*stick)(int), t_out *o)
+{
+    sa1_character_id id = 0;
+    sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti), *tp = (sa1k_test_info *)malloc(sizeof *tp);
+    int p, have_prev = 0;
+    memset(o, 0, sizeof *o);
+    if (create(SA1_CREATE_SKIN, &id) != SA1_OK) {
+        CHECK(0, "S10 create");
+        return;
+    }
+    for (p = 0; p < n; p++) {
+        sa1_state_ex x;
+        const sa1_render *r = NULL;
+        uint32_t i;
+        tick(id, 0.0f, stick(p), 0u);
+        state_of(id, &x);
+        sa1_character_render(g_ctx, id, 1.0f, &r);
+        info_of(id, ti);
+        /* The rows of the way up and down: while the game's row is one of Sonic's running rows, or linking next to one, none of Sonic's own pose is in the parts:
+           he is the flown row, or the walk's held pose fading into it */
+        if (ti->drew && x.action >= 10 && x.action <= 13 && ti->w > 0.0f && ti->w < 1.0f) {
+            o->rise_pairs++;
+            o->rise_live += ti->live_mix > 0.0f;
+        }
+        if (ti->drew && x.action != x.req_action && x.action >= 9 && x.action <= 13 && ti->drive_row >= 9 && ti->drive_row <= 13) {
+            o->link_pairs++;
+            o->link_live += ti->live_mix > 0.0f && ti->w > 0.0f;
+        }
+        if (ti->drew && x.action == 9 && x.player_speed[0] >= 0.25f && ti->w > 0.0f) {
+            o->fast_pairs++;
+        }
+        if (ti->drew && x.action == 9 && x.player_speed[0] >= 0.25f && ti->live_mix > 0.0f) {
+            o->fast_live++;
+        }
+        if (ti->drew && x.action == 9 && x.action == x.req_action && x.player_speed[0] < 0.21f && ti->w <= 0.0f) {
+            o->walk_pairs++;
+        }
+        if (ti->w > 0.0f && ti->w < 1.0f && ti->drew && tp->drew && tp->w > 0.0f && have_prev) {
+            /* no pop: from one pair to the next, against the torso */
+            for (i = 0; i < 25u; i++) {
+                double a[9], b[9], d;
+                mul3_t(tp->r[i], tp->r[0], a);
+                mul3_t(ti->r[i], ti->r[0], b);
+                d = m3_angle_between(a, b);
+                if (d > o->worst_turn) {
+                    o->worst_turn = d;
+                }
+            }
+            /* ... and the torso's own place against the character's */
+            {
+                double dx = (ti->p[0][0] - ti->fly_root[3]) - (tp->p[0][0] - tp->fly_root[3]);
+                double dy = (ti->p[0][1] - ti->fly_root[7]) - (tp->p[0][1] - tp->fly_root[7]);
+                double dz = (ti->p[0][2] - ti->fly_root[11]) - (tp->p[0][2] - tp->fly_root[11]);
+                double d = sqrt(dx * dx + dy * dy + dz * dz);
+                if (d > o->worst_step) {
+                    o->worst_step = d;
+                }
+            }
+        }
+        /* a fade in: the source stays the held pose against the root (no motion of Sonic's in it); each part lies on the way from it to the flown pose, at w, by other code than the library's: the angles add up */
+        if (ti->w > 0.0f && ti->w < 1.0f && ti->live_mix <= 0.0f && ti->drew && ti->have_flown) {
+            for (i = 0; i < 25u; i++) {
+                double whole, part, here, a[9], rt[9];
+                rt[0] = ti->fly_root[0]; rt[1] = ti->fly_root[1]; rt[2] = ti->fly_root[2];
+                rt[3] = ti->fly_root[4]; rt[4] = ti->fly_root[5]; rt[5] = ti->fly_root[6];
+                rt[6] = ti->fly_root[8]; rt[7] = ti->fly_root[9]; rt[8] = ti->fly_root[10];
+                mul3(rt, ti->src_r[i], a);
+                whole = m3_angle_between(a, ti->flown_r[i]);
+                part = m3_angle_between(a, ti->r[i]);
+                here = m3_angle_between(ti->r[i], ti->flown_r[i]);
+                if (fabs((part + here) - whole) > o->worst_formula) {
+                    o->worst_formula = fabs((part + here) - whole);
+                }
+                if (whole > 1.0 && fabs(part / whole - (double)ti->w) > o->worst_formula) {
+                    o->worst_formula = fabs(part / whole - (double)ti->w);
+                }
+            }
+            o->formula_pairs++;
+            if (have_prev && tp->live_mix <= 0.0f && tp->w > 0.0f && tp->w < 1.0f && tp->have_flown) {
+                for (i = 0; i < 25u; i++) {
+                    double d = m3_angle_between(ti->src_r[i], tp->src_r[i]);
+                    if (d > o->worst_src) {
+                        o->worst_src = d;
+                    }
+                }
+            }
+        }
+        memcpy(tp, ti, sizeof *tp);
+        have_prev = 1;
+    }
+    printf("  info  %s: %d pairs of a running row fading, %d with Sonic's own pose in them; %d link pairs, %d with it; %d fast pairs of row 9 flying; %d pairs of a plain slow walk; worst turn %.1f degrees, worst torso step %.3f units\n",
+           what, o->rise_pairs, o->rise_live, o->link_pairs, o->link_live, o->fast_pairs, o->walk_pairs, o->worst_turn, o->worst_step);
+    sa1_character_destroy(g_ctx, id);
+    free(ti);
+    free(tp);
+}
+
+static float t_step(int p) { return p < 30 ? 0.0f : (p < 200 ? 1.0f : 0.0f); }
+static float t_ramp(int p)
+{
+    if (p < 30) {
+        return 0.0f;
+    }
+    if (p < 180) {
+        return (float)(p - 30) / 150.0f;
+    }
+    if (p < 300) {
+        return 1.0f;
+    }
+    return p < 450 ? 1.0f - (float)(p - 300) / 150.0f : 0.0f;
+}
+/* a ramp up over g_ramp pairs, 60 at the top, down over as many */
+static int g_ramp;
+static float t_rate(int p)
+{
+    if (p < 30) {
+        return 0.0f;
+    }
+    if (p < 30 + g_ramp) {
+        return (float)(p - 30) / (float)g_ramp;
+    }
+    if (p < 90 + g_ramp) {
+        return 1.0f;
+    }
+    return p < 90 + 2 * g_ramp ? 1.0f - (float)(p - 90 - g_ramp) / (float)g_ramp : 0.0f;
+}
+static float t_walk(int p) { return p < 30 ? 0.0f : 0.75f; }
+static float t_walk_run(int p) { return p < 30 ? 0.0f : (p < 150 ? 0.75f : (p < 300 ? 1.0f : (p < 340 ? 0.0f : 0.75f))); }
+
+static void test_s10(void)
+{
+    t_out a, b, c, d;
+    printf("S10 the way between a walk and a run\n");
+    t_run("the stick pushed, then let go", 300, t_step, &a);
+    t_run("a stick ramp up and down", 520, t_ramp, &b);
+    t_run("a slow walk", 200, t_walk, &c);
+    t_run("walk, run, stop, walk", 460, t_walk_run, &d);
+    {
+        static const int rates[5] = { 5, 20, 45, 90, 240 };
+        int k, live = 0, fast = 0, seen = 0;
+        double turn = 0.0;
+        for (k = 0; k < 5; k++) {
+            t_out o;
+            char what[64];
+            g_ramp = rates[k];
+            snprintf(what, sizeof what, "a ramp over %d pairs each way", rates[k]);
+            t_run(what, 90 + 2 * rates[k] + 40, t_rate, &o);
+            live += o.rise_live + o.link_live + o.fast_live;
+            fast += o.fast_pairs;
+            seen += o.rise_pairs + o.link_pairs;
+            if (o.worst_turn > turn) {
+                turn = o.worst_turn;
+            }
+        }
+        CHECK(seen > 0 && fast > 0 && live == 0, "S10 ramps at five rates, both ways: %d transition pairs and %d of the walk's top, Sonic's own pose in none (%d)", seen, fast, live);
+        CHECK(turn < 45.0, "S10 ramps at five rates: no pop, at most %.1f degrees a pair against the torso", turn);
+    }
+    CHECK(a.rise_pairs + b.rise_pairs + d.rise_pairs > 0 && a.rise_live + b.rise_live + d.rise_live == 0, "S10 walk > run: in %d pairs of a running row still fading in, Sonic's own pose is in none (%d)", a.rise_pairs + b.rise_pairs + d.rise_pairs, a.rise_live + b.rise_live + d.rise_live);
+    CHECK(a.link_pairs + b.link_pairs + d.link_pairs > 0 && a.link_live + b.link_live + d.link_live == 0, "S10 the game's blends (mtnmode 2) between rows 9 to 13: %d pairs, Sonic's own blend is in none (%d)", a.link_pairs + b.link_pairs + d.link_pairs, a.link_live + b.link_live + d.link_live);
+    CHECK(a.fast_live + b.fast_live + c.fast_live + d.fast_live == 0, "S10 the top of row 9: Sonic's own pose in no pair of it (%d)", a.fast_live + b.fast_live + c.fast_live + d.fast_live);
+    CHECK(a.fast_pairs + b.fast_pairs + d.fast_pairs > 0, "S10 the top of row 9, faster than any held walk: he flies (%d pairs)", a.fast_pairs + b.fast_pairs + d.fast_pairs);
+    CHECK(c.walk_pairs > 100 && c.fast_pairs == 0, "S10 a slow walk stays Sonic's walk: %d pairs of it, %d flying", c.walk_pairs, c.fast_pairs);
+    CHECK(a.formula_pairs + b.formula_pairs + d.formula_pairs > 0 && a.worst_src < 1e-5 && b.worst_src < 1e-5 && d.worst_src < 1e-5, "S10 a fade in holds the walk's last pose against his root: it moves %.2e degrees (%d pairs)", a.worst_src, a.formula_pairs + b.formula_pairs + d.formula_pairs);
+    CHECK(a.worst_formula < 0.03 && b.worst_formula < 0.03 && d.worst_formula < 0.03, "S10 each part lies on the way from the held pose to the flown one, at w (worst %.4f, %.4f, %.4f)", a.worst_formula, b.worst_formula, d.worst_formula);
+    CHECK(a.worst_turn < 45.0 && b.worst_turn < 45.0 && d.worst_turn < 45.0, "S10 no pop: while the fade runs no part turns more than 45 degrees a pair against the torso (%.1f, %.1f, %.1f; Sonic's own arms turn up to 100, MEASURED, S4)", a.worst_turn, b.worst_turn, d.worst_turn);
+    CHECK(a.worst_step < 1.0 && b.worst_step < 1.0 && d.worst_step < 1.0, "S10 no pop: the torso's place against the root moves under 1 unit a pair while the fade runs (%.3f, %.3f, %.3f)", a.worst_step, b.worst_step, d.worst_step);
+    /* a stop: from the stick let go to standing as Sonic stands: he does not hang in the air for the game's long link from a walk to the stand */
+    {
+        sa1_character_id id = 0;
+        sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti);
+        int p, stopped = -1, landed = -1;
+        create(SA1_CREATE_SKIN, &id);
+        for (p = 0; p < 300; p++) {
+            sa1_state_ex x;
+            tick(id, 0.0f, t_step(p), 0u);
+            state_of(id, &x);
+            info_of(id, ti);
+            if (p >= 200 && stopped < 0 && x.player_speed[0] <= 0.0f) {
+                stopped = p;
+            }
+            if (stopped >= 0 && landed < 0 && ti->w <= 0.0f) {
+                landed = p;
+            }
+        }
+        CHECK(stopped > 0 && landed > 0 && landed - stopped <= 13, "S10 a stop: stopped at pair %d, on his feet at %d: at most 13 pairs (4 or 5 of flight through the link, 8 of fade)", stopped, landed);
+        sa1_character_destroy(g_ctx, id);
+        free(ti);
+    }
+    /* gsa1_metal_walk_fly: the walk flies, and the option off leaves him Sonic's all the way */
+    {
+        sa1_character_id id = 0;
+        sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti);
+        int p, flown = 0, off_w = 0;
+        create(SA1_CREATE_SKIN, &id);
+        sa1_character_set_option(g_ctx, id, SA1_COPT_SKIN_ANIM, SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_WALK);
+        for (p = 0; p < 120; p++) {
+            tick(id, 0.0f, p < 20 ? 0.0f : 0.75f, 0u);
+            info_of(id, ti);
+            flown += ti->cur == 131 && ti->w >= 1.0f;
+        }
+        CHECK(flown > 50, "S10 gsa1_metal_walk_fly: the slow walk flies, row 131 (%d pairs)", flown);
+        sa1_character_destroy(g_ctx, id);
+        create(SA1_CREATE_SKIN, &id);
+        sa1_character_set_option(g_ctx, id, SA1_COPT_SKIN_ANIM, 0);
+        for (p = 0; p < 300; p++) {
+            tick(id, 0.0f, t_step(p), 0u);
+            info_of(id, ti);
+            off_w += ti->w > 0.0f;
+        }
+        CHECK(off_w == 0, "S10 gsa1_metal_fly off: never a flown pair (%d)", off_w);
+        sa1_character_destroy(g_ctx, id);
+        free(ti);
+    }
+}
+
+/* ---- S11: the Light Speed glow (round 0.9.9g; the owner: "copy the character model and inflate it a bit and add it with a purple colour") ------------------------------------------------------------- */
+static uint32_t glow_tally(const sa1_render *r, uint8_t col[3][3], uint32_t per)
+{
+    uint32_t i, tris = 0, seen = 0;
+    if (col) {
+        memset(col, 0, 9);
+    }
+    if (r == NULL) {
+        return 0;
+    }
+    for (i = 0; i < r->num_draws; i++) {
+        const sa1_draw *d = &r->draws[i];
+        if (d->prim != SA1_PRIM_TRIANGLES || d->source != SA1_SOURCE_MODEL || !(d->flags & SA1_DRAW_ADDITIVE) || (d->flags & SA1_DRAW_EFFECT) || d->blend_src != SA1_BLEND_ONE || d->blend_dst != SA1_BLEND_ONE || d->archive != -1) {
+            continue;
+        }
+        tris += d->count;
+        if (col && per) {
+            uint32_t t;
+            for (t = 0; t < d->count; t++, seen++) {
+                if (seen % per == 0u && seen / per < 3u) {
+                    memcpy(col[seen / per], r->colors + 12u * (d->first + t), 3);
+                }
+            }
+        }
+    }
+    return tris;
+}
+
+static void test_s11(void)
+{
+    sa1_character_id a = 0, b = 0;
+    int p, charged = 0, both = 0, differ = 0, bad_flags = 0, bad_col = 0, mids = 0, nans = 0, pulse_up = 0, pulse_down = 0, first_off = 0;
+    uint8_t last_g = 0;
+    int have_g = 0;
+    double worst_infl = 0.0, worst_mid = 0.0;
+    uint32_t tris_max = 0, plain_parts = 0;
+    printf("S11 the Light Speed glow\n");
+    create(0, &a);
+    create(SA1_CREATE_SKIN, &b);
+    upgrades_on(a);
+    upgrades_on(b);
+    for (p = 0; p < 300; p++) {
+        const sa1_render *ra = NULL, *rb = NULL;
+        uint8_t ca[3][3], cb[3][3];
+        uint32_t ga, gb, i;
+        uint32_t but = (p >= 30 && p < 120) || (p >= 180 && p < 260) ? SA1_BUTTON_ACTION : 0u;
+        float sy = (p >= 120 && p < 180) ? 1.0f : 0.0f;
+        tally t;
+        tick(a, 0.0f, sy, but);
+        tick(b, 0.0f, sy, but);
+        sa1_character_render(g_ctx, a, 1.0f, &ra);
+        sa1_character_render(g_ctx, b, 1.0f, &rb);
+        ga = glow_tally(ra, ca, 290u);
+        gb = glow_tally(rb, cb, 1015u);
+        tally_of(rb, &t);
+        charged += ga > 0u;
+        both += ga > 0u && gb > 0u;
+        differ += (ga > 0u) != (gb > 0u) && t.skin_tris > 0u;
+        if (gb > tris_max) {
+            tris_max = gb;
+        }
+        plain_parts += gb > 0u && t.skin_tris != 1015u;
+        if (gb == 0u) {
+            continue;
+        }
+        /* the same state as Sonic's: blended, unlit, additive */
+        for (i = 0; i < rb->num_draws; i++) {
+            const sa1_draw *d = &rb->draws[i];
+            if (d->prim == SA1_PRIM_TRIANGLES && d->source == SA1_SOURCE_MODEL && d->archive == -1 && (d->flags & SA1_DRAW_ADDITIVE) && (d->flags & (SA1_DRAW_BLEND | SA1_DRAW_UNLIT)) != (SA1_DRAW_BLEND | SA1_DRAW_UNLIT)) {
+                bad_flags++;
+            }
+        }
+        /* the colour from the game's own colour of the same pair: skin * blue + (1 - skin) * green, shared out so that the three add up to the colour once */
+        for (i = 0; i < 3u; i++) {
+            static const double s[3] = { 0.55, 0.10, 1.00 };
+            double gg = (double)ca[i][1] / 255.0, bb = (double)ca[i][2] / 255.0;
+            int k;
+            for (k = 0; k < 3; k++) {
+                double want = 255.0 * (s[k] * bb + (1.0 - s[k]) * gg) / 2.3;
+                if (fabs(want - (double)cb[i][k]) > 3.0) {
+                    bad_col++;
+                }
+            }
+        }
+        /* the pulse goes up and down with the game's */
+        if (have_g) {
+            pulse_up += ca[0][1] > last_g;
+            pulse_down += ca[0][1] < last_g;
+        }
+        last_g = ca[0][1];
+        have_g = 1;
+        /* the mid-pair interpolation stays whole */
+        {
+            const sa1_render *rm = NULL;
+            sa1_character_render(g_ctx, b, 0.5f, &rm);
+            if (rm != NULL) {
+                uint32_t v, sf = 0xFFFFFFFFu, gf = 0xFFFFFFFFu;
+                mids++;
+                for (v = 0; v < 9u * rm->num_triangles; v++) {
+                    if (!sa1_finite(rm->positions[v])) {
+                        nans++;
+                    }
+                }
+                /* the shells stay on their parts at mid pair: the outermost within the inflation (4 x 0.30 host units) and a little of each corner */
+                for (i = 0; i < rm->num_draws; i++) {
+                    const sa1_draw *d = &rm->draws[i];
+                    if (d->prim != SA1_PRIM_TRIANGLES) {
+                        continue;
+                    }
+                    if ((uint32_t)d->archive == SA1_ARCHIVE_SKIN && sf == 0xFFFFFFFFu) {
+                        sf = d->first;
+                    }
+                    if (d->archive == -1 && (d->flags & SA1_DRAW_ADDITIVE) && d->source == SA1_SOURCE_MODEL && gf == 0xFFFFFFFFu) {
+                        gf = d->first;
+                    }
+                }
+                for (v = 0; v < 3u * 1015u && sf != 0xFFFFFFFFu && gf != 0xFFFFFFFFu; v++) {
+                    const float *a0 = rm->positions + 3u * sf * 3u + 3u * v;
+                    const float *b0 = rm->positions + 3u * (gf + 2u * 1015u) * 3u + 3u * v;
+                    double dx = (double)b0[0] - (double)a0[0], dy = (double)b0[1] - (double)a0[1], dz = (double)b0[2] - (double)a0[2], e = sqrt(dx * dx + dy * dy + dz * dz);
+                    if (e > worst_mid) {
+                        worst_mid = e;
+                    }
+                }
+            }
+        }
+        if (!first_off) {
+            /* inflation: the three shells stand over the part's own vertices by a third, two thirds and all of glow_inflate, along each vertex's normal (host units: 4 per SA1 unit) */
+            const sa1_render *r1 = NULL;
+            first_off = 1;
+            sa1_character_render(g_ctx, b, 1.0f, &r1);
+            if (r1 != NULL) {
+                uint32_t skin_first = 0xFFFFFFFFu, glow_first = 0xFFFFFFFFu, c;
+                for (i = 0; i < r1->num_draws; i++) {
+                    const sa1_draw *d = &r1->draws[i];
+                    if (d->prim != SA1_PRIM_TRIANGLES) {
+                        continue;
+                    }
+                    if ((uint32_t)d->archive == SA1_ARCHIVE_SKIN && skin_first == 0xFFFFFFFFu) {
+                        skin_first = d->first;
+                    }
+                    if (d->archive == -1 && (d->flags & SA1_DRAW_ADDITIVE) && d->source == SA1_SOURCE_MODEL && glow_first == 0xFFFFFFFFu) {
+                        glow_first = d->first;
+                    }
+                }
+                for (c = 0; c < 3u * 1015u && skin_first != 0xFFFFFFFFu && glow_first != 0xFFFFFFFFu; c++) {
+                    int shell;
+                    for (shell = 0; shell < 3; shell++) {
+                        const float *a0 = r1->positions + 3u * skin_first * 3u + 3u * c;
+                        const float *b0 = r1->positions + 3u * (glow_first + (uint32_t)shell * 1015u) * 3u + 3u * c;
+                        const float *n0 = r1->normals + 3u * skin_first * 3u + 3u * c;
+                        double dx = (double)b0[0] - (double)a0[0], dy = (double)b0[1] - (double)a0[1], dz = (double)b0[2] - (double)a0[2];
+                        double want = 4.0 * 0.30 * (double)(shell + 1) / 3.0;
+                        double e = sqrt((dx - want * n0[0]) * (dx - want * n0[0]) + (dy - want * n0[1]) * (dy - want * n0[1]) + (dz - want * n0[2]) * (dz - want * n0[2]));
+                        if (e > worst_infl) {
+                            worst_infl = e;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    printf("  info  a charge: %d pairs of Sonic's own glow (870 triangles), %d of Metal Sonic's, %d differ with parts drawn; %u triangles a pair (3 x 1015)\n", charged, both, differ, (unsigned)tris_max);
+    CHECK(charged > 0 && both > 0 && differ == 0, "S11 the glow draws in exactly the pairs Sonic's would, %d pairs, %d differ", charged, differ);
+    CHECK(tris_max == 3045u && plain_parts == 0u, "S11 three shells of the 25 parts: %u triangles, 3 x 1015; the parts themselves stay 1015 triangles on archive 61 (%u pairs off)", (unsigned)tris_max, (unsigned)plain_parts);
+    CHECK(bad_flags == 0, "S11 blended, unlit, additive, ONE / ONE, untextured, source MODEL: Sonic's aura's own state (%d off)", bad_flags);
+    CHECK(bad_col == 0, "S11 the colour follows the game's own colour of the pair, purple (%d channels off)", bad_col);
+    CHECK(pulse_up > 0 && pulse_down > 0, "S11 Sonic's pulse: the glow's colour rises in %d pairs and falls in %d", pulse_up, pulse_down);
+    CHECK(worst_infl < 0.02, "S11 the inflation: each shell's vertex stands off the part's by k/3 of glow_inflate along its normal (worst %.4f host units)", worst_infl);
+    CHECK(mids > 0 && nans == 0, "S11 the mid-pair output stays finite (%d pairs, %d bad)", mids, nans);
+    CHECK(worst_mid < 1.3, "S11 at mid pair the outermost shell stays on its part: at most %.3f host units off (1.2 is the inflation)", worst_mid);
+    sa1_character_destroy(g_ctx, a);
+    sa1_character_destroy(g_ctx, b);
+    /* the option off: none, at once */
+    create(SA1_CREATE_SKIN, &b);
+    upgrades_on(b);
+    sa1_character_set_option(g_ctx, b, SA1_COPT_SKIN_ANIM, SA1_SKIN_ANIM_FLY);
+    {
+        uint32_t off = 0, on = 0;
+        for (p = 0; p < 118; p++) {
+            const sa1_render *r = NULL;
+            tick(b, 0.0f, 0.0f, p >= 30 ? SA1_BUTTON_ACTION : 0u);
+            sa1_character_render(g_ctx, b, 1.0f, &r);
+            off += glow_tally(r, NULL, 0u);
+        }
+        CHECK(off == 0u, "S11 gsa1_metal_glow off: no glow (%u triangles)", (unsigned)off);
+        sa1_character_set_option(g_ctx, b, SA1_COPT_SKIN_ANIM, SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_GLOW);
+        for (p = 0; p < 2; p++) {
+            const sa1_render *r = NULL;
+            tick(b, 0.0f, 0.0f, SA1_BUTTON_ACTION);
+            sa1_character_render(g_ctx, b, 1.0f, &r);
+            on = glow_tally(r, NULL, 0u);
+        }
+        CHECK(on == 3045u, "S11 ... and on again at once, no re-creation: %u triangles", (unsigned)on);
+        /* the cost: one rebuild of a pair's output, with the glow and without it. What the draw itself costs in Garry's Mod only the game can show */
+        {
+            sa1k_char *sc = sa1k_char_of(g_ctx, b);
+            sa1_meshbuf *mb = (sa1_meshbuf *)calloc(1, sizeof *mb);
+            const sa1_charset *cs = &g_ctx->chars[SA1_CHAR_SONIC];
+            clock_t t0;
+            enum { N = 3000 };
+            double on_ms, off_ms;
+            int k;
+            t0 = clock();
+            for (k = 0; k < N; k++) {
+                sa1_meshbuf_reset(mb);
+                sa1k_append(g_ctx, sc, cs, mb);
+            }
+            on_ms = 1000.0 * (double)(clock() - t0) / CLOCKS_PER_SEC / N;
+            sa1k_set_anim(sc, SA1_SKIN_ANIM_FLY);
+            t0 = clock();
+            for (k = 0; k < N; k++) {
+                sa1_meshbuf_reset(mb);
+                sa1k_append(g_ctx, sc, cs, mb);
+            }
+            off_ms = 1000.0 * (double)(clock() - t0) / CLOCKS_PER_SEC / N;
+            sa1k_set_anim(sc, SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_GLOW);
+            printf("  info  the cost: building a pair's parts takes %.3f ms with the glow, %.3f ms without (once per 30 Hz pair, in this test's build); %u bytes held for the three shells\n", on_ms, off_ms, (unsigned)sa1k_test_glow_bytes(sc));
+            sa1_meshbuf_free(g_ctx, mb);
+            free(mb);
+        }
+    }
+    sa1_character_destroy(g_ctx, b);
+}
+
 /* ---- S8: Character Select -------------------------------------------------------------------------------------------------------------------------------- */
 static uint32_t hash_bytes(uint32_t h, const void *p, size_t n)
 {
@@ -1423,6 +1880,8 @@ int main(int argc, char **argv)
     test_s3_row47();
     test_s3_rows_by_emote();
     test_s4();
+    test_s10();
+    test_s11();
     test_s6();
     test_s7();
     test_s8();

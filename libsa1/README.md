@@ -12,7 +12,11 @@ globals visible to the host (everything lives in an `sa1_context`), a flat versi
 `sadc/tools/pclower.py` and run in a Dreamcast-layout arena per character (design:
 `sadc/docs/libsa1_integration.md`).
 
-## Status (0.5.2, 2026-11-05)
+## Status (0.5.3, 2026-11-05)
+
+0.5.3 (round 0.9.9f): a worn skin's transitions never mix in the base character's pose, and a skin can draw a glow where the game draws the Light Speed aura. The strict replays stay bit-exact (78 traces, V7).
+
+### 0.5.2 (2026-11-05)
 
 0.5.2 (round 0.9.9e): Eggman and Tikal can be followers, `SA1_CREATE_SKIN` draws a worn skin's rigid parts over a character's own world, which stays byte for byte the same. The strict replays stay bit-exact (78 traces, V7).
 

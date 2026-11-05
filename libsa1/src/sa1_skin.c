@@ -10,11 +10,17 @@
  *
  * W is the world's drawn matrix of Sonic's mesh node (the only matrix a draw carries); in a flown row the joint node of a private evaluation of the flown row's own tree (RM.3: the Super tree's mesh nodes
  * rest elsewhere: the head would turn 173 degrees). W0 is always Sonic's own body at rest. G turns the figure's axes to Sonic's, A(i) lays its bone along his, from the two skeletons, at load.
+ *
+ * Round 0.9.9g. THE WAY BETWEEN A WALK AND A RUN (the owner: "uses Sonic's animation instead of Super Sonic's"; MEASURED sadc build/research/r099g/build/notes.md): a fade in never mixes in Sonic's row of the
+ * pair, which is his speedwalk under the game's own blend: it starts from the pose he last showed, held against his root (held_r, h), and that is his walk; through the game's links (mtnmode 2) a flight goes on, up to 5 pairs;
+ * the top of a walking row, faster than any held walk (anim_fast), flies. A fade out ends on the row he then is in, once the game's link is over. HOST DEVIATION D5.
+ * THE GLOW: where the game draws Sonic's aura (func_8C0B4F00: its three passes, read off the capture with their colours, so its pulse is the game's), the parts again, offset along their normals at load. HOST DEVIATION D6.
  */
 #include "sa1_skin.h"
 #include "sa1_api_world.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <string.h>
 
 #define SK_PI 3.14159265358979323846
@@ -52,6 +58,19 @@ typedef struct sa1k_state {
     sk_lookup statics[2u * SA1K_NODES];
     uint32_t num_statics;
     uint32_t ball_model;    /* physical; the spin ball's model, 0: none */
+    /* round 0.9.9g */
+    uint16_t anim_fast[8][2];
+    uint32_t num_anim_fast;
+    double fast_on, fast_off;
+    double glow_rgb[3];
+    int32_t glow;           /* the shells are built */
+    uint8_t *glow_block;    /* the shells' points and the material, in one block */
+    uint32_t glow_bytes;
+    const uint8_t *glow_pts[SA1K_PARTS_MAX];    /* 3 shells of np points, 12 bytes each */
+    const uint8_t *glow_nrm[SA1K_PARTS_MAX];    /* the part's normals, unit length */
+    uint32_t glow_np[SA1K_PARTS_MAX], glow_nmat[SA1K_PARTS_MAX];
+    const uint8_t *glow_mats;                   /* the same material, as many as a part asks */
+    uint32_t glow_no_normals;
 } sa1k_state;
 
 struct sa1k_char {
@@ -77,9 +96,20 @@ struct sa1k_char {
     int32_t last_row;
     sa1_instance inst;      /* the private evaluation of a flown row */
     int32_t inst_ok;
+    /* the way between a walk and a run (the top of this file) */
+    int32_t fast_on, rising, hold_take, last_src_ok, link_held;
+    float h;                /* the held pose against Sonic's own row of the pair, in what a flight fades from */
+    double held_r[SA1K_PARTS_MAX][9], held_p0[3];       /* against the root */
+    double last_src_r[SA1K_PARTS_MAX][9], last_src_p0[3];
+    /* the game's aura this pair: a, r, g, b of each pass */
+    float glow_cmat[3][4];
+    int32_t glow_n;
     /* the last append, for the tests */
     int32_t drew;
     double out_r[SA1K_PARTS_MAX][9], out_p[SA1K_PARTS_MAX][3], fly_root[12];
+    float out_live;
+    int32_t out_have_flown;
+    double out_flown[SA1K_PARTS_MAX][9];
 };
 
 /* ---- small maths --------------------------------------------------------------------------------------------------------------------------------- */
@@ -102,6 +132,18 @@ static void m3_mul_t(const double a[9], const double b[9], double o[9])     /* a
     for (r = 0; r < 3; r++) {
         for (c = 0; c < 3; c++) {
             t[3 * r + c] = a[3 * r] * b[3 * c] + a[3 * r + 1] * b[3 * c + 1] + a[3 * r + 2] * b[3 * c + 2];
+        }
+    }
+    memcpy(o, t, sizeof t);
+}
+
+static void m3_t_mul(const double a[9], const double b[9], double o[9])     /* transpose(a) * b */
+{
+    double t[9];
+    int r, c;
+    for (r = 0; r < 3; r++) {
+        for (c = 0; c < 3; c++) {
+            t[3 * r + c] = a[r] * b[c] + a[3 + r] * b[3 + c] + a[6 + r] * b[6 + c];
         }
     }
     memcpy(o, t, sizeof t);
@@ -423,6 +465,123 @@ static sa1_status s_from_body(sa1_context *ctx, sa1k_state *q, const sa1_charset
     return SA1_OK;
 }
 
+/* The shells. Each part's points are moved along its own vertex normals once, here: a third, two thirds and all of glow_inflate (SA1 units; the figure's own units by its scale). A vertex with no normal
+   moves away from the part's middle. The meshsets stay the part's. Nothing here touches the parts' own bytes */
+static void wr_f32(uint8_t *p, float f)
+{
+    uint32_t u;
+    memcpy(&u, &f, 4);
+    p[0] = (uint8_t)u; p[1] = (uint8_t)(u >> 8); p[2] = (uint8_t)(u >> 16); p[3] = (uint8_t)(u >> 24);
+}
+
+static sa1_status s_glow_build(sa1_context *ctx, sa1k_state *q, const sa1_skin_desc *d)
+{
+    enum { SHELLS = 3 };
+    uint32_t i, total = 0, max_mat = 1, off;
+    uint8_t *m;
+    q->glow_rgb[0] = (double)d->glow_rgb[0];
+    q->glow_rgb[1] = (double)d->glow_rgb[1];
+    q->glow_rgb[2] = (double)d->glow_rgb[2];
+    for (i = 0; i < q->num_parts; i++) {
+        const uint8_t *mp;
+        int32_t np;
+        if (q->parts[i].model == 0u) {
+            continue;
+        }
+        mp = s_read(q, q->parts[i].model, 0x28u);
+        if (mp == NULL) {
+            return sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_SKIN: part %u's model is outside the file", (unsigned)i);
+        }
+        np = sa1_rds32(mp + 8);
+        if (np < 0 || (uint32_t)np > SA1_MAX_POINTS) {
+            return sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_SKIN: part %u has %d points", (unsigned)i, (int)np);
+        }
+        q->glow_np[i] = (uint32_t)np;
+        q->glow_nmat[i] = sa1_rd16(mp + 22);
+        if (q->glow_nmat[i] > max_mat) {
+            max_mat = q->glow_nmat[i];
+        }
+        total += (uint32_t)np * 12u * (SHELLS + 1u);
+    }
+    q->glow_bytes = total + 20u * max_mat;
+    q->glow_block = (uint8_t *)sa1_mem_alloc(ctx, q->glow_bytes);
+    if (q->glow_block == NULL) {
+        return SA1_ERR_OUT_OF_MEMORY;
+    }
+    /* the aura's material as the disc's S_MOT has it (lightspeed_visuals.md 3.2): diffuse FF000000, attr 26182400: ONE / ONE, unlit, no texture */
+    m = q->glow_block + total;
+    for (i = 0; i < max_mat; i++) {
+        memset(m + 20u * i, 0, 20u);
+        m[20u * i + 3u] = 0xFFu;
+        m[20u * i + 16u] = 0x00u;
+        m[20u * i + 17u] = 0x24u;
+        m[20u * i + 18u] = 0x18u;
+        m[20u * i + 19u] = 0x26u;
+    }
+    q->glow_mats = m;
+    off = 0;
+    for (i = 0; i < q->num_parts; i++) {
+        const uint8_t *mp, *pts, *nrm = NULL;
+        uint8_t *out, *nout;
+        double mid[3] = { 0.0, 0.0, 0.0 };
+        uint32_t np = q->glow_np[i], v;
+        int k;
+        if (q->parts[i].model == 0u || np == 0u) {
+            continue;
+        }
+        mp = s_read(q, q->parts[i].model, 0x28u);
+        pts = s_read(q, sa1_rd32(mp), 12u * np);
+        if (sa1_rd32(mp + 4) != 0u) {
+            nrm = s_read(q, sa1_rd32(mp + 4), 12u * np);
+        }
+        if (pts == NULL) {
+            return sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_SKIN: part %u's points are outside the file", (unsigned)i);
+        }
+        out = q->glow_block + off;
+        nout = out + 12u * np * SHELLS;
+        off += 12u * np * (SHELLS + 1u);
+        q->glow_pts[i] = out;
+        q->glow_nrm[i] = nout;
+        for (v = 0; v < np; v++) {
+            for (k = 0; k < 3; k++) {
+                mid[k] += (double)sa1_rdf32(pts + 12u * v + 4u * (uint32_t)k) / (double)np;
+            }
+        }
+        for (v = 0; v < np; v++) {
+            double pt[3], n[3], l;
+            int shell;
+            for (k = 0; k < 3; k++) {
+                pt[k] = (double)sa1_rdf32(pts + 12u * v + 4u * (uint32_t)k);
+                n[k] = nrm != NULL ? (double)sa1_rdf32(nrm + 12u * v + 4u * (uint32_t)k) : 0.0;
+            }
+            l = sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (!(l > 1e-6)) {
+                q->glow_no_normals++;
+                for (k = 0; k < 3; k++) {
+                    n[k] = pt[k] - mid[k];
+                }
+                l = sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (!(l > 1e-6)) {
+                    n[0] = 0.0; n[1] = 1.0; n[2] = 0.0;
+                    l = 1.0;
+                }
+            }
+            for (k = 0; k < 3; k++) {
+                n[k] /= l;
+                wr_f32(nout + 12u * v + 4u * (uint32_t)k, (float)n[k]);
+            }
+            for (shell = 0; shell < SHELLS; shell++) {
+                double o = (double)d->glow_inflate * (double)(shell + 1) / (double)SHELLS / q->scale;
+                for (k = 0; k < 3; k++) {
+                    wr_f32(out + 12u * np * (uint32_t)shell + 12u * v + 4u * (uint32_t)k, (float)(pt[k] + o * n[k]));
+                }
+            }
+        }
+    }
+    q->glow = 1;
+    return SA1_OK;
+}
+
 sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *d)
 {
     const sa1_api_ext *x = sa1_api_ext_of(ctx);
@@ -431,7 +590,7 @@ sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *d)
     uint8_t *overlay = NULL;
     uint32_t overlay_size = 0, first, i, n = 0;
     sa1_status st;
-    if (d == NULL || d->struct_size < sizeof *d || d->model_file == NULL || d->tex_file == NULL || d->parts == NULL || d->tex_keep == NULL ||
+    if (d == NULL || d->struct_size < offsetof(sa1_skin_desc, anim_fast) || d->model_file == NULL || d->tex_file == NULL || d->parts == NULL || d->tex_keep == NULL ||
         d->num_parts == 0u || d->num_parts > SA1K_PARTS_MAX || d->num_tex_keep == 0u || d->num_tex_keep > 64u || d->num_anim > 16u || d->num_anim_walk > 8u ||
         !(d->scale > 0.0f) || d->model_end <= d->model_first) {
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_SKIN: the skin's description is not whole");
@@ -480,6 +639,15 @@ sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *d)
         q->anim_walk[i][0] = d->anim_walk[i][0];
         q->anim_walk[i][1] = d->anim_walk[i][1];
     }
+    if (d->struct_size >= sizeof *d && d->anim_fast != NULL) {
+        q->num_anim_fast = d->num_anim_fast > 8u ? 8u : d->num_anim_fast;
+        for (i = 0; i < q->num_anim_fast; i++) {
+            q->anim_fast[i][0] = d->anim_fast[i][0];
+            q->anim_fast[i][1] = d->anim_fast[i][1];
+        }
+        q->fast_on = (double)d->fast_on;
+        q->fast_off = (double)d->fast_off;
+    }
     st = sa1_loader_skin(ctx, x->gdi, &q->set, d->model_file, &overlay, &overlay_size, d->tex_file, d->tex_keep, d->num_tex_keep);
     first = (d->model_first & 0x1FFFFFFFu) - (d->model_load & 0x1FFFFFFFu);
     if (st == SA1_OK && (overlay_size < first || overlay_size - first < q->size)) {
@@ -505,7 +673,11 @@ sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *d)
     if (st == SA1_OK) {
         st = s_from_body(ctx, q, &ctx->chars[SA1_CHAR_SONIC], d);
     }
+    if (st == SA1_OK && d->struct_size >= sizeof *d && (d->glow_rgb[0] > 0.0f || d->glow_rgb[1] > 0.0f || d->glow_rgb[2] > 0.0f)) {
+        st = s_glow_build(ctx, q, d);
+    }
     if (st != SA1_OK) {
+        sa1_mem_free(ctx, q->glow_block);
         sa1_charset_free(ctx, &q->set);
         sa1_mem_free(ctx, q->model);
         sa1_mem_free(ctx, q);
@@ -524,6 +696,7 @@ void sa1k_free(sa1_context *ctx)
     sa1k_state *q = ctx->skin;
     if (q != NULL) {
         ctx->skin = NULL;
+        sa1_mem_free(ctx, q->glow_block);
         sa1_charset_free(ctx, &q->set);
         sa1_mem_free(ctx, q->model);
         sa1_mem_free(ctx, q);
@@ -581,6 +754,7 @@ void sa1k_note_begin(sa1k_char *sc, sa1_capture *c, const sa1_charset *cs)
     memset(sc->has_fix, 0, sizeof sc->has_fix);
     sc->have_ds = 0;
     sc->num_live = 0;
+    sc->glow_n = 0;
     if (cs->main_object >= 0 && (uint32_t)cs->main_object < cs->objects.count) {
         plain = &SA1_VEC(cs->objects, sa1_object)[cs->main_object];
     }
@@ -653,6 +827,17 @@ static int32_t s_lookup(const sa1k_char *sc, uint32_t model)
         }
     }
     return -1;
+}
+
+void sa1k_note_glow(sa1k_char *sc, const sa1_draw_state *ds)
+{
+    /* three passes of 20 models each: a new pass by its colour */
+    if (sc->glow_n > 0 && memcmp(sc->glow_cmat[sc->glow_n - 1], ds->cmat, sizeof ds->cmat) == 0) {
+        return;
+    }
+    if (sc->glow_n < 3) {
+        memcpy(sc->glow_cmat[sc->glow_n++], ds->cmat, sizeof ds->cmat);
+    }
 }
 
 int sa1k_note_ball(const sa1k_char *sc, uint32_t model)
@@ -764,6 +949,23 @@ void sa1k_step(sa1k_char *sc, const sa1_charset *cs, const sa1k_drive *d)
                 }
             }
         }
+        /* the top of a walking row: faster than any held walk (MEASURED: a stick up to 0.8 holds at most 0.205; at 0.85 and over he only passes through): the way to a run or from it. A slow walk stays Sonic's */
+        if (sc->anim & SA1_SKIN_ANIM_FLY) {
+            int32_t fast = 0;
+            for (i = 0; i < q->num_anim_fast; i++) {
+                if ((int32_t)q->anim_fast[i][0] == d->row) {
+                    double v = fabs((double)d->speed);
+                    fast = 1;
+                    sc->fast_on = v >= (sc->fast_on ? q->fast_off : q->fast_on);
+                    if (sc->fast_on) {
+                        target = (int32_t)q->anim_fast[i][1];
+                    }
+                }
+            }
+            if (!fast) {
+                sc->fast_on = target >= 0;
+            }
+        }
         if ((sc->anim & SA1_SKIN_ANIM_WALK) && (sc->anim & SA1_SKIN_ANIM_FLY)) {
             for (i = 0; i < q->num_anim_walk; i++) {
                 if ((int32_t)q->anim_walk[i][0] == d->row) {
@@ -774,6 +976,23 @@ void sa1k_step(sa1k_char *sc, const sa1_charset *cs, const sa1k_drive *d)
     }
     if (target >= 0 && !s_row_ok(cs, target)) {
         target = -1;
+    }
+    /* the game's own blend between two of Sonic's rows is no reason to show it: a flight goes on through it, then fades to the row it ends on. At most 5 pairs: a link between running rows takes 2 (RM.7, 4 steps), the stop's chain from row 10 through the walk's top takes 5 before the long one;
+       the one from a walk to the stand takes 12 (MEASURED), and he should not hang in the air for all of it */
+    if (target >= 0 || !d->linking) {
+        sc->link_held = 0;
+    } else if ((sc->anim & SA1_SKIN_ANIM_FLY) && sc->cur >= 0 && (sc->w >= 1.0f || sc->rising) && sc->link_held < 5) {
+        target = sc->cur;
+        sc->link_held++;
+    }
+    /* a fade in starts from what he last showed, held against his root, and not from Sonic's row of the pair (sa1k_append) */
+    if (target >= 0) {
+        if (!sc->rising && sc->w < 1.0f) {
+            sc->rising = 1;
+            sc->hold_take = 1;
+        }
+    } else {
+        sc->rising = 0;
     }
     if (target >= 0) {
         if (sc->cur < 0) {
@@ -828,6 +1047,13 @@ void sa1k_step(sa1k_char *sc, const sa1_charset *cs, const sa1k_drive *d)
     if (sc->x >= 1.0f) {
         sc->x = 1.0f;
         sc->prev = -1;
+    }
+    /* the source's way back from the held pose to the row he is in, when a fade in turns round half way */
+    if (sc->w >= 1.0f) {
+        sc->rising = 0;
+        sc->h = 0.0f;
+    } else if (!sc->rising && sc->h > 0.0f) {
+        sc->h = sc->h > 0.125f ? sc->h - 0.125f : 0.0f;
     }
     if (sc->w <= 0.0f && target < 0) {
         sc->cur = sc->prev = -1;
@@ -932,7 +1158,10 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
     sa1_status st;
     int torso = q->parts[0].mesh;
     sc->drew = 0;
+    sc->out_live = 1.0f;
+    sc->out_have_flown = 0;
     if (torso < 0 || !sc->have[torso]) {
+        sc->last_src_ok = 0;
         return SA1_OK;      /* the world drew no body this pair: the hit blink blinks him too, the spin ball replaces him */
     }
     if (s_row_ok(cs, sc->drive.row)) {
@@ -968,6 +1197,59 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
     p0[0] = sc->mtx[torso][3];
     p0[1] = sc->mtx[torso][7];
     p0[2] = sc->mtx[torso][11];
+    /* what a flight fades from: Sonic's row of the pair, but for a fade in: the pose of the pair before it started, held against his root (the top of this file) */
+    if (sc->drive.have_root) {
+        double base[12], rt[9], cen[3], d0[3];
+        s_fly_root(&sc->drive, 0.0, base);
+        m3_of(base, rt);
+        cen[0] = base[3];
+        cen[1] = base[7];
+        cen[2] = base[11];
+        if (sc->hold_take) {
+            if (sc->last_src_ok) {
+                memcpy(sc->held_r, sc->last_src_r, q->num_parts * sizeof sc->held_r[0]);
+                memcpy(sc->held_p0, sc->last_src_p0, sizeof sc->held_p0);
+            } else {
+                /* nothing drawn before it (a landing out of the ball): this pair's pose, no pop to mind */
+                for (i = 0; i < q->num_parts; i++) {
+                    m3_t_mul(rt, r[i], sc->held_r[i]);
+                }
+                d0[0] = p0[0] - cen[0];
+                d0[1] = p0[1] - cen[1];
+                d0[2] = p0[2] - cen[2];
+                sc->held_p0[0] = rt[0] * d0[0] + rt[3] * d0[1] + rt[6] * d0[2];
+                sc->held_p0[1] = rt[1] * d0[0] + rt[4] * d0[1] + rt[7] * d0[2];
+                sc->held_p0[2] = rt[2] * d0[0] + rt[5] * d0[1] + rt[8] * d0[2];
+            }
+            sc->hold_take = 0;
+            sc->h = 1.0f;
+        }
+        if (sc->h > 0.0f) {
+            double hp[3];
+            for (i = 0; i < q->num_parts; i++) {
+                double a[9];
+                m3_mul(rt, sc->held_r[i], a);
+                m3_slerp(r[i], a, (double)sc->h, r[i]);
+            }
+            hp[0] = cen[0] + rt[0] * sc->held_p0[0] + rt[1] * sc->held_p0[1] + rt[2] * sc->held_p0[2];
+            hp[1] = cen[1] + rt[3] * sc->held_p0[0] + rt[4] * sc->held_p0[1] + rt[5] * sc->held_p0[2];
+            hp[2] = cen[2] + rt[6] * sc->held_p0[0] + rt[7] * sc->held_p0[1] + rt[8] * sc->held_p0[2];
+            p0[0] += (double)sc->h * (hp[0] - p0[0]);
+            p0[1] += (double)sc->h * (hp[1] - p0[1]);
+            p0[2] += (double)sc->h * (hp[2] - p0[2]);
+            sc->out_live = 1.0f - sc->h;
+        }
+        for (i = 0; i < q->num_parts; i++) {
+            m3_t_mul(rt, r[i], sc->last_src_r[i]);
+        }
+        d0[0] = p0[0] - cen[0];
+        d0[1] = p0[1] - cen[1];
+        d0[2] = p0[2] - cen[2];
+        sc->last_src_p0[0] = rt[0] * d0[0] + rt[3] * d0[1] + rt[6] * d0[2];
+        sc->last_src_p0[1] = rt[1] * d0[0] + rt[4] * d0[1] + rt[7] * d0[2];
+        sc->last_src_p0[2] = rt[2] * d0[0] + rt[5] * d0[1] + rt[8] * d0[2];
+        sc->last_src_ok = 1;
+    }
     /* the flying (4.4) */
     if (sc->w > 0.0f && sc->cur >= 0 && sc->drive.have_root) {
         double root[12], pf[3], po[3];
@@ -998,6 +1280,9 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
             pf[1] = po[1] + (double)sc->x * (pf[1] - po[1]);
             pf[2] = po[2] + (double)sc->x * (pf[2] - po[2]);
         }
+        memcpy(sc->out_flown, fr, q->num_parts * sizeof fr[0]);
+        sc->out_have_flown = 1;
+        sc->out_live *= 1.0f - sc->w;
         for (i = 0; i < q->num_parts; i++) {
             m3_slerp(r[i], fr[i], (double)sc->w, r[i]);
         }
@@ -1052,6 +1337,55 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
         }
     }
     sc->drew = 1;
+    /* the glow: the parts again, one shell for each pass the game drew of Sonic's aura. Its colour: the entry's where the game's is blue, the game's green over the rest, so the pulse is the game's; shared out by the three passes'
+       blue (1 + 1 + 0.3 = 2.3) so that shells over shells add up to the colour once: Sonic's blue can saturate and stay blue, a colour with two channels would turn white */
+    if ((sc->anim & SA1_SKIN_ANIM_GLOW) && q->glow && sc->glow_n > 0) {
+        int32_t pass;
+        for (pass = 0; pass < sc->glow_n; pass++) {
+            const float *c = sc->glow_cmat[pass];
+            double gg = c[2] > 0.0f ? (double)c[2] : 0.0, bb = c[3] > 0.0f ? (double)c[3] : 0.0;
+            sa1_emit_info gi;
+            sa1_draw_state gs;
+            memset(&gs, 0, sizeof gs);
+            gs.material = 1;
+            gs.cmat[0] = 1.0f;
+            gs.cmat[1] = (float)((q->glow_rgb[0] * bb + (1.0 - q->glow_rgb[0]) * gg) / 2.3);
+            gs.cmat[2] = (float)((q->glow_rgb[1] * bb + (1.0 - q->glow_rgb[1]) * gg) / 2.3);
+            gs.cmat[3] = (float)((q->glow_rgb[2] * bb + (1.0 - q->glow_rgb[2]) * gg) / 2.3);
+            memset(&gi, 0, sizeof gi);
+            gi.reader = s_read;
+            gi.user = (void *)(uintptr_t)q;
+            gi.ds = &gs;
+            gi.ctx = ctx;
+            gi.texlist = q->root;
+            gi.source = SA1_SOURCE_MODEL;
+            gi.snap = 1;
+            gi.snap_mats = q->glow_mats;
+            for (i = 0; i < q->num_parts; i++) {
+                const sk_part *p = &q->parts[i];
+                uint32_t nn0 = b->nn, k;
+                double m[12];
+                if (p->model == 0u) {
+                    continue;
+                }
+                m[0] = q->scale * r[i][0]; m[1] = q->scale * r[i][1]; m[2] = q->scale * r[i][2]; m[3] = pos[i][0];
+                m[4] = q->scale * r[i][3]; m[5] = q->scale * r[i][4]; m[6] = q->scale * r[i][5]; m[7] = pos[i][1];
+                m[8] = q->scale * r[i][6]; m[9] = q->scale * r[i][7]; m[10] = q->scale * r[i][8]; m[11] = pos[i][2];
+                gi.depth = p->depth + 1;
+                gi.snap_np = q->glow_np[i];
+                gi.snap_pts = q->glow_pts[i] + 12u * q->glow_np[i] * (uint32_t)pass;
+                gi.snap_nrm = q->glow_nrm[i];
+                gi.snap_nmat = q->glow_nmat[i];
+                st = sa1_pose_emit_model_ex(ctx, b, &gi, p->model, m);
+                if (st != SA1_OK) {
+                    return st;
+                }
+                for (k = nn0; k < b->nn; k++) {
+                    b->node_fl[k] |= (uint8_t)SA1_NODE_SKIN_GLOW;
+                }
+            }
+        }
+    }
     return SA1_OK;
 }
 
@@ -1083,4 +1417,14 @@ void sa1k_test_get(const sa1k_char *sc, sa1k_test_info *out)
     out->model_bytes = q->size;
     out->drive_row = sc->drive.row;
     out->has_fix52 = sc->has_fix[52];
+    out->live_mix = sc->out_live;
+    out->have_flown = sc->out_have_flown;
+    memcpy(out->flown_r, sc->out_flown, sizeof out->flown_r);
+    memcpy(out->src_r, sc->last_src_r, sizeof out->src_r);
+    out->glow_passes = sc->glow_n;
+}
+
+uint32_t sa1k_test_glow_bytes(const sa1k_char *sc)
+{
+    return sc->q->glow_bytes;
 }
