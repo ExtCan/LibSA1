@@ -555,6 +555,8 @@ struct sa1_context {
     struct sa1_frontend *frontend_open;
     /* round 0.9.9 (SA1_API_QUESTION; src/sa1_question.c): zero until the first create with SA1_CREATE_QUESTION, freed with the disc */
     struct sa1q_state  *question;
+    /* round 0.9.9f (SA1_API_SKIN; src/sa1_skin.c): zero until a skin's first use, freed with the disc */
+    struct sa1k_state  *skin;
 };
 
 void sa1_charset_free(sa1_context *ctx, sa1_charset *cs);

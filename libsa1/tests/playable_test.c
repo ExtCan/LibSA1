@@ -20,7 +20,7 @@
  *     (func_8C0EE96C), so his mode 16 is never reached, he stays in the mode he is in and the stick still walks him until the host restarts: MEASURED, and his C is instruction-identical there.
  *   - Eggman's model has two meshes with no texture (materials 94002400, 96002400): draws of archive -1 without SA1_DRAW_NO_TEXTURE, 10 triangles. Tikal has none.
  *   - SA1_CREATE_START_TABLE gives (0, 0, 0): the game has no table for them.
- *   - sa1_character_order, emotes, faces, the look, boards: SA1_ERR_UNSUPPORTED with the reason in sa1_last_error. sa1_follower_create with these kinds too. A follower can follow them.
+ *   - sa1_character_order, emotes, faces, the look, boards: SA1_ERR_UNSUPPORTED with the reason in sa1_last_error. Round 0.9.9e: sa1_follower_create takes these kinds (tests/follower_test.c FPL). A follower can follow them.
  *
  * Cases: P1 world, moves, jumps; P2 triangles; P3 the debug button; P4 B in debug; P5 a hit, KILL; P5c the stick after KILL; P5b the air timer's end; P6 refusals by their words; P7 a Sonic follower behind them; P8 the action
  * list; P10 the start table; P11 the order; DETERMINISM (x86 = x64: build_board.py's main compares the lines). P9 is the strict gate: `build.py --test` (SA1_BUTTON_X never set).
@@ -514,12 +514,11 @@ static void test_p5b(const kind_row *K)
 /* ---- P6, P11 ------------------------------------------------------------------------------------------------------------------------ */
 static void test_p6(const kind_row *K)
 {
-    sa1_character_id id = 0, f = 0;
+    sa1_character_id id = 0;
     sa1_status st;
     sa1_emote em;
     sa1_look lk;
     sa1_board_desc bd;
-    sa1_follower_desc fd;
     char want[160];
     const char *why;
     printf("P6, P11 %s: what stays refused, by its words\n", K->name);
@@ -549,14 +548,9 @@ static void test_p6(const kind_row *K)
     st = sa1_character_board(g_ctx, id, &bd);
     snprintf(want, sizeof want, "only Sonic and Tails ride a board (%s doesn't)", K->who);
     CHECK(st == SA1_ERR_UNSUPPORTED && strstr(sa1_last_error(g_ctx), want) != NULL, "P6 board: %s: %s", sa1_status_string(st), sa1_last_error(g_ctx));
-    memset(&fd, 0, sizeof fd);
-    fd.struct_size = sizeof fd;
-    fd.kind = K->kind;
-    fd.leader = id;
-    st = sa1_follower_create(g_ctx, &fd, &f);
+    /* round 0.9.9e: they can follow now (tests/follower_test.c FPL has what they do): no reason, and the bit is there */
     why = sa1_follower_kind_reason(K->kind);
-    snprintf(want, sizeof want, "%s cannot follow: the game has no follower modes", K->who);
-    CHECK(st == SA1_ERR_UNSUPPORTED && f == 0 && why != NULL && strstr(why, want) != NULL, "P6 sa1_follower_create: %s: %s", sa1_status_string(st), why ? why : "(no reason)");
+    CHECK(why == NULL && ((sa1_follower_kinds() >> K->kind) & 1u), "P6 sa1_follower_kinds has kind %d, no reason: %s", (int)K->kind, why ? why : "(none)");
     st = sa1_character_order(g_ctx, id, 1);
     CHECK(st == SA1_ERR_UNSUPPORTED, "P11 sa1_character_order(1): %s: %s", sa1_status_string(st), sa1_last_error(g_ctx));
     sa1_character_destroy(g_ctx, id);

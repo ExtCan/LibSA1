@@ -34,9 +34,11 @@
 #define SA1FO2_NOT_BUILT "follower speed and spots are not built yet"
 
 #define FO_KIND_BIT(k) (1u << (k))
-/* the kinds whose bring-up passed (tests/follower_test.c --long; gsa1_098_plan.md 6.2): a kind without its bit has its reason */
+/* the kinds whose bring-up passed (tests/follower_test.c --long; gsa1_098_plan.md 6.2): a kind without its bit has its reason. Round 0.9.9e (the owner, rounds plan 14.1bc): Eggman and Tikal too.
+   Their code has no case for the AI's orders and nothing is repaired: tests/follower_test.c FPL says what they do */
 #define FO_KINDS (FO_KIND_BIT(SA1_CHAR_TAILS) | FO_KIND_BIT(SA1_CHAR_SONIC) | FO_KIND_BIT(SA1_CHAR_KNUCKLES) | \
-                  FO_KIND_BIT(SA1_CHAR_GAMMA) | FO_KIND_BIT(SA1_CHAR_AMY) | FO_KIND_BIT(SA1_CHAR_BIG))
+                  FO_KIND_BIT(SA1_CHAR_GAMMA) | FO_KIND_BIT(SA1_CHAR_AMY) | FO_KIND_BIT(SA1_CHAR_BIG) | \
+                  FO_KIND_BIT(SA1_CHAR_EGGMAN) | FO_KIND_BIT(SA1_CHAR_TIKAL))
 
 static int fo_finite3(const float *v)
 {
@@ -76,8 +78,6 @@ const char *sa1_follower_kind_reason(int32_t kind)
     }
     switch (kind) {
     case SA1_CHAR_SUPER_SONIC: return "Super Sonic cannot follow: a Super follower is not a configuration of the game";
-    case SA1_CHAR_EGGMAN: return "Eggman cannot follow: the game has no follower modes in his code";
-    case SA1_CHAR_TIKAL: return "Tikal cannot follow: the game has no follower modes in her code";
     default: return "this is not a character";
     }
 }

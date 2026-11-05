@@ -11,7 +11,7 @@
  *   - A host-fed follower (leader 0): sa1_follower_feed every host tick; it runs on dt with its own accumulator.
  *   - sa1_character_tick on a follower reads camera_yaw, the water bits and the host camera; never stick or buttons.
  *   - The world is the game's 1.5P: CurrentCharacter 0 on stage 0x0100; slot 0 is the proxy, slot 1 the follower.
- *   - sa1_follower_kinds() is 0x0ED: Sonic, Tails, Knuckles, Amy, Big, E-102. Eggman, Tikal and Super Sonic answer SA1_ERR_UNSUPPORTED with sa1_follower_kind_reason's text.
+ *   - sa1_follower_kinds() is 0x0FF (round 0.9.9e: 0x0ED and Eggman, Tikal; FPL says what they do): Super Sonic answers SA1_ERR_UNSUPPORTED with sa1_follower_kind_reason's text.
  *   - SA1_FOLLOW_EV_RESPAWN's arg says why: 0 distance > 1000, 1 off the leader's camera 300 frames, 2 sa1_follower_respawn. The point is 50 units above the camera: the host's eye with
  *     SA1_INPUT_HOST_CAMERA, else the eye 40 behind the leader along camera_yaw. A respawn while riding ends the ride (the board stays kept: the host may ask for ON again).
  *   - A hold parks slot 1 a million units above the leader (AI mode 6, SA1_FINFO_HELD): do not draw it. Off places it 10 behind the leader. A hold on a rider without an OFF keeps it in the
@@ -270,6 +270,8 @@ static const char *kind_name(int32_t k)
     case SA1_CHAR_AMY: return "Amy";
     case SA1_CHAR_GAMMA: return "E-102";
     case SA1_CHAR_BIG: return "Big";
+    case SA1_CHAR_EGGMAN: return "Eggman";
+    case SA1_CHAR_TIKAL: return "Tikal";
     default: return "?";
     }
 }
@@ -1445,10 +1447,9 @@ static void test_fk_fe(void)
     L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f);
     st = follower_new_ex(SA1_CHAR_SUPER_SONIC, L, 0, NULL, &x);
     CHECK(st == SA1_ERR_UNSUPPORTED && x == 0, "FK1 kind 8: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
-    st = follower_new_ex(SA1_CHAR_EGGMAN, L, 0, NULL, &x);
-    CHECK(st == SA1_ERR_UNSUPPORTED && x == 0, "FK1 Eggman: %s (%s)", sa1_status_string(st), sa1_last_error(g_ctx));
-    CHECK(strstr(sa1_follower_kind_reason(SA1_CHAR_EGGMAN), "no follower modes in his code") != NULL && strstr(sa1_follower_kind_reason(SA1_CHAR_TIKAL), "no follower modes in her code") != NULL, "FK1 the words: %s; %s",
-          sa1_follower_kind_reason(SA1_CHAR_EGGMAN), sa1_follower_kind_reason(SA1_CHAR_TIKAL));
+    /* round 0.9.9e: Eggman and Tikal can follow (FPL has what they do); only kind 8 and what is no character are refused */
+    CHECK(((kinds >> SA1_CHAR_EGGMAN) & 1u) && ((kinds >> SA1_CHAR_TIKAL) & 1u) && sa1_follower_kind_reason(SA1_CHAR_EGGMAN) == NULL && sa1_follower_kind_reason(SA1_CHAR_TIKAL) == NULL,
+          "FK1 Eggman and Tikal have their bits and no reason: 0x%X", (unsigned)kinds);
     F = follower_new(SA1_CHAR_SONIC, L, 0);
     for (k = 0; k < 120; k++) {
         tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
@@ -2500,6 +2501,242 @@ static void course_run(int32_t kind, int ground, float leader_y, uint32_t pairs,
     sa1_character_destroy(g_ctx, F);
     if (L != 0) {
         sa1_character_destroy(g_ctx, L);
+    }
+}
+
+/* ---- FPL: Eggman and Tikal as followers (round 0.9.9e; the owner, rounds plan 14.1bc: "Eggman and Tikal should be spawnable followers"). Their worlds run the game's own mains, nothing
+ * repaired. The AI task 8C081D4E steers them as it steers anyone (per[1], analog[1]), and what their code does with that is what happens: this case PINS it, with the numbers on its lines. Read:
+ * sadc code_8C0ED880.c, tikal_prog/code_0CB00000.c: no NAct, so no case 12, 24, 48: the drop-in's flight order does nothing and they fall from above the camera; Eggman's debug and action buttons come
+ * from pad 0 (nobody presses them), Tikal's from her own pad, and the AI's "flying" button 0x402 is her debug button (mode 11, free movement: no gravity: she hangs in the air) and her "back to the
+ * spawn point" (SA1_EVENT_RESPAWN). Measured below: they follow on foot, jump, land and go on after a drop-in; Tikal hangs until the AI presses jump, which it does when the leader moves away. --- */
+typedef struct fpl_stats {
+    uint32_t modes[32], modes_after[32];
+    float moved, moved_after, mean_dh, max_dh, last_y;
+} fpl_stats;
+
+static void fpl_mode_note(sa1_character_id F, uint32_t *modes)
+{
+    sa1_state_ex ex;
+    memset(&ex, 0, sizeof ex);
+    ex.struct_size = sizeof ex;
+    if (!SA1_FAILED(sa1_character_state_ex(g_ctx, F, &ex)) && ex.mode >= 0 && ex.mode < 32) {
+        modes[ex.mode]++;
+    }
+}
+
+static void fpl_modes_text(const uint32_t *modes, char *out, size_t cap)
+{
+    size_t n = 0;
+    int m;
+    out[0] = 0;
+    for (m = 0; m < 32 && n + 16 < cap; m++) {
+        if (modes[m] != 0u) {
+            n += (size_t)sprintf(out + n, " %d x%u", m, (unsigned)modes[m]);
+        }
+    }
+}
+
+static void test_fpl(void)
+{
+    static const int32_t kk[2] = { SA1_CHAR_EGGMAN, SA1_CHAR_TIKAL };
+    uint32_t kinds = sa1_follower_kinds();
+    int ki;
+    printf("FPL Eggman and Tikal as followers, the game's own code, nothing repaired:\n");
+    CHECK(kinds == 0x0FFu && sa1_follower_kind_reason(SA1_CHAR_EGGMAN) == NULL && sa1_follower_kind_reason(SA1_CHAR_TIKAL) == NULL && sa1_follower_kind_reason(SA1_CHAR_SUPER_SONIC) != NULL,
+          "FPL1 sa1_follower_kinds() 0x%X, no reason for 1 and 4, kind 8 still has one", (unsigned)kinds);
+    build_ground(G_FLAT);
+    set_ground();
+    for (ki = 0; ki < 2; ki++) {
+        sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f), F = 0;
+        sa1_status st = follower_new_ex(kk[ki], L, 0, NULL, &F);
+        fpl_stats o;
+        stats s;
+        sa1_state fs, ls, f0;
+        sa1_follower_info info;
+        uint32_t p;
+        double sum = 0.0;
+        char text[256];
+        memset(&o, 0, sizeof o);
+        memset(&s, 0, sizeof s);
+        CHECK(st == SA1_OK && F != 0, "FPL2 %s: sa1_follower_create: %s (%s)", kind_name(kk[ki]), sa1_status_string(st), sa1_last_error(g_ctx));
+        if (st != SA1_OK) {
+            sa1_character_destroy(g_ctx, L);
+            continue;
+        }
+        state_of(F, &f0);
+        /* the leader runs along +X with jumps, as course_run */
+        for (p = 0; p < 900u; p++) {
+            tick_input(L, 0, (p % 300u) < 200u ? 1.0f : 0.0f, (p % 60u) == 30u ? SA1_BUTTON_JUMP : 0u, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+            state_of(L, &ls);
+            state_of(F, &fs);
+            sum += dist_h(ls.position, fs.position);
+            if (dist_h(ls.position, fs.position) > o.max_dh) {
+                o.max_dh = dist_h(ls.position, fs.position);
+            }
+            fpl_mode_note(F, o.modes);
+        }
+        o.moved = dist_h(fs.position, f0.position);
+        o.mean_dh = (float)(sum / 900.0);
+        fpl_modes_text(o.modes, text, sizeof text);
+        memset(&info, 0, sizeof info);
+        info.struct_size = sizeof info;
+        sa1_follower_info_get(g_ctx, F, &info);
+        CHECK(s.faults == 0u && s.unimpl == 0u, "FPL3 %s behind a running Sonic, 900 pairs: %u faults, %u unimplemented; moved %.0f units, mean %.1f, max %.1f from him; AI mode %d smode %d, %u respawns (%u distance, %u off screen); modes%s",
+              kind_name(kk[ki]), (unsigned)s.faults, (unsigned)s.unimpl, (double)o.moved, (double)o.mean_dh, (double)o.max_dh, (int)info.ai_mode, (int)info.ai_smode, (unsigned)info.respawns, (unsigned)info.respawns_distance, (unsigned)info.respawns_offscreen, text);
+        CHECK(o.moved > 50.0f, "FPL3 %s: the AI's stick moves it (%.0f units)", kind_name(kk[ki]), (double)o.moved);
+        /* the leader runs off the end of G_FLAT above if he goes on: from here he walks back on it. The game's own respawn: orders 24 and 48, which their code has no case for */
+        for (p = 0; p < 150u; p++) {
+            tick_input(L, 0, -1.0f, 0u, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        for (p = 0; p < 150u; p++) {
+            tick_input(L, 0, 0, 0u, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        {
+            sa1_state_ex ex;
+            memset(&ex, 0, sizeof ex);
+            ex.struct_size = sizeof ex;
+            sa1_character_state_ex(g_ctx, F, &ex);
+            state_of(F, &fs);
+            state_of(L, &ls);
+            printf("  info  FPL4 %s stands behind him before any drop-in: mode %d smode %d action %d, %.1f from him, y %.1f (he %.1f)\n", kind_name(kk[ki]), (int)ex.mode, (int)ex.smode, (int)fs.action, (double)dist_h(ls.position, fs.position), (double)fs.position[1], (double)ls.position[1]);
+        }
+        st = sa1_follower_respawn(g_ctx, F);
+        CHECK(st == SA1_OK, "FPL4 %s: sa1_follower_respawn: %s", kind_name(kk[ki]), sa1_status_string(st));
+        {
+            sa1_state a;
+            sa1_state_ex ex;
+            float top = -1e9f;
+            state_of(F, &a);
+            for (p = 0; p < 150u; p++) {
+                tick_input(L, 0, 0, 0u, 0.0f, 1.0f / 30.0f);
+                tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                poll_events(F, &s);
+                state_of(F, &fs);
+                top = fs.position[1] > top ? fs.position[1] : top;
+                fpl_mode_note(F, o.modes_after);
+            }
+            memset(&ex, 0, sizeof ex);
+            ex.struct_size = sizeof ex;
+            sa1_character_state_ex(g_ctx, F, &ex);
+            state_of(L, &ls);
+            sa1_follower_info_get(g_ctx, F, &info);
+            printf("  info  FPL4 %s 150 pairs after the drop-in, he stands: highest y %.1f, now y %.1f, %.1f from him, mode %d smode %d action %d, AI mode %d smode %d, %u respawns\n", kind_name(kk[ki]), (double)top, (double)fs.position[1],
+                   (double)dist_h(ls.position, fs.position), (int)ex.mode, (int)ex.smode, (int)fs.action, (int)info.ai_mode, (int)info.ai_smode, (unsigned)info.respawns);
+            state_of(F, &a);
+            /* he walks and jumps again: it still follows, on its own code */
+            for (p = 0; p < 300u; p++) {
+                tick_input(L, 0, p < 100u ? -1.0f : 0.0f, p == 40u ? SA1_BUTTON_JUMP : 0u, 0.0f, 1.0f / 30.0f);
+                tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                poll_events(F, &s);
+                state_of(F, &fs);
+                fpl_mode_note(F, o.modes_after);
+            }
+            o.moved_after = dist_h(fs.position, a.position);
+            o.last_y = fs.position[1];
+        }
+        fpl_modes_text(o.modes_after, text, sizeof text);
+        sa1_follower_info_get(g_ctx, F, &info);
+        state_of(L, &ls);
+        CHECK(s.faults == 0u && s.unimpl == 0u, "FPL4 %s after the drop-in, 450 pairs: %u faults, %u unimplemented; it moved %.0f units with him, now %.1f from him, y %.1f; AI mode %d smode %d, %u respawns; modes%s",
+              kind_name(kk[ki]), (unsigned)s.faults, (unsigned)s.unimpl, (double)o.moved_after, (double)dist_h(ls.position, fs.position), (double)o.last_y, (int)info.ai_mode, (int)info.ai_smode, (unsigned)info.respawns, text);
+        CHECK(o.moved_after > 50.0f && dist_h(ls.position, fs.position) < 200.0f, "FPL4 %s still follows after the drop-in (%.0f units, %.1f from him)", kind_name(kk[ki]), (double)o.moved_after, (double)dist_h(ls.position, fs.position));
+        /* whose code ran: their modes differ, and the brokenness is pinned: Eggman's buttons are pad 0's, Tikal's her own */
+        if (kk[ki] == SA1_CHAR_EGGMAN) {
+            CHECK(o.modes[5] > 0u && o.modes_after[17] == 0u, "FPL4 Eggman jumps with his own code (mode 5 x%u) and never reaches his debug mode (mode 17 x%u): nobody presses pad 0", (unsigned)o.modes[5], (unsigned)o.modes_after[17]);
+        } else {
+            CHECK(o.modes[3] > 0u && o.modes_after[11] > 0u, "FPL4 Tikal jumps with her own code (mode 3 x%u), and after a drop-in the AI's flying button is her debug button (mode 11 x%u)", (unsigned)o.modes[3], (unsigned)o.modes_after[11]);
+        }
+        /* the hold */
+        st = sa1_follower_hold(g_ctx, F, 1);
+        for (p = 0; st == SA1_OK && p < 120u; p++) {
+            tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        state_of(F, &fs);
+        sa1_follower_info_get(g_ctx, F, &info);
+        printf("  info  FPL5 %s held 120 pairs: %s, y %.1f, AI mode %d\n", kind_name(kk[ki]), sa1_status_string(st), (double)fs.position[1], (int)info.ai_mode);
+        st = sa1_follower_hold(g_ctx, F, 0);
+        for (p = 0; st == SA1_OK && p < 120u; p++) {
+            tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+            poll_events(F, &s);
+        }
+        state_of(F, &fs);
+        sa1_follower_info_get(g_ctx, F, &info);
+        CHECK(st == SA1_OK && s.faults == 0u && s.unimpl == 0u, "FPL5 %s let go again: %s, y %.1f, AI mode %d, %u faults", kind_name(kk[ki]), sa1_status_string(st), (double)fs.position[1], (int)info.ai_mode, (unsigned)s.faults);
+        /* it can be followed itself: a chain */
+        {
+            sa1_character_id G = 0;
+            st = follower_new_ex(SA1_CHAR_TAILS, F, 0, NULL, &G);
+            CHECK(st == SA1_OK, "FPL6 %s can be followed itself: %s", kind_name(kk[ki]), sa1_status_string(st));
+            for (p = 0; st == SA1_OK && p < 60u; p++) {
+                tick_input(L, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                tick_input(G, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                poll_events(F, &s);
+            }
+            if (G != 0) {
+                sa1_character_destroy(g_ctx, G);
+            }
+        }
+        /* the host's options as for any follower: the catch-up speed, a spot, the stand */
+        {
+            float spot[3] = { 40.0f, 0.0f, 40.0f };
+            sa1_state_ex ex;
+            sa1_status a1 = sa1_follower_speed(g_ctx, F, 4.0f), a2 = sa1_follower_spot(g_ctx, F, spot), a3 = sa1_follower_stand(g_ctx, F, 1);
+            for (p = 0; p < 300u; p++) {
+                tick_input(L, 0, p < 120u ? -1.0f : 0.0f, 0u, 0.0f, 1.0f / 30.0f);
+                tick_input(F, 0, 0, 0, 0.0f, 1.0f / 30.0f);
+                poll_events(F, &s);
+            }
+            memset(&ex, 0, sizeof ex);
+            ex.struct_size = sizeof ex;
+            sa1_character_state_ex(g_ctx, F, &ex);
+            state_of(F, &fs);
+            state_of(L, &ls);
+            sa1_follower_info_get(g_ctx, F, &info);
+            CHECK(a1 == SA1_OK && a2 == SA1_OK && a3 == SA1_OK && s.faults == 0u && s.unimpl == 0u && dist_h(ls.position, fs.position) < 200.0f, "FPL9 %s with speed 4, a spot and the stand: %.1f from him, speed factor %.2f, mode %d action %d, %u faults", kind_name(kk[ki]),
+                  (double)dist_h(ls.position, fs.position), (double)info.speed_factor, (int)ex.mode, (int)fs.action, (unsigned)s.faults);
+            CHECK(ex.mode == 1, "FPL9 %s stands: the game's own stand with the host's stick off (mode %d, action %d)", kind_name(kk[ki]), (int)ex.mode, (int)fs.action);
+            sa1_follower_speed(g_ctx, F, 1.0f);
+            sa1_follower_stand(g_ctx, F, 0);
+        }
+        /* what stays refused, as for the playable one: an emote */
+        {
+            sa1_emote em;
+            memset(&em, 0, sizeof em);
+            em.struct_size = sizeof em;
+            em.count = 1;
+            em.items[0].source = SA1_EMOTE_ROW;
+            em.items[0].index = 0u;
+            st = sa1_character_emote(g_ctx, F, &em);
+            CHECK(SA1_FAILED(st), "FPL7 %s: an emote is refused as for the playable one: %s (%s)", kind_name(kk[ki]), sa1_status_string(st), sa1_last_error(g_ctx));
+        }
+        sa1_character_destroy(g_ctx, F);
+        sa1_character_destroy(g_ctx, L);
+    }
+    {
+        static const struct { const char *name; int ground; int mode; } courses[] = {
+            { "flat", G_FLAT, 0 }, { "ledge 60", G_LEDGE, 0 }, { "pit", G_PIT, 0 }, { "gaps", G_GAPS, 0 }, { "wall", G_WALL, 2 }, { "ledge over a void", G_VOID_LEDGE, 3 },
+        };
+        uint32_t c;
+        for (c = 0; c < sizeof courses / sizeof courses[0]; c++) {
+            build_ground(courses[c].ground);
+            set_ground();
+            for (ki = 0; ki < 2; ki++) {
+                course_stats o;
+                course_run(kk[ki], courses[c].ground, 0.0f, 900u, courses[c].mode, &o);
+                CHECK(o.faults == 0u && o.unimpl == 0u, "FPL8 %-18s %-9s mean dh %6.1f max %7.1f respawns %3u distance %3u off-screen; %u faults, %u unimplemented", courses[c].name,
+                      kind_name(kk[ki]), (double)o.mean_dh, (double)o.max_dh, (unsigned)o.respawn_d, (unsigned)o.respawn_o, (unsigned)o.faults, (unsigned)o.unimpl);
+            }
+        }
     }
 }
 
@@ -4794,7 +5031,7 @@ int main(int argc, char **argv)
     memset(&lo, 0, sizeof lo);
     lo.struct_size = sizeof lo;
     lo.characters = (1u << SA1_CHAR_SONIC) | (1u << SA1_CHAR_TAILS) | (1u << SA1_CHAR_KNUCKLES) | (1u << SA1_CHAR_AMY) | (1u << SA1_CHAR_GAMMA) | (1u << SA1_CHAR_BIG) |
-                    (1u << SA1_CHAR_SUPER_SONIC);
+                    (1u << SA1_CHAR_SUPER_SONIC) | (1u << SA1_CHAR_EGGMAN) | (1u << SA1_CHAR_TIKAL);
     lo.flags = SA1_LOAD_DEFAULT;
     if (SA1_FAILED(sa1_load_disc(g_ctx, gdi, &lo))) {
         printf("load: %s\n", sa1_last_error(g_ctx));
@@ -4826,6 +5063,7 @@ int main(int argc, char **argv)
     if (want("FH3")) test_fh3();
     if (want("FR")) test_fr();
     if (want("FK")) test_fk_fe();
+    if (want("FPL")) test_fpl();
     if (want("FD1")) test_fd1();
     if (want("FU1")) test_fu1();
     if (want("FN1")) test_fn1();

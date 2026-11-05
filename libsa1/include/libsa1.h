@@ -131,7 +131,7 @@ extern "C" {
 
 #define SA1_VERSION_MAJOR 0
 #define SA1_VERSION_MINOR 5
-#define SA1_VERSION_PATCH 1
+#define SA1_VERSION_PATCH 2
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
 #define SA1_API_VERSION ((SA1_VERSION_MAJOR << 16) | SA1_VERSION_MINOR)
@@ -211,7 +211,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.5.1" */
+SA1_API const char *sa1_version_string(void);     /* "0.5.2" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -939,6 +939,8 @@ typedef struct sa1_character_desc {
                                    0..99, so a start never gives a 1-up. Without the flag: the game's 0, Super Sonic 50 */
     /* API 0.4 (Super Sonic, SA1_API_SUPER); read when struct_size covers it */
     uint32_t super_flags;       /* SA1_CREATE_SUPER: SA1_SUPER_* (see "Super Sonic (API 0.4)") */
+    /* SA1_API_SKIN; read when struct_size covers it */
+    const struct sa1_skin_desc *skin;   /* SA1_CREATE_SKIN: read during the create, not kept (see "a worn skin") */
 } sa1_character_desc;
 
 /* Creates a character instance like sa1_character_create, with the world described by `desc`.
@@ -3096,7 +3098,7 @@ SA1_API sa1_status sa1_character_board_state(const sa1_context *ctx, sa1_charact
 /* ---- followers (SA1_API_FOLLOWER, round 0.9.8; sadc docs/research/gsa1_098_plan.md 5.3, follow096_lib.md 5) ------------
  * A follower is a character whose world is the game's own "1.5P" situation: slot 0 holds a PROXY of its leader (an
  * empty-exec task whose playerwk and csts libsa1 writes at every step), slot 1 the follower, made by the game (Tails:
- * 8C081AC0; Sonic / Knuckles / E-102: the AI task of 8C081AC0 + 8C083F7C; Amy / Big: the same with their mains), and the
+ * 8C081AC0; Sonic / Knuckles / E-102: the AI task of 8C081AC0 + 8C083F7C; Amy / Big, round 0.9.9e Eggman / Tikal: the same with their mains), and the
  * game's AI task 8C081D4E steers slot 1 with synthesised pad input (follow, jump, fly / glide, the respawn above the camera
  * by distance > 1000 or 300 frames off the leader's camera). The world is Sonic's game (CurrentCharacter 0) on stage 0x0100
  * with B_8C78B45A = 1, so the game's predicate 8C082820 holds without an override. Every sa1_character_* call on a follower
@@ -3123,7 +3125,8 @@ typedef struct sa1_leader_state {       /* a host-fed leader (sa1_follower_feed)
 
 typedef struct sa1_follower_desc {
     uint32_t struct_size;               /* must cover num_upgrade_flags (the 0.9.8 size); later fields only when covered */
-    int32_t  kind;                      /* SA1_CHAR_TAILS, _SONIC, _KNUCKLES, _GAMMA, _AMY, _BIG; others SA1_ERR_UNSUPPORTED */
+    int32_t  kind;                      /* SA1_CHAR_TAILS, _SONIC, _KNUCKLES, _GAMMA, _AMY, _BIG; round 0.9.9e _EGGMAN, _TIKAL (their own code, nothing repaired: they have no case for the AI's orders);
+                                           others SA1_ERR_UNSUPPORTED */
     sa1_character_id leader;            /* a world character of this context (a follower too: chains), or 0 = host-fed */
     uint32_t flags;                     /* SA1_FOLLOW_* */
     uint32_t seed;                      /* SA1_FOLLOW_SEED: srand of the world (else the game's) */
@@ -3400,6 +3403,46 @@ SA1_API sa1_status sa1_frontend_view(const sa1_frontend *fe, float eye[3], float
 #define SA1_ARCHIVE_QUESTION  62u      /* sa1_texture_get / _archive (kind 8): AVA_CHSEL(_E) as on the disc, its 11 textures with their names. Not counted in
                                           sa1_character_info.num_archives; not reached by enumerating the archives: nothing of a plain Super Sonic changes */
 #define SA1_COPT_QUESTION_SPIN 8u      /* sa1_character_set_option: 1 (default) spins as on the menu, 0 faces the way the character faces */
+
+/* ---- a worn skin (SA1_API_SKIN, round 0.9.9f; sadc docs/research/metal099e.md): Metal Sonic over Sonic's world ------------------ */
+#define SA1_API_SKIN 1
+#define SA1_CREATE_SKIN       0x4000u  /* kind 0 only, a world, never a puppet: sa1_character_desc.skin is given. The world, its state, its events and its sounds are byte for byte Sonic's: only the
+                                          output differs: sa1_character_render, _geometry and the mesh draw the skin's rigid parts in place of Sonic's body, whatever the world draws of him, effects, objects,
+                                          a board and the blob as they are. HOST DEVIATIONS, render step only: the parts table and scale, running rows drawn with another row's motion, the spin ball's
+                                          texture. Not with SA1_CREATE_SUPER_CAPABLE. SA1_ERR_NOT_LOADED, named in sa1_last_error, without the disc's files */
+#define SA1_ARCHIVE_SKIN      61u      /* sa1_texture_get / _archive (kind 0): the skin's textures, by position in tex_keep. Not counted in num_archives; SA1_ERR_NOT_LOADED before the skin's first use */
+#define SA1_COPT_SKIN_ANIM    9u       /* sa1_character_set_option: SA1_SKIN_ANIM_* (default FLY). At once, no re-creation */
+#define SA1_SKIN_ANIM_FLY     1u       /* the rows of sa1_skin_desc.anim draw their flown row */
+#define SA1_SKIN_ANIM_WALK    2u       /* and of anim_walk (with FLY) */
+#define SA1_SKIN_TURN_NONE    0        /* the figure is built like Sonic's body (faces -X) */
+#define SA1_SKIN_TURN_MINUS_Z 1        /* the figure faces -Z, its bones run along -Y */
+typedef struct sa1_skin_part {
+    int8_t joint_node;                 /* Sonic's node whose rotation drives the part in a flown row */
+    int8_t mesh_node;                  /* Sonic's node the world draws there (its matrix drives the part in any other pair) */
+    int8_t bone_end;                   /* the figure's node at the far end of this part's bone, -1: none */
+    int8_t driver_bone_end;            /* Sonic's node at the far end of the joint's bone, -1: none */
+} sa1_skin_part;
+typedef struct sa1_skin_desc {
+    uint32_t struct_size;              /* sizeof(sa1_skin_desc) */
+    const char *model_file;            /* where the model is on the disc: its manifest name, its SHA-1, its load address, the bytes it reaches, its root object */
+    const char *model_sha1;
+    uint32_t model_load, model_first, model_end, model_root;
+    const char *tex_file;              /* the textures: only these positions are kept (the model's texture ids) */
+    const char *tex_sha1;
+    const uint16_t *tex_keep;
+    uint32_t num_tex_keep;
+    float scale, lift;                 /* of the figure's own units; lift: above Sonic's root while a row flies */
+    int32_t turn;                      /* SA1_SKIN_TURN_* */
+    int32_t ball_texture;              /* the texture id of the spin ball */
+    const sa1_skin_part *parts;        /* one per figure node, depth first */
+    uint32_t num_parts;
+    const uint16_t (*anim)[2];         /* { Sonic's row, the row drawn } */
+    uint32_t num_anim;
+    const uint16_t (*anim_walk)[2];    /* the same under SA1_SKIN_ANIM_WALK */
+    uint32_t num_anim_walk;
+} sa1_skin_desc;
+/* Character Select's slot 0 draws the skin in place of Sonic, from the next frame (NULL: Sonic). The world, its events and the screen do not change. First use reads the disc's files */
+SA1_API sa1_status sa1_frontend_set_skin(sa1_frontend *fe, const sa1_skin_desc *skin);
 
 #ifdef __cplusplus
 }

@@ -22,6 +22,7 @@
 #include "sa1_internal.h"
 #include "sa1_capture.h"
 #include "sa1_frontend.h"
+#include "sa1_skin.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -67,6 +68,8 @@ struct sa1_frontend {
     uint32_t cap_tris;
     int32_t render_frame, render_kind;
     uint32_t render_gen;
+    /* round 0.9.9f (sa1_frontend_set_skin; NULL: Sonic): slot 0 draws the skin */
+    struct sa1k_char *skin;
 };
 
 #if !defined(SA1_NO_WORLD)
@@ -237,6 +240,7 @@ static void fe_free(sa1_frontend *fe)
     sa1_capture_free(ctx, fe->cap);
     sa1fw_destroy(ctx, fe->w);
     sa1_mem_free(ctx, fe->q);
+    sa1k_char_free(ctx, fe->skin);
     sa1_mem_free(ctx, fe);
 }
 #endif /* !SA1_NO_WORLD */
@@ -495,9 +499,17 @@ static sa1_status fe_render_build(sa1_frontend *fe)
         o.clip_center[2] = -30.0f;
         o.clip_radius = 100.0f;
         o.only_exec = sa1fw_slot_exec(fe->w, fe->slot);
+        o.skin = fe->slot == 0 ? fe->skin : NULL;     /* round 0.9.9f: nothing else moves, the game does not know */
         st = sa1_capture_emit_into(ctx, fe->cap, &o, b, &g);
         if (st != SA1_OK) {
             return st;
+        }
+        if (o.skin != NULL) {
+            st = sa1k_append(ctx, o.skin, cs, b);
+            if (st != SA1_OK) {
+                return st;
+            }
+            sa1_meshbuf_geometry(b, &g);
         }
     }
     if (b->nt > fe->cap_tris) {
@@ -541,6 +553,45 @@ static sa1_status fe_render_build(sa1_frontend *fe)
     return SA1_OK;
 }
 #endif
+
+sa1_status sa1_frontend_set_skin(sa1_frontend *fe, const sa1_skin_desc *skin)
+{
+#if !defined(SA1_NO_WORLD)
+    sa1_status st;
+    sa1k_char *sc = NULL;
+    if (fe == NULL) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    if (skin != NULL) {
+        st = sa1k_load(fe->ctx, skin);
+        if (st != SA1_OK) {
+            return st;
+        }
+        st = sa1k_char_new(fe->ctx, 0u, &sc);
+        if (st != SA1_OK) {
+            return st;
+        }
+    }
+    sa1k_char_free(fe->ctx, fe->skin);
+    fe->skin = sc;
+    fe->render_frame = -1;  /* the next sa1_frontend_render builds again */
+    return SA1_OK;
+#else
+    (void)fe;
+    (void)skin;
+    return SA1_ERR_UNSUPPORTED;
+#endif
+}
+
+sa1k_char *sa1fe_test_skin(const sa1_frontend *fe)
+{
+#if !defined(SA1_NO_WORLD)
+    return fe != NULL ? fe->skin : NULL;
+#else
+    (void)fe;
+    return NULL;
+#endif
+}
 
 sa1_status sa1_frontend_render(sa1_frontend *fe, const sa1_render **out, int32_t *kind)
 {

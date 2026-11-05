@@ -72,6 +72,9 @@ static const sa1_file_desc k_files[] = {
     { "AVA_CHSEL_E.PRS",  14592, "6ef4674de8664844fd298c90fc3ce3bc24f1d1fd", 0 },
     { "AVA_FSCMN.PRS",     3005, "ad2ad4d7fc8df5f37ee90501a4335a3a9f05b9bc", 0 },
     { "AVA_FSCMN_E.PRS",   2860, "7a83cb68bb49a7166a02d81266f97c8ab6c22267", 0 },
+    /* round 0.9.9f (a worn skin, SA1_API_SKIN; sadc docs/research/metal099e.md 1.1): Mystic Ruins' overlay and its act 3 textures */
+    { "ADV02.PRS",      1436615, "ab5f600e707681f538794520c296c4fefe84659c", 0x0C900000u },
+    { "ADV_MR03.PRS",    334795, "cca1620491391e3d6e44d83be478d0687d5fa14f", 0 },
 };
 
 const sa1_file_desc *sa1_manifest_file(const char *name)

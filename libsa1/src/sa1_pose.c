@@ -103,6 +103,21 @@ static void mtx_local(uint32_t flags, const float pos[3], const double ang[3], c
     }
 }
 
+/* round 0.9.9f (src/sa1_skin.c): the rotation a node's flags and angles make */
+void sa1_pose_rest_rotation(uint32_t flags, const int32_t ang[3], double r[9])
+{
+    static const float pos[3] = { 0.0f, 0.0f, 0.0f }, scl[3] = { 1.0f, 1.0f, 1.0f };
+    double a[3];
+    float m[12];
+    a[0] = ang[0];
+    a[1] = ang[1];
+    a[2] = ang[2];
+    mtx_local(flags | SA1_EVAL_UNIT_POS | SA1_EVAL_UNIT_SCL, pos, a, scl, m);
+    r[0] = m[0]; r[1] = m[1]; r[2] = m[2];
+    r[3] = m[4]; r[4] = m[5]; r[5] = m[6];
+    r[6] = m[8]; r[7] = m[9]; r[8] = m[10];
+}
+
 static void xform_point(const float m[12], const float v[3], float o[3])
 {
     float x = v[0], y = v[1], z = v[2];
@@ -1524,6 +1539,11 @@ static int polar3(const double a[9], double q[9])
         return 0;
     memcpy(q, x, sizeof x);
     return 1;
+}
+
+int sa1_pose_polar3(const double a[9], double q[9])
+{
+    return polar3(a, q);
 }
 
 /* unit quaternion (w, x, y, z) of a rotation matrix (row-major, column vectors) */

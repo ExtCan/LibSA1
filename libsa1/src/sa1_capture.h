@@ -403,6 +403,9 @@ sa1_status sa1_pose_emit_model(sa1_context *ctx, sa1_meshbuf *b, sa1_guest_read_
  * stage's light palette and uses only the material alpha (8C037350 / 8C037872), SA1_DRAW_PALETTE_LIT. */
 sa1_status sa1_pose_emit_model_ex(sa1_context *ctx, sa1_meshbuf *b, const sa1_emit_info *ei, uint32_t model,
                                   const double m[12]);
+/* round 0.9.9f (src/sa1_skin.c): the rotation of a matrix that may carry a scale (polar decomposition), 0 if it has none; the rotation a node's flags and angles make */
+int sa1_pose_polar3(const double a[9], double q[9]);
+void sa1_pose_rest_rotation(uint32_t flags, const int32_t ang[3], double r[9]);
 /* room for nd more draws, ns sprites, nl line vertices */
 sa1_status sa1_meshbuf_reserve_extra(const sa1_context *ctx, sa1_meshbuf *b, uint32_t nd, uint32_t ns, uint32_t nl);
 /* room for one meshset of nc corners / nt triangles in the scratch arrays (so later emits do not allocate) */
@@ -554,6 +557,9 @@ typedef struct sa1_capture_emit_opts {
     uint32_t only_exec;
     /* round 0.9.9 (SA1_CREATE_QUESTION; zero: as before): only the game's objects' draws, a board's and the blob: nothing of the character's body, its effects or its aura. Output only */
     int32_t question;
+    /* round 0.9.9f (SA1_CREATE_SKIN, sa1_frontend_set_skin; NULL: as before): the body's draws are noted here by Sonic's node instead of emitted, Sonic's other own models (the Light Speed glow:
+       metal099e.md RM.6) dropped, the spin ball emitted with the skin's texture; the caller appends the parts (sa1k_append). Output only */
+    struct sa1k_char *skin;
 } sa1_capture_emit_opts;
 /* round 0.9.5: 1 when exec is a board task's (8C0B2F46 Sonic, 8C0BF804 Tails; compared physically). 0 is never one */
 int sa1_capture_board_exec(uint32_t exec);

@@ -12,7 +12,11 @@ globals visible to the host (everything lives in an `sa1_context`), a flat versi
 `sadc/tools/pclower.py` and run in a Dreamcast-layout arena per character (design:
 `sadc/docs/libsa1_integration.md`).
 
-## Status (0.5.1, 2026-11-04)
+## Status (0.5.2, 2026-11-05)
+
+0.5.2 (round 0.9.9e): Eggman and Tikal can be followers, `SA1_CREATE_SKIN` draws a worn skin's rigid parts over a character's own world, which stays byte for byte the same. The strict replays stay bit-exact (78 traces, V7).
+
+### 0.5.1 (2026-11-04)
 
 0.5.1 (round 0.9.9a): emotes leave and enter by a host-made bridge instead of the game's cutscene link, render-only fixes for a limb's turn between pairs, Knuckles' catalogue names and defaults, `sa1_follower_stand`. The strict replays stay bit-exact (78 traces, V7).
 

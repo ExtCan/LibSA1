@@ -3,6 +3,7 @@
  */
 #include "sa1_capture.h"
 #include "sa1_question.h"
+#include "sa1_skin.h"
 
 #include <stdlib.h>
 
@@ -21,6 +22,12 @@ static const sa1_archive *get_archive(const sa1_context *ctx, int32_t kind, uint
         const sa1_archive *q = sa1q_archive(ctx);
         *st = q != NULL ? SA1_OK : SA1_ERR_NOT_LOADED;
         return q;
+    }
+    /* round 0.9.9f: a skin's archive, the same way */
+    if (kind == SA1_CHAR_SONIC && archive == SA1_ARCHIVE_SKIN) {
+        const sa1_archive *k = sa1k_archive(ctx);
+        *st = k != NULL ? SA1_OK : SA1_ERR_NOT_LOADED;
+        return k;
     }
     /* round 0.9.8: the menu's archives (sa1_frontend_open) */
     cs = kind == SA1_KIND_FRONTEND ? &ctx->frontend_set : &ctx->chars[kind];

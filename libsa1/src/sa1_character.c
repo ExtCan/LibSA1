@@ -21,6 +21,7 @@
 #include "sa1_screen.h"
 #include "sa1_preview.h"    /* round 0.9.4b: sa1pv_destroy_all (the object showcases) */
 #include "sa1_question.h"   /* round 0.9.9: SA1_CREATE_QUESTION */
+#include "sa1_skin.h"       /* round 0.9.9f: SA1_CREATE_SKIN */
 
 #include <stddef.h>
 #include <stdio.h>
@@ -286,6 +287,9 @@ typedef struct sa1_rinfo {
        hint's stretch of the motion starts at the previous pair's drawn frame: from `frame`, one 60 Hz step later, the
        stretch was off by up to 6.7 frames of Sonic's 33-frame sprint at Super speeds (super_test general_anims_extreme) */
     float dframe;
+    /* round 0.9.9f (metal099e.md RM.8): a skin's part takes the hint of its Sonic mesh node, none while it flies */
+    const struct sa1k_char *skin;
+    int32_t skin_fly;
 } sa1_rinfo;
 
 /* tests only (sa1w_test_hint_legacy): pair_info leaves the drawn map out, as 0.9.4 did */
@@ -319,6 +323,7 @@ typedef struct sa1_char {
     sa1_rout rout;                  /* the expanded / interpolated output */
     int32_t start_rings;            /* API 0.3 (SA1_CREATE_START_RINGS): rings set when the world is built, -1 = none */
     int32_t question_still;         /* round 0.9.9: SA1_COPT_QUESTION_SPIN 0 (sa1q_char_still) */
+    sa1k_char *skin;                /* round 0.9.9f: SA1_CREATE_SKIN */
 } sa1_char;
 
 static sa1_char *get_char(const sa1_context *ctx, sa1_character_id id)
@@ -385,6 +390,7 @@ static void char_free(sa1_context *ctx, sa1_char *ch)
     sa1_meshbuf_free(ctx, &ch->rpose);
     sa1_meshbuf_free(ctx, &ch->rshadow);
     rout_free(ctx, &ch->rout);
+    sa1k_char_free(ctx, ch->skin);
     sa1_instance_free(ctx, &ch->inst);
     sa1_mem_free(ctx, ch);
 }
@@ -513,7 +519,7 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
     static const uint32_t known = SA1_CREATE_WORLD | SA1_CREATE_PUPPET | SA1_CREATE_SA1_SPACE | SA1_CREATE_ANGLES |
                                   SA1_CREATE_START_TABLE | SA1_CREATE_STAGE | SA1_CREATE_SEED | SA1_CREATE_UPGRADES |
                                   SA1_CREATE_STAGE_TASKS | SA1_CREATE_START_RINGS | SA1_CREATE_SUPER |
-                                  SA1_CREATE_SUPER_CAPABLE | SA1_CREATE_WATER_FLOOR | SA1_CREATE_QUESTION;
+                                  SA1_CREATE_SUPER_CAPABLE | SA1_CREATE_WATER_FLOOR | SA1_CREATE_QUESTION | SA1_CREATE_SKIN;
     sa1_character_desc d;
     const sa1_charset *cs;
     sa1_char *ch;
@@ -536,6 +542,16 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
             return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_QUESTION: only kind 8");
         if (d.flags & SA1_CREATE_PUPPET)
             return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_QUESTION: a puppet has no world (SA1_CREATE_PUPPET)");
+    }
+    if (d.flags & SA1_CREATE_SKIN) {
+        if (d.kind != SA1_CHAR_SONIC)
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_SKIN: only kind 0");
+        if (d.flags & SA1_CREATE_PUPPET)
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_SKIN: a puppet has no world (SA1_CREATE_PUPPET)");
+        if (d.flags & (SA1_CREATE_SUPER_CAPABLE | SA1_CREATE_QUESTION))
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_SKIN: not with SA1_CREATE_SUPER_CAPABLE or SA1_CREATE_QUESTION");
+        if (desc_in->struct_size < offsetof(sa1_character_desc, skin) + sizeof d.skin || d.skin == NULL)
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_SKIN: sa1_character_desc.skin is not given");
     }
     if ((d.flags & SA1_CREATE_PUPPET) && (d.flags & SA1_CREATE_WORLD))
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "a puppet has no world (SA1_CREATE_PUPPET with SA1_CREATE_WORLD)");
@@ -589,6 +605,12 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
         if (st != SA1_OK)
             return st;
     }
+    if (d.flags & SA1_CREATE_SKIN) {
+        /* the same for a skin: its model and its textures */
+        st = sa1k_load(ctx, d.skin);
+        if (st != SA1_OK)
+            return st;
+    }
     if ((d.flags & SA1_CREATE_SUPER_CAPABLE) && d.kind == SA1_CHAR_SONIC) {
         /* round 6a: his Super body's textures (sa1_loader.c load_other_body) */
         for (k = 0; k < cs->num_archives && strcmp(cs->archives[k].name, "SUPERSONIC") != 0; k++)
@@ -606,6 +628,13 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
         return SA1_ERR_OUT_OF_MEMORY;
     ch->inst.kind = d.kind;
     ch->create_flags = d.flags;
+    if (d.flags & SA1_CREATE_SKIN) {
+        st = sa1k_char_new(ctx, SA1_SKIN_ANIM_FLY, &ch->skin);
+        if (st != SA1_OK) {
+            sa1_mem_free(ctx, ch);
+            return st;
+        }
+    }
     ch->start_rings = (d.flags & SA1_CREATE_START_RINGS) ? (d.start_rings < 0 ? 0 : d.start_rings) : -1;
     if (!(d.flags & SA1_CREATE_START_RINGS) && d.kind == SA1_CHAR_SUPER_SONIC)
         ch->start_rings = 50;   /* round 6a: Perfect Chaos starts with 50 (the boss: 8C08A074, 8C08A198(50)) */
@@ -650,6 +679,7 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
     ch->inst.action = cs->num_available ? 0 : -1;
     st = sa1_instance_alloc(ctx, cs, &ch->inst);
     if (st != SA1_OK) {
+        sa1k_char_free(ctx, ch->skin);
         sa1_mem_free(ctx, ch);
         return st;
     }
@@ -667,8 +697,8 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
             return st;
         }
     }
-    if (d.flags & SA1_CREATE_QUESTION) {
-        /* no CPU pose of Super Sonic, ever: the "?" from the start */
+    if (d.flags & (SA1_CREATE_QUESTION | SA1_CREATE_SKIN)) {
+        /* no CPU pose of Super Sonic, ever: the "?" from the start (a skin: never a plain Sonic) */
         sa1_status qs = question_first(ctx, ch);
         if (qs != SA1_OK) {
             ctx->inst[slot] = NULL;
@@ -1506,13 +1536,66 @@ static sa1_status question_append(sa1_context *ctx, sa1_char *ch, sa1_meshbuf *b
     return sa1q_append(ctx, b, root, ch->question_still ? yaw - 0x4000u : x.step * 0x2D8u);
 }
 
-/* before the first pair, after a pose or a rebuilt world: the "?" alone in rb[0], where the CPU pose of any other character would stand */
+/* round 0.9.9f (SA1_CREATE_SKIN): the table from the CPU pose: a hidden pair, the time before the first pair. Yaw only, as today (metal099e.md 4.3 item 5) */
+static sa1_status skin_from_pose(sa1_context *ctx, sa1_char *ch, const sa1_charset *cs)
+{
+    int32_t object, action = ch->inst.action;
+    float t[3];
+    sa1_status st = pose_eval_current(ctx, ch);
+    if (st != SA1_OK)
+        return st;
+    object = cs->main_object;
+    if (action >= 0 && (uint32_t)action < cs->num_actions && cs->actions[action].status == SA1_ACTION_OK)
+        object = cs->actions[action].object;
+    sa1_from_host_point(ctx, ch->inst.position, t);
+    t[1] += cs->has_physics ? cs->physics.center_height : 0.0f;
+    sa1k_note_pose(ch->skin, cs, object, ch->inst.node_mtx, t);
+    return SA1_OK;
+}
+
+/* what the display drew, for the fades */
+static void skin_drive(const sa1_charset *cs, const sa1_char *ch, sa1k_drive *d)
+{
+    memset(d, 0, sizeof *d);
+    d->row = -1;
+    d->center_height = cs->has_physics ? cs->physics.center_height : 0.0f;
+    if (ch->have_last && ch->last.valid) {
+        d->row = ch->last.drawn_valid && ch->last.drawn_frame_valid ? (int32_t)ch->last.drawn_action
+                                                                     : (int32_t)(ch->last.mtnmode == 2 ? ch->last.action : ch->last.reqaction);
+        d->steady = ch->last.mtnmode != 2 && ch->last.action == ch->last.reqaction;
+        /* an emote plays its row through the game's action pointer: the action fields do not name it */
+        if (ch->last.emote_row >= 0 && ch->last.emote_state != SA1_EMOTE_STATE_NONE) {
+            d->row = ch->last.emote_row;
+            d->steady = 0;
+        }
+        d->frame = ch->last.drawn_valid && ch->last.drawn_frame_valid ? ch->last.drawn_frame : ch->last.nframe;
+        d->have_root = 1;
+        if (ch->last.drawn_valid) {
+            memcpy(d->pos, ch->last.drawn_pos, sizeof d->pos);
+            memcpy(d->ang, ch->last.drawn_ang, sizeof d->ang);
+        } else {
+            memcpy(d->pos, ch->last.pos, sizeof d->pos);
+            memcpy(d->ang, ch->last.ang, sizeof d->ang);
+        }
+    }
+}
+
+/* before the first pair, after a pose or a rebuilt world: the "?" alone in rb[0], where the CPU pose of any other character would stand; a skin's parts at that CPU pose */
 static sa1_status question_first(sa1_context *ctx, sa1_char *ch)
 {
     sa1_state_ex x;
     sa1_status st;
     sa1_meshbuf_reset(&ch->rb[0]);
-    st = question_append(ctx, ch, &ch->rb[0]);
+    if (ch->skin != NULL) {
+        const sa1_charset *cs = loaded_set(ctx, ch->inst.kind);
+        if (cs == NULL)
+            return SA1_ERR_NOT_LOADED;
+        st = skin_from_pose(ctx, ch, cs);
+        if (st == SA1_OK)
+            st = sa1k_append(ctx, ch->skin, cs, &ch->rb[0]);
+    } else {
+        st = question_append(ctx, ch, &ch->rb[0]);
+    }
     if (st != SA1_OK)
         return st;
     sa1_meshbuf_geometry(&ch->rb[0], &ch->inst.geom);
@@ -1524,6 +1607,12 @@ static sa1_status question_first(sa1_context *ctx, sa1_char *ch)
     ch->rhave = 1;
     ch->rgen++;
     return SA1_OK;
+}
+
+sa1k_char *sa1k_char_of(const sa1_context *ctx, sa1_character_id id)
+{
+    sa1_char *ch = get_char(ctx, id);
+    return ch != NULL ? ch->skin : NULL;
 }
 
 int32_t *sa1q_char_still(const sa1_context *ctx, sa1_character_id id)
@@ -1678,6 +1767,7 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
     o.dedupe = 1;
     o.exec_arrays = 1;      /* round 0.9.4: who drew each model / sprite (sa1_meshbuf.node_exec / spr_exec) */
     o.question = (ch->create_flags & SA1_CREATE_QUESTION) != 0;     /* round 0.9.9; 0 in every reference world */
+    o.skin = ch->skin;                                              /* round 0.9.9f; NULL in every reference world */
 #if !defined(SA1_NO_WORLD)
     /* round 0.9.5 (the board): its draws left out until it was held once; a kept board in world space */
     o.board_hide = ch->world != NULL && sa1wb_draw_hidden(ch->world);
@@ -1687,7 +1777,7 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
     if (ch->cw.flags & SA1W_FOLLOWER)
         sa1wf_note_hidden(ch->world, sa1_capture_hidden(ch->cap));
 #endif
-    if (!o.question && sa1_capture_hidden(ch->cap)) {
+    if (!o.question && !o.skin && sa1_capture_hidden(ch->cap)) {
         /* the game's camera did not see the character in the last pair: its display returned before drawing (game
          * logic: the visibility test 8C038D00, rt_draw.c section 6). Hosts draw the character whether the game's
          * camera sees it or not: the render output is the CPU pose of the game's action and frame (the posing state
@@ -1720,7 +1810,26 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
             return st;
         sa1_meshbuf_geometry(&ch->rb[nxt], g);
     }
+    if (o.skin) {
+        /* a hidden pair: the game's camera did not see him, its display returned before drawing: still 25 parts, at the CPU pose (metal099e.md 4.3 item 5). Then the fades, once per captured pair */
+        sa1k_drive sd;
+        if (sa1_capture_hidden(ch->cap)) {
+            st = skin_from_pose(ctx, ch, cs);
+            if (st != SA1_OK)
+                return st;
+        }
+        skin_drive(cs, ch, &sd);
+        sa1k_step(ch->skin, cs, &sd);
+        st = sa1k_append(ctx, ch->skin, cs, &ch->rb[nxt]);
+        if (st != SA1_OK)
+            return st;
+        sa1_meshbuf_geometry(&ch->rb[nxt], g);
+    }
     pair_info(cs, ch, nxt);
+    if (o.skin) {
+        ch->rinfo[nxt].skin = ch->skin;
+        ch->rinfo[nxt].skin_fly = sa1k_flying(ch->skin);
+    }
     ch->rcur = nxt;
     if (ch->rhave < 2)
         ch->rhave++;
@@ -1760,7 +1869,7 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
 static sa1_status mesh_current(sa1_context *ctx, sa1_char *ch, sa1_mesh *mesh)
 {
     mesh_src s;
-    if (!ch->rhave && (ch->create_flags & SA1_CREATE_QUESTION)) {
+    if (!ch->rhave && (ch->create_flags & (SA1_CREATE_QUESTION | SA1_CREATE_SKIN))) {
         sa1_status qs = question_first(ctx, ch);
         if (qs != SA1_OK)
             return qs;
@@ -1966,7 +2075,7 @@ sa1_status sa1_character_pose(sa1_context *ctx, sa1_character_id id, const sa1_p
     ch->rgen++;
     ch->rhave = 0;  /* the render output shows this pose (a ticking character: until its next pair) */
     ch->rshadow_on = 0;
-    if (ch->create_flags & SA1_CREATE_QUESTION) {   /* round 0.9.9: a "?" stays one */
+    if (ch->create_flags & (SA1_CREATE_QUESTION | SA1_CREATE_SKIN)) {   /* round 0.9.9: a "?" stays one; 0.9.9f: a skin too */
         st = question_first(ctx, ch);
         if (st != SA1_OK)
             return st;
@@ -2278,6 +2387,19 @@ static int32_t hint_node(const sa1_charset *cs, const sa1_rinfo *ri, uint32_t mo
     amot = ri->dobj >= 0 ? ri->dmot : ac->motion;
     if (aobj < 0 || amot < 0 || (uint32_t)amot >= cs->motions.count)
         return -1;
+    if (ri->skin != NULL) {
+        /* round 0.9.9f (metal099e.md RM.8): a skin's part: the hint of its Sonic mesh node (the curled body: index + 1); in a flown row none: the hint is Sonic's run, the part flies */
+        int32_t mn = sa1k_part_mesh(ri->skin, model);
+        if (mn >= 0) {
+            uint32_t nn = (uint32_t)aobj < cs->objects.count ? SA1_VEC(cs->objects, sa1_object)[aobj].num_nodes : 0u;
+            uint32_t body = SA1_VEC(cs->objects, sa1_object)[cs->main_object].num_nodes;
+            if (ri->skin_fly || (nn != body && nn != body + 1u))
+                return -1;
+            *object = aobj;
+            *motion = amot;
+            return nn == body ? mn : mn + 1;
+        }
+    }
     node = sa1_pose_node_of_model(cs, aobj, model);
     if (node >= 0) {
         *object = aobj;
@@ -3018,7 +3140,7 @@ static sa1_status plan_build(sa1_context *ctx, sa1_char *ch)
             mul34(fi0, w0, q0);
             mul34(fi1, w1, q1);
             if (!(cur->node_fl[k] & SA1_NODE_SHADOW) && prefer_world(w0, w1, q0, q1) &&
-                !charset_model(cs, cur->node_model[k])) {
+                !charset_model(cs, cur->node_model[k]) && !(ch->skin != NULL && sa1k_part_mesh(ch->skin, cur->node_model[k]) >= 0)) {
                 /* F5: in SA1 world space (no motion hint: the node's turn is relative to the character) */
                 pn->world = 1;
                 sa1_xlerp_plan(w0, w1, -1.0, RENDER_MAX_ANGLE, &pn->x);
@@ -3094,7 +3216,7 @@ static sa1_status plan_build(sa1_context *ctx, sa1_char *ch)
                   !(cur->node_fl[o->order[a]] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE));
         }
         for (k = 0; k < nn && !pop && !same; k++) {
-            if (o->plan[k].prev < 0 && !(cur->node_fl[k] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE)) && charset_model(cs, cur->node_model[k]))
+            if (o->plan[k].prev < 0 && !(cur->node_fl[k] & (SA1_NODE_OBJECT | SA1_NODE_SHADOW | SA1_NODE_FADE)) && (charset_model(cs, cur->node_model[k]) || (ch->skin != NULL && sa1k_part_mesh(ch->skin, cur->node_model[k]) >= 0)))
                 unmatched++;
             pop = unmatched >= 4u && o->norder > 0u;    /* more than a prop that comes and goes (Amy's hammer has its parts in other draws) */
         }
@@ -3355,7 +3477,7 @@ static sa1_status render_build(sa1_context *ctx, sa1_char *ch, float alpha, cons
         alpha = 0.0f;
     if (alpha > 1.0f)
         alpha = 1.0f;
-    if (!ch->rhave && (ch->create_flags & SA1_CREATE_QUESTION)) {
+    if (!ch->rhave && (ch->create_flags & (SA1_CREATE_QUESTION | SA1_CREATE_SKIN))) {
         st = question_first(ctx, ch);
         if (st != SA1_OK)
             return st;

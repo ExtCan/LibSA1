@@ -47,6 +47,8 @@
 #define FW_F_TIME_GET   0x8C08AB02u
 #define FW_MAIN_AMY     0x8C0D6B40u
 #define FW_MAIN_BIG     0x8C0DFFA0u
+#define FW_MAIN_EGGMAN  0x8C0ED880u     /* round 0.9.9e: EggmanMain, in 1ST_READ */
+#define FW_MAIN_TIKAL   0x0CB00000u     /* round 0.9.9e: TikalMain, TIKAL_PROG in this world's image (sa1_world_image.c, by the follower's kind) */
 
 /* taskwk / motionwk / playerwk / csts offsets (sadc include/task.h, include/sa1/player.h, include/sa1/collision.h) */
 #define FW_TP_TWP       0x20u
@@ -594,7 +596,11 @@ void sa1g_follower_boot(sa1g_world *w, const sa1g_boot_cfg *c)
             fw_wr32(w, req, fc->kind == SA1_CHAR_SONIC ? 0u : fc->kind == SA1_CHAR_KNUCKLES ? 2u : 4u);
             ftp = ((void *(*)(void *))fw_gfn(FW_F_P1_CREATE))(sa1g_world_ptr(w, req));
         } else {
-            ftp = create(7, 1, SA1_GFN_C(fc->kind == SA1_CHAR_AMY ? FW_MAIN_AMY : FW_MAIN_BIG));
+            /* Amy, Big; round 0.9.9e: Eggman, Tikal, the same way: their mains read the player number and set counter.b[1] themselves. They have no NAct: the AI's orders 12, 24, 48 do nothing to them, so a
+               drop-in is a fall from above the camera, and Tikal, whose buttons come from her own pad, takes the AI's flight button for her debug button (tests/follower_test.c FPL has the numbers).
+               Nothing here repairs that */
+            ftp = create(7, 1, SA1_GFN_C(fc->kind == SA1_CHAR_AMY ? FW_MAIN_AMY : fc->kind == SA1_CHAR_BIG ? FW_MAIN_BIG :
+                                         fc->kind == SA1_CHAR_EGGMAN ? FW_MAIN_EGGMAN : FW_MAIN_TIKAL));
             if (ftp != NULL) {
                 uint32_t g = fw_rd32(w, sa1_encode(ftp) + FW_TP_TWP);
                 fw_wr8(w, g + FW_TWP_B1, (uint32_t)fc->kind);

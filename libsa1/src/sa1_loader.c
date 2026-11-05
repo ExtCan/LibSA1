@@ -13,6 +13,7 @@
 #include "sa1_capture.h"    /* sa1_texture_make_variants (round 0.9.4a) */
 #include "sa1_frontend.h"   /* round 0.9.8: sa1_frontend_close, sa1_loader_frontend_set */
 #include "sa1_question.h"   /* round 0.9.9 */
+#include "sa1_skin.h"       /* round 0.9.9f */
 
 #include <stdio.h>
 
@@ -25,6 +26,8 @@ typedef struct loader {
     char         failed[SA1_MAX_IMAGES][32];
     uint32_t     num_failed;
     int          partial;
+    const uint16_t *keep;   /* round 0.9.9f: load_archive decodes only these textures (NULL: all) */
+    uint32_t     num_keep;
 } loader;
 
 /* ------------------------------------------------------------------------- */
@@ -232,6 +235,13 @@ static void load_archive(loader *L, sa1_charset *cs, const char *name, uint32_t 
         uint32_t w, h, pf, df;
         snprintf(t->name, sizeof t->name, "%s", ents[i].name);
         t->gbix = ents[i].gbix;
+        if (L->keep != NULL) {
+            uint32_t kk;
+            for (kk = 0; kk < L->num_keep && L->keep[kk] != i; kk++)
+                ;
+            if (kk == L->num_keep)
+                continue;
+        }
         st = sa1_pvr_header(chunk, ents[i].length, &w, &h, &pf, &df);
         if (st == SA1_OK) {
             t->width = w;
@@ -725,6 +735,75 @@ sa1_status sa1_loader_question(sa1_context *ctx, const char *gdi_path, sa1_chars
     return st;
 }
 
+/* Round 0.9.9f (a worn skin; src/sa1_skin.h): the model's file unpacked for the caller and only tex_file's textures named in keep, by their position in it, into cs's archive 0; read and SHA-1 checked as a character's */
+sa1_status sa1_loader_skin(sa1_context *ctx, const char *gdi_path, sa1_charset *cs, const char *model_file, uint8_t **overlay, uint32_t *overlay_size,
+                           const char *tex_file, const uint16_t *keep, uint32_t num_keep)
+{
+    loader *L;
+    sa1_status st;
+    char name[32];
+    size_t nl;
+    cs->arena.ctx = ctx;
+    cs->models.elem = sizeof(sa1_model);
+    cs->objects.elem = sizeof(sa1_object);
+    cs->motions.elem = sizeof(sa1_motion);
+    nl = strlen(tex_file);
+    if (nl < 5u || nl >= sizeof name || strcmp(tex_file + nl - 4u, ".PRS") != 0) {
+        return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_SKIN: %s is no .PRS archive", tex_file);
+    }
+    memcpy(name, tex_file, nl - 4u);
+    name[nl - 4u] = 0;
+    L = (loader *)sa1_mem_alloc(ctx, sizeof *L);
+    if (L == NULL) {
+        return SA1_ERR_OUT_OF_MEMORY;
+    }
+    L->ctx = ctx;
+    L->flags = 0;
+    st = sa1_disc_open(ctx, gdi_path, &L->disc);
+    if (st != SA1_OK) {
+        sa1_mem_free(ctx, L);
+        return st;
+    }
+    st = read_unpacked(L, model_file, overlay, overlay_size);
+    if (st != SA1_OK) {
+        st = sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_SKIN: %s could not be read (%s)", model_file, sa1_status_string(st));
+    } else {
+        L->keep = keep;
+        L->num_keep = num_keep;
+        load_archive(L, cs, name, 0u, NULL);
+        if (cs->num_archives != 1u || cs->archives[0].tex == NULL) {
+            st = sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_SKIN: %s could not be read", tex_file);
+        } else {
+            /* by position in keep */
+            sa1_archive *ar = &cs->archives[0];
+            sa1_texture *kept = (sa1_texture *)sa1_arena_array(&cs->arena, num_keep, sizeof(sa1_texture));
+            uint32_t i;
+            if (kept == NULL) {
+                st = SA1_ERR_OUT_OF_MEMORY;
+            } else {
+                for (i = 0; i < num_keep && st == SA1_OK; i++) {
+                    if (keep[i] >= ar->num_textures || ar->tex[keep[i]].rgba == NULL) {
+                        st = sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_SKIN: %s has no texture %u", tex_file, (unsigned)keep[i]);
+                    } else {
+                        kept[i] = ar->tex[keep[i]];
+                    }
+                }
+                ar->tex = kept;
+                ar->num_textures = num_keep;
+                ar->texlist_count = num_keep;
+                cs->loaded = 1;
+            }
+        }
+    }
+    sa1_disc_close(&L->disc);
+    sa1_mem_free(ctx, L);
+    if (st != SA1_OK) {
+        sa1_mem_free(ctx, *overlay);
+        *overlay = NULL;
+    }
+    return st;
+}
+
 void sa1_unload_disc(sa1_context *ctx)
 {
     int32_t k;
@@ -738,6 +817,7 @@ void sa1_unload_disc(sa1_context *ctx)
         sa1_charset_free(ctx, &ctx->chars[k]);
     sa1_charset_free(ctx, &ctx->frontend_set);
     sa1q_free(ctx);
+    sa1k_free(ctx);
     ctx->files.count = 0;
     ctx->num_image_names = 0;
     ctx->disc_loaded = 0;

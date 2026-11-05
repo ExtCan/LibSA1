@@ -20,6 +20,7 @@
 #if !defined(SA1H_HOSTOBJ)
 #include "world/sa1_world_look.h"     /* round 0.9.8: sa1_look_set_super */
 #include "sa1_question.h"             /* round 0.9.9: sa1q_set_spin */
+#include "sa1_skin.h"                 /* round 0.9.9f: SA1_COPT_SKIN_ANIM */
 #endif
 #include "sa1_api_world.h"
 #include "sa1_screen.h"
@@ -468,6 +469,14 @@ sa1_status sa1_character_set_option(sa1_context *ctx, sa1_character_id id, uint3
     /* round 0.9.9: the "?" (src/sa1_question.c; the harness's oracle has no "?": gsa1_099_plan.md review R99.5) */
     if (option == SA1_COPT_QUESTION_SPIN) {
         return sa1q_set_spin(ctx, id, value);
+    }
+    if (option == SA1_COPT_SKIN_ANIM) {
+        sa1k_char *sc = sa1k_char_of(ctx, id);
+        if (sc == NULL) {
+            return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "SA1_COPT_SKIN_ANIM: only a character made with SA1_CREATE_SKIN");
+        }
+        sa1k_set_anim(sc, (uint32_t)value);
+        return SA1_OK;
     }
 #endif
     if (option < SA1_COPT_NO_DEATH || option > SA1_COPT_NO_DAMAGE) {

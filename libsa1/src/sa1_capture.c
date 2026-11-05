@@ -16,6 +16,7 @@
  * before it is read (sa1_capture_read), outside any world call.
  */
 #include "sa1_capture.h"
+#include "sa1_skin.h"
 #include "sa1_api_world.h"
 
 #include <stddef.h>
@@ -1285,11 +1286,15 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
     c->gold_sprites = c->gold_polygons = c->gold_models = 0;
     if (o->cs && c->cs != o->cs)
         sa1_capture_set_archives(c, o->cs);
+    if (o->skin && o->cs)
+        sa1k_note_begin(o->skin, c, o->cs);
     for (i = 0; i < c->nsnap; i++) {
         const sa1_cap_rec *r = &c->snap[i];
         double m[12];
         sa1_draw_state ds;
         sa1_emit_info ei;
+        sa1k_ball_ctx ball;
+        int skin_ball = 0;
         int own, shadow, glow, object = sa1_capture_object_exec(r->exec), board = sa1_capture_board_exec(r->exec);
         uint32_t nn0 = b->nn, ns0 = b->nspr, nlv0 = b->nlv, nt0 = b->nt, k;
         if (board && o->board_hide)
@@ -1361,6 +1366,15 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
             c->duplicates++;
             continue;
         }
+        if (o->skin && own && !object && !board && !shadow) {
+            /* round 0.9.9f: note and drop. Effects, sprites, objects, a board and the blob take their usual way */
+            skin_ball = sa1k_note_ball(o->skin, r->obj);
+            if (!skin_ball) {
+                sa1k_note_draw(o->skin, r->obj, m, &ds);
+                c->excluded++;
+                continue;
+            }
+        }
         memset(&ei, 0, sizeof ei);
         ei.reader = sa1_capture_read;
         ei.user = c;
@@ -1393,6 +1407,8 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
         if (board)
             /* round 0.9.5: the board under Sonic's / Tails' feet or left on the ground, before the merge test */
             ei.extra_flags |= SA1_DRAW_BOARD;
+        if (skin_ball)
+            sa1k_ball_info(o->skin, c, &ball, &ei);
         glow = cap_gold_glow(c, r);
         if (glow)
             /* round 0.9.4a M3: the charged glow in gold (the comment above cap_gold_texlist); the flag before the
