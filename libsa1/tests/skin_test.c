@@ -12,6 +12,7 @@
  *   - sa1_texture_get(0, SA1_ARCHIVE_SKIN, n): the kept textures by position, SA1_ERR_NOT_LOADED before the first use.
  */
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1578,8 +1579,170 @@ static void test_s11(void)
     sa1_character_destroy(g_ctx, b);
 }
 
-/* ---- S8: Character Select -------------------------------------------------------------------------------------------------------------------------------- */
-static uint32_t hash_bytes(uint32_t h, const void *p, size_t n)
+/* ---- S12: a follower wears the skin (round 0.9.9h; the owner: "can you add a Metal Sonic follower?") -------------------------------------------------------------
+ * sa1_follower_create with SA1_FOLLOW_SKIN: the follower is a Sonic follower made with SA1_CREATE_SKIN. Its world is a Sonic follower's, byte for byte (states, events, the whole
+ * arena against a control of two plain ones), only its render output is the skin's: no draw of Sonic's body, the parts on archive 61, the flying while it runs. A skin follower
+ * leads a skin follower (a chain). The cost of the render step per pair: an info line, not a check. */
+static sa1_status s12_follower(sa1_character_id leader, int skin, int32_t kind, uint32_t size, sa1_character_id *out)
+{
+    sa1_follower_desc d;
+    memset(&d, 0, sizeof d);
+    d.struct_size = size ? size : (uint32_t)sizeof d;
+    d.kind = kind;
+    d.leader = leader;
+    d.flags = SA1_FOLLOW_SEED | SA1_FOLLOW_NO_SET | (skin ? SA1_FOLLOW_SKIN : 0u);
+    d.seed = 0x5EED0099u;
+    d.skin = skin == 1 ? &g_skin : NULL;
+    *out = 0;
+    return sa1_follower_create(g_ctx, &d, out);
+}
+
+typedef struct s12_ev {
+    sa1_event *e;
+    uint32_t n, cap;
+} s12_ev;
+
+static void s12_keep(s12_ev *k, const sa1_event *e)
+{
+    if (k->n == k->cap) {
+        k->cap = k->cap ? 2u * k->cap : 1024u;
+        k->e = (sa1_event *)realloc(k->e, (size_t)k->cap * sizeof *k->e);
+    }
+    k->e[k->n] = *e;
+    k->e[k->n].character = 0;
+    k->n++;
+}
+
+static double s12_ms(clock_t a, clock_t b)
+{
+    return 1000.0 * (double)(b - a) / (double)CLOCKS_PER_SEC;
+}
+
+static void test_s12(void)
+{
+    enum { PAIRS = 900 };
+    sa1_character_id lead = 0, fa = 0, fb = 0, fc = 0, fd = 0, bad = 0;
+    sa1_status s1, s2, s3;
+    sa1_state_ex xa, xb;
+    s12_ev ea, eb;
+    uint8_t *ra, *rb, *rc;
+    uint32_t i, sd = 0, ctl = 0, flg = 0, other = 0;
+    int p, a_body = 0, a_skin = 0, b_body = 0, b_skin = 0, d_skin = 0, d_body = 0, flew = 0;
+    float wmax = 0.0f;
+    double ms_a = 0.0, ms_b = 0.0;
+    printf("S12 a follower wears the skin: a Sonic follower's world, byte for byte, the skin drawn over it\n");
+    memset(&ea, 0, sizeof ea);
+    memset(&eb, 0, sizeof eb);
+    if (create(0, &lead) != SA1_OK) {
+        CHECK(0, "S12 the leader: %s", sa1_last_error(g_ctx));
+        return;
+    }
+    s1 = s12_follower(lead, 1, SA1_CHAR_TAILS, 0, &bad);
+    s2 = s12_follower(lead, 1, SA1_CHAR_SONIC, (uint32_t)offsetof(sa1_follower_desc, skin), &bad);
+    s3 = s12_follower(lead, 2, SA1_CHAR_SONIC, 0, &bad);
+    CHECK(s1 == SA1_ERR_INVALID_ARGUMENT && s2 == SA1_ERR_INVALID_ARGUMENT && s3 == SA1_ERR_INVALID_ARGUMENT && bad == 0,
+          "S12 refused: SA1_FOLLOW_SKIN on Tails (%s), a desc that does not reach .skin (%s), .skin NULL (%s)", sa1_status_string(s1), sa1_status_string(s2), sa1_status_string(s3));
+    s1 = s12_follower(lead, 0, SA1_CHAR_SONIC, 0, &fa);
+    s2 = s12_follower(lead, 0, SA1_CHAR_SONIC, 0, &fc);
+    s3 = s12_follower(lead, 1, SA1_CHAR_SONIC, 0, &fb);
+    CHECK(s1 == SA1_OK && s2 == SA1_OK && s3 == SA1_OK, "S12 a plain Sonic follower, its control and a skin follower, one seed (%s)", s3 == SA1_OK ? "ok" : sa1_last_error(g_ctx));
+    if (s1 != SA1_OK || s2 != SA1_OK || s3 != SA1_OK) {
+        sa1_character_destroy(g_ctx, lead);
+        return;
+    }
+    s1 = s12_follower(fb, 1, SA1_CHAR_SONIC, 0, &fd);
+    CHECK(s1 == SA1_OK, "S12 a chain: a skin follower follows the skin follower (%s)", s1 == SA1_OK ? "ok" : sa1_last_error(g_ctx));
+    CHECK(sa1_character_set_option(g_ctx, fa, SA1_COPT_SKIN_ANIM, 1) == SA1_ERR_UNSUPPORTED && sa1_character_set_option(g_ctx, fb, SA1_COPT_SKIN_ANIM, SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_GLOW) == SA1_OK,
+          "S12 SA1_COPT_SKIN_ANIM on a follower id: the skin's (ok), a plain one's (unsupported)");
+    for (p = 0; p < PAIRS; p++) {
+        sa1_input in, none;
+        sa1_event ev[64];
+        uint32_t ne;
+        const sa1_render *r = NULL;
+        tally t;
+        sa1k_test_info ti;
+        clock_t c0, c1, c2;
+        s1_input(p, &in);
+        memset(&none, 0, sizeof none);
+        none.struct_size = sizeof none;
+        none.camera_yaw = in.camera_yaw;
+        sa1_character_tick(g_ctx, lead, &in, 1.0f / 30.0f, NULL, NULL);
+        c0 = clock();
+        sa1_character_tick(g_ctx, fa, &none, 1.0f / 30.0f, NULL, NULL);
+        sa1_character_render(g_ctx, fa, 0.5f, &r);
+        tally_of(r, &t);
+        c1 = clock();
+        a_body += t.body_tris > 0u;
+        a_skin += t.skin_tris > 0u;
+        sa1_character_tick(g_ctx, fb, &none, 1.0f / 30.0f, NULL, NULL);
+        sa1_character_render(g_ctx, fb, 0.5f, &r);
+        tally_of(r, &t);
+        c2 = clock();
+        b_body += t.body_tris > 0u;
+        b_skin += t.skin_tris > 0u;
+        ms_a += s12_ms(c0, c1);
+        ms_b += s12_ms(c1, c2);
+        sa1_character_tick(g_ctx, fc, &none, 1.0f / 30.0f, NULL, NULL);
+        sa1_character_tick(g_ctx, fd, &none, 1.0f / 30.0f, NULL, NULL);
+        sa1_character_render(g_ctx, fd, 0.5f, &r);
+        tally_of(r, &t);
+        d_body += t.body_tris > 0u;
+        d_skin += t.skin_tris > 0u;
+        info_of(fb, &ti);
+        if (ti.w > wmax) {
+            wmax = ti.w;
+        }
+        flew += ti.w > 0.99f;
+        state_of(fa, &xa);
+        state_of(fb, &xb);
+        sd += memcmp(&xa, &xb, sizeof xa) != 0;
+        do {
+            ne = 0;
+            sa1_poll_events(g_ctx, ev, 64, &ne);
+            for (i = 0; i < ne; i++) {
+                if (ev[i].character == fa) {
+                    s12_keep(&ea, &ev[i]);
+                } else if (ev[i].character == fb) {
+                    s12_keep(&eb, &ev[i]);
+                }
+            }
+        } while (ne == 64);
+    }
+    CHECK(sd == 0u, "S12 every sa1_state_ex of the skin follower is the plain one's: %u of %d pairs differ", (unsigned)sd, PAIRS);
+    CHECK(ea.n > 0u && ea.n == eb.n && memcmp(ea.e, eb.e, ea.n * sizeof ea.e[0]) == 0, "S12 every event the same: %u and %u events", (unsigned)ea.n, (unsigned)eb.n);
+    ra = sa1_character_world(g_ctx, fa)->ram;
+    rb = sa1_character_world(g_ctx, fb)->ram;
+    rc = sa1_character_world(g_ctx, fc)->ram;
+    for (i = 0; i < SA1G_ARENA_SIZE; i++) {
+        int c_ = ra[i] != rc[i];
+        ctl += (uint32_t)c_;
+        if (ra[i] != rb[i]) {
+            flg++;
+            if (!c_) {
+                if (other < 16u) {
+                    printf("  FAIL  the skin follower's world differs at guest %08X: %02X, %02X; the control does not\n", (unsigned)(0x8C000000u + i), ra[i], rb[i]);
+                }
+                other++;
+            }
+        }
+    }
+    CHECK(other == 0u, "S12 the whole arena: the control of two plain followers differs at %u bytes, the skin follower's at %u, %u of them where the control does not (0)", (unsigned)ctl, (unsigned)flg, (unsigned)other);
+    CHECK(a_body > PAIRS * 9 / 10 && a_skin == 0, "S12 the plain follower: Sonic's body on %d of %d pairs, the skin's parts on %d (0)", a_body, PAIRS, a_skin);
+    CHECK(b_body == 0 && b_skin > PAIRS * 9 / 10, "S12 the skin follower: the skin on %d of %d pairs, Sonic's body on %d (0)", b_skin, PAIRS, b_body);
+    CHECK(d_body == 0 && d_skin > PAIRS * 9 / 10, "S12 the chain's skin follower: the skin on %d of %d pairs, Sonic's body on %d (0)", d_skin, PAIRS, d_body);
+    CHECK(wmax > 0.99f && flew > 0, "S12 running behind the leader, the skin follower flies: the fade reached %.3f, flown on %d pairs", (double)wmax, flew);
+    printf("  info  the cost of the skin, this machine: a plain Sonic follower %.3f ms a pair (tick and render), the skin follower %.3f ms (clock(), %d pairs)\n", ms_a / PAIRS, ms_b / PAIRS, PAIRS);
+    CHECK(!count_faults(fa) && !count_faults(fb) && !count_faults(fc) && !count_faults(fd), "S12 no fault");
+    sa1_character_destroy(g_ctx, fd);
+    sa1_character_destroy(g_ctx, fb);
+    sa1_character_destroy(g_ctx, fc);
+    sa1_character_destroy(g_ctx, fa);
+    sa1_character_destroy(g_ctx, lead);
+    free(ea.e);
+    free(eb.e);
+}
+
+/* ---- S8: Character Select -------------------------------------------------------------------------------------------------------------------------------- */static uint32_t hash_bytes(uint32_t h, const void *p, size_t n)
 {
     const uint8_t *b = (const uint8_t *)p;
     size_t i;
@@ -1886,6 +2049,7 @@ int main(int argc, char **argv)
     test_s7();
     test_s8();
     test_s9(gdi);
+    test_s12();
     test_s1();
     printf("DETERMINISM skin %08X\n", (unsigned)g_hash);
     printf("\nskin_test: %d checks, %d failed\n", g_ok + g_fail, g_fail);

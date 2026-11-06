@@ -131,7 +131,7 @@ extern "C" {
 
 #define SA1_VERSION_MAJOR 0
 #define SA1_VERSION_MINOR 5
-#define SA1_VERSION_PATCH 3
+#define SA1_VERSION_PATCH 4
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
 #define SA1_API_VERSION ((SA1_VERSION_MAJOR << 16) | SA1_VERSION_MINOR)
@@ -211,7 +211,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.5.3" */
+SA1_API const char *sa1_version_string(void);     /* "0.5.4" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -3134,6 +3134,8 @@ typedef struct sa1_follower_desc {
     uint16_t upgrade_flags[32];         /* SA1_FOLLOW_UPGRADES: the game's event flags of the follower's own upgrades (below 512:
                                            PInitialize reads them; Sonic 0x8D, 0x8E, 0x9F ...) */
     uint32_t num_upgrade_flags;
+    /* round 0.9.9h (SA1_API_SKIN 2); read when struct_size covers it */
+    const struct sa1_skin_desc *skin;   /* SA1_FOLLOW_SKIN: read during the create, not kept (see "a worn skin") */
 } sa1_follower_desc;
 #define SA1_FOLLOW_SEED         0x01u
 #define SA1_FOLLOW_UPGRADES     0x02u
@@ -3142,7 +3144,9 @@ typedef struct sa1_follower_desc {
 #define SA1_FOLLOW_GAME_HISTORY 0x08u   /* a respawn rewrites history frame 0 only (the DC's 8C081D4E; default for every kind
                                            but Tails: frames 0-255, else Knuckles' 8C0C7C26 throws him back by the jump) */
 #define SA1_FOLLOW_NO_SET       0x10u   /* the world mirrors no SET record (rings, boxes); default: the spawner's window */
-#define SA1_FOLLOW_KNOWN_FLAGS  0x1Fu
+#define SA1_FOLLOW_SKIN         0x20u   /* round 0.9.9h (SA1_API_SKIN 2): kind 0 only, sa1_follower_desc.skin given: the follower is made with SA1_CREATE_SKIN. Its world is a
+                                           Sonic follower's, byte for byte; only its render output is the skin's, as for a skin made with sa1_character_create_ex */
+#define SA1_FOLLOW_KNOWN_FLAGS  0x3Fu
 
 /* The follower's world is built at once (the leader's current state, or host_leader, is its first snapshot), so it may be
  * ticked in parallel at once (SA1_API_PARALLEL). SA1_ERR_INVALID_ARGUMENT (struct_size, flags, a leader that is not a world
@@ -3405,8 +3409,8 @@ SA1_API sa1_status sa1_frontend_view(const sa1_frontend *fe, float eye[3], float
 #define SA1_COPT_QUESTION_SPIN 8u      /* sa1_character_set_option: 1 (default) spins as on the menu, 0 faces the way the character faces */
 
 /* ---- a worn skin (SA1_API_SKIN, round 0.9.9f; sadc docs/research/metal099e.md): Metal Sonic over Sonic's world ------------------ */
-#define SA1_API_SKIN 1
-#define SA1_CREATE_SKIN       0x4000u  /* kind 0 only, a world, never a puppet: sa1_character_desc.skin is given. The world, its state, its events and its sounds are byte for byte Sonic's: only the
+#define SA1_API_SKIN 2                 /* 2 (round 0.9.9h): a follower wears one too (SA1_FOLLOW_SKIN, sa1_follower_desc.skin) */
+#define SA1_CREATE_SKIN       0x4000u  /* kind 0 only, a world, never a puppet: sa1_character_desc.skin is given (a follower: SA1_FOLLOW_SKIN). The world, its state, its events and its sounds are byte for byte Sonic's: only the
                                           output differs: sa1_character_render, _geometry and the mesh draw the skin's rigid parts in place of Sonic's body, whatever the world draws of him, effects, objects,
                                           a board and the blob as they are. HOST DEVIATIONS, render step only: the parts table and scale, running rows drawn with another row's motion, the spin ball's
                                           texture. Not with SA1_CREATE_SUPER_CAPABLE. SA1_ERR_NOT_LOADED, named in sa1_last_error, without the disc's files */

@@ -115,6 +115,15 @@ sa1_status sa1_follower_create(sa1_context *ctx, const sa1_follower_desc *d, sa1
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_follower_desc: num_upgrade_flags %u (at most 32)",
                         (unsigned)d->num_upgrade_flags);
     }
+    /* round 0.9.9h (SA1_API_SKIN 2): a follower that wears a skin is a Sonic follower made with SA1_CREATE_SKIN: its world is the same, byte for byte */
+    if (d->flags & SA1_FOLLOW_SKIN) {
+        if (d->struct_size < offsetof(sa1_follower_desc, skin) + sizeof d->skin || d->skin == NULL) {
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_FOLLOW_SKIN: sa1_follower_desc.skin is not given");
+        }
+        if (d->kind != SA1_CHAR_SONIC) {
+            return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_FOLLOW_SKIN: only kind 0 (a skin is worn over Sonic's world)");
+        }
+    }
     if (d->leader != 0) {
         if (sa1w_character_peek(ctx, d->leader, &lkind, &lflags, NULL) != SA1_OK) {
             return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_follower_desc: leader %d is not a character of this context",
@@ -153,6 +162,11 @@ sa1_status sa1_follower_create(sa1_context *ctx, const sa1_follower_desc *d, sa1
         if (d->flags & SA1_FOLLOW_SEED) {
             cd.flags |= SA1_CREATE_SEED;
             cd.seed = d->seed;
+        }
+        if (d->flags & SA1_FOLLOW_SKIN) {
+            /* (read during the create only: the skin's model and textures load once per disc, sa1k_load in char_create) */
+            cd.flags |= SA1_CREATE_SKIN;
+            cd.skin = d->skin;
         }
         if (d->flags & SA1_FOLLOW_UPGRADES) {
             for (i = 0; i < d->num_upgrade_flags; i++) {
