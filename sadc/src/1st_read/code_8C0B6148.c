@@ -37,6 +37,10 @@
  */
 #include "common.h"
 #include "sa1/sa1.h"
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_B614);
+#endif
 
 /* Tails data (extern only) */
 extern CCL_INFO D_8C2575AC[];           /* Tails' collision info (4 entries) */
@@ -588,7 +592,7 @@ void TailsMain(task *tp)
     }
     PSetMotion(&pwp->mj);
     if (!(twp->flag & 0x100)) {
-        if (pwp->equipment & 8) {
+        if (SA1_UPG_SHOWN(pwp->equipment) & 8) {
             D_8C25A15C->sibling = &Tails_Right_Jet_Anklet_Worn;
             D_8C25AFCC->sibling = &Tails_Left_Jet_Anklet_Worn;
             D_8C261E90->sibling = &Tails_Right_Jet_Anklet_Worn;
@@ -599,7 +603,7 @@ void TailsMain(task *tp)
             D_8C261E90->sibling = &D_8C261A74;
             D_8C262D00->sibling = &D_8C2628E4;
         }
-        if (pwp->equipment & 0x10) {
+        if (SA1_UPG_SHOWN(pwp->equipment) & 0x10) {
             D_8C2592C8->model = &D_8C28FA8C;
             D_8C260FFC->model = &D_8C28FA8C;
         } else {

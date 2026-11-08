@@ -21,6 +21,7 @@
 #include "world/sa1_world_look.h"     /* round 0.9.8: sa1_look_set_super */
 #include "sa1_question.h"             /* round 0.9.9: sa1q_set_spin */
 #include "sa1_skin.h"                 /* round 0.9.9f: SA1_COPT_SKIN_ANIM */
+#include "sa1_emote_ev.h"             /* round 100-EV: SA1_COPT_EMOTE_LIFT */
 #endif
 #include "sa1_api_world.h"
 #include "sa1_screen.h"
@@ -477,6 +478,11 @@ sa1_status sa1_character_set_option(sa1_context *ctx, sa1_character_id id, uint3
         }
         sa1k_set_anim(sc, (uint32_t)value);
         return SA1_OK;
+    }
+    /* round 100-EV: the cutscene poses' lift onto the floor (src/sa1_emote_ev.c, host deviation D-EV1; the harness's oracle
+       has no emotes: gsa1_100_master.md review RX.2) */
+    if (option == SA1_COPT_EMOTE_LIFT) {
+        return sa1ev_set_lift(ctx, id, value);
     }
 #endif
     if (option < SA1_COPT_NO_DEATH || option > SA1_COPT_NO_DAMAGE) {

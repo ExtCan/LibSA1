@@ -1,0 +1,5 @@
+# args: --level 1 --act 0 --chr 3 --no-objects --create-task 8C065800:2:2@-2.1,3.1,-21.9+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): SPRING on Knuckles'
+# line at step 70 (-2.1, 3.1, -21.9).
+30 0 0
+400 0 -127

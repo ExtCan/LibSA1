@@ -89,4 +89,32 @@ void sa1em_world_info_get(const struct sa1g_world *w, sa1em_world_info *out);
 /* the largest free block of the game heap's free list (B_8C79F03C, as sa1_world_set.c st_heap_largest) */
 uint32_t sa1em_world_heap_largest(const struct sa1g_world *w);
 
+/* ---- round 100-EV (SA1_API_EMOTE_EVENT; sadc docs/research/emotes_ev.md 3.3, 3.4, 6): a motion copied into a world ------
+ * A validated, relocatable NJS_MOTION for one body of a kind: `data` holds the header {mdata, nbFrame, type, inp_fn} at 0,
+ * the per-node table (nodes x {nf pointers, nf counts}) at 12, then the keys (16 bytes each); every pointer is an offset from
+ * `data` (0: none). The cutscene loader (src/sa1_emote_ev.c) makes them; photo mode's loaded motions (SA1_EMOTE_MOTION, a
+ * later round) are meant to produce the same block and reuse the slab, the copy and the queue path unchanged. */
+typedef struct sa1em_motion_block {
+    uint32_t       size;        /* bytes of data */
+    uint32_t       nodes;       /* the body's node count */
+    uint32_t       frames;      /* nbFrame */
+    uint16_t       type, inp_fn;
+    const uint8_t *data;
+} sa1em_motion_block;
+/* structural only: the body's node count, every channel inside the block after the table, key counts <= nbFrame + 1, key
+ * frames inside 0..nbFrame, channels 1..3 of 16-byte keys, the size cap (a slab). SA1_OK or SA1_ERR_BAD_FORMAT */
+sa1_status sa1em_motion_check(int32_t kind, uint32_t object, const sa1em_motion_block *b);
+#define SA1EM_SLAB_SIZE (320u * 1024u)      /* one of a world's two slabs in segment 0x18 (Big's 8 largest: 259,560 bytes) */
+
+/* sa1em_world_latch with the blocks of the request's SA1_EMOTE_EVENT items (blocks[i] for item i, NULL for the others;
+ * the same block for two items is copied once): copied into the world slab that the running, holding or fading emote does
+ * not use, relocated to guest addresses there. SA1_ERR_OUT_OF_MEMORY: no room for the slabs in segment 0x18; SA1_ERR_LIMIT:
+ * the copies are larger than a slab */
+sa1_status sa1em_world_latch_ev(sa1_context *ctx, struct sa1g_world *w, const sa1_emote *e, int early,
+                                const sa1em_motion_block *const *blocks);
+/* the lift (SA1 units) of the EVENT entry drawn after the world's last pair times the bridge's weight (in: 0 -> 1, out:
+ * 1 -> 0, between two entries from one lift to the other); 0 without an emote or an entry with a lift. The option is
+ * applied by the caller (src/sa1_emote_ev.c sa1ev_lift_of) */
+float sa1em_world_lift(const struct sa1g_world *w);
+
 #endif /* SA1_EMOTE_H */

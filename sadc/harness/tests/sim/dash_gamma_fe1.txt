@@ -1,0 +1,5 @@
+# args: --level 10 --act 0 --chr 6 --no-objects --create-task 8C059B48:3:3@182.6,-127.3,895.7/14,60,0+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): O AXPNL under E-102
+# at Final Egg act 1 (level 10), step 70 (182.6, -127.3, 895.7): his extra call 8C0D325E.
+30 0 0
+370 0 -127

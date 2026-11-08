@@ -8,7 +8,8 @@
  *   NAME.p1.bin   player 1 and the follower AI ("1.5P" Tails, func_8C081AC0 / func_8C081D4E):
  *                 `sa1h trace --pno1` (docs/research/follower_ai.md 6 F1, Review R.2.4, R.2.5, G13)
  *   NAME.obj.bin  the host-object stream of round 5 (`sa1h trace --hostobj FILE` / `--create-task`, defined at
- *                 the end of this file: sa1_trace_obj_header / sa1_trace_obj_rec; libsa1_interaction.md 4.3)
+ *                 the end of this file: sa1_trace_obj_header / sa1_trace_obj_rec; libsa1_interaction.md 4.3;
+ *                 version 3, round R0 of 1.0.0: the tasks' X and Z angles and `--poke8`)
  *
  * Every sidecar starts with sa1_trace_ext_header (magic, version, header size, record size, count, the
  * stage of the run), then header.count records of header.record_size bytes.  Readers honour
@@ -185,8 +186,9 @@ typedef struct sa1_trace_obj_rec {
     sa1_trace_obj_st obj[SA1_TOBJ_MAX_OBJS];
 } sa1_trace_obj_rec;
 
-/* a game task created after LoadPlayerTask (trace --create-task ADDR[:IM[:LIST]][@X,Y,Z[,ANGY]]): world_replay.c creates
- * it in the world after the boot (CreateElementalTask(im, list, exec), then the position / ang.y when has_pos) */
+/* a game task created after LoadPlayerTask (trace --create-task ADDR[:IM[:LIST]][@X,Y,Z[,ANGY | ,ANGX,ANGY,ANGZ]]):
+ * world_replay.c creates it in the world after the boot (CreateElementalTask(im, list, exec), then the position / ang.y
+ * when has_pos; version 3: ang.x / ang.z too, sa1_trace_obj_header_v3) */
 typedef struct sa1_trace_obj_task {
     uint32_t exec, im, list, has_pos;
     float pos[3];                   /* SA1 space */
@@ -270,6 +272,47 @@ typedef struct sa1_trace_obj_rec_v2 {
     sa1_trace_obj_rec_ext x;
 } sa1_trace_obj_rec_v2;
 
+/*
+ * Version 3 (G-SA1 1.0.0, round R0, lane p-refs; sadc docs/research/gsa1_100_plan.md 5.3 with its Review R100.8,
+ * gsa1_100_shards.md 12.1 and 13 with RE.12). Two things a SET entry or a stage gives an object that version 2 cannot:
+ *  - `--create-task ...@X,Y,Z,ANGX,ANGY,ANGZ` also writes the task's ang.x (taskwk +0x14) and ang.z (+0x1C) after the
+ *    creation, as the SET spawner 8C091380 copies an entry's three rotation words: a tilted air spring, a jump panel's
+ *    X and Z, spikes' `ang.x & 0xC000`, a switch listener's ID in ang.x (O LINE RING `ang.x & 0xFF`, armed rockets
+ *    `ang.x & 0xF`). The task's ext flags get SA1_TOBJ_T_ANG and its X and Z words are in task_ang[k]; ang.y stays in
+ *    sa1_trace_obj_task.angy. `@X,Y,Z[,ANGY]` is unchanged;
+ *  - `trace --poke8 ADDR=V[,V..]` (repeatable, at most SA1_TOBJ_MAX_POKES bytes) writes the bytes V at guest address
+ *    ADDR and on after the game init and the character, before the stage load (a row of the hunt's table D_8C15C100,
+ *    an event flag of B_8C799920 such as 0x119, read when the player is made), so such references need a stock ROM and
+ *    no private copy. Each byte is one entry of poke[].
+ * A run with either is written as version 3: the version-2 header (x.version 3, x.header_size 600) followed by the tail
+ * of sa1_trace_obj_header_v3, and version-2 records (x.record_size 1768). A run with pokes and no task writes a sidecar
+ * with no task, so a replay can write the same bytes. Every other run is written as before (version 1 or 2, byte for
+ * byte). Readers: `--check` (ho_oracle.c), harness/tools/sa1trace.py; LIB's tests/world_replay.c reads versions 1 and 2
+ * and reports a version-3 file as not one it knows (its version-3 reader is round R2's, lane r2-a-lib).
+ */
+#define SA1_TRACE_EXT_OBJ_VERSION3 3
+#define SA1_TOBJ_T_ANG       0x10u  /* version 3: @X,Y,Z,ANGX,ANGY,ANGZ, ang.x and ang.z written too (task_ang[k]) */
+#define SA1_TOBJ_MAX_POKES   16
+
+typedef struct sa1_trace_obj_task_ang {
+    uint32_t angx, angz;            /* SA1_TOBJ_T_ANG: taskwk +0x14 / +0x1C (BAMS, low 16 bits) */
+} sa1_trace_obj_task_ang;
+
+typedef struct sa1_trace_obj_poke {
+    uint32_t addr;                  /* guest address (0x8C000000-0x8CFFFFFF) */
+    uint32_t value;                 /* the byte written (low 8 bits) */
+} sa1_trace_obj_poke;
+
+/* version 3: the version-2 header, then the tasks' X and Z words and the pokes */
+typedef struct sa1_trace_obj_header_v3 {
+    sa1_trace_obj_header_v2 v2;     /* v2.v1.x.version 3, v2.v1.x.header_size = sizeof(sa1_trace_obj_header_v3),
+                                       v2.v1.x.record_size = sizeof(sa1_trace_obj_rec_v2) */
+    sa1_trace_obj_task_ang task_ang[SA1_TOBJ_MAX_TASKS];
+    uint32_t npokes;
+    sa1_trace_obj_poke poke[SA1_TOBJ_MAX_POKES];
+    uint32_t reserved3[3];
+} sa1_trace_obj_header_v3;
+
 typedef char sa1_trace_obj_op_check[(sizeof(sa1_trace_obj_op) == 224) ? 1 : -1];
 typedef char sa1_trace_obj_ev_check[(sizeof(sa1_trace_obj_ev) == 72) ? 1 : -1];
 typedef char sa1_trace_obj_st_check[(sizeof(sa1_trace_obj_st) == 32) ? 1 : -1];
@@ -279,5 +322,7 @@ typedef char sa1_trace_obj_task_ext_check[(sizeof(sa1_trace_obj_task_ext) == 32)
 typedef char sa1_trace_obj_header_v2_check[(sizeof(sa1_trace_obj_header_v2) == 424) ? 1 : -1];
 typedef char sa1_trace_obj_rec_ext_check[(sizeof(sa1_trace_obj_rec_ext) == 32) ? 1 : -1];
 typedef char sa1_trace_obj_rec_v2_check[(sizeof(sa1_trace_obj_rec_v2) == 1768) ? 1 : -1];
+typedef char sa1_trace_obj_task_ang_check[(sizeof(sa1_trace_obj_task_ang) == 8) ? 1 : -1];
+typedef char sa1_trace_obj_header_v3_check[(sizeof(sa1_trace_obj_header_v3) == 600) ? 1 : -1];
 
 #endif

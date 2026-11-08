@@ -1,0 +1,5 @@
+# args: --level 1 --act 0 --chr 7 --no-objects --create-task 8C0682A0:2:3@-2.3,3.1,-23.1,4000,0,0/3,0,1+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): O TOGE, 3 by 1, ang.x
+# 4000 (the orientation bits ang.x & C000, sidecar version 3), on Big's line at step 70.
+30 0 0
+370 0 -127

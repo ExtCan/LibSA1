@@ -1,0 +1,7 @@
+# args: --level 5 --act 2 --chr 3 --no-objects --create-task 8C05B6C0:3:3@-3147,757.4,-1358,0,0,24+ocp+late --poke8 8C799A39=1 --poke8 8C15C102=0
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): The buried path (E5
+# without a private ROM): event flag 0x119 (B_8C799920 + 0x119, the Shovel Claw) and c = 0 of row 0 poked, so the
+# second pick is a 2x, that spot (id 24, MEASURED) buried at Knuckles' start, he digs (X + A).
+60 0 0
+4 0 0 X+A
+400 0 0

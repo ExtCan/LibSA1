@@ -11,7 +11,7 @@
  *              [--dump-land PREFIX] [--dump-ram-at N,..] [--log-sdk FILE]
  *              [--dump-world FILE] [--census FILE] [--disc DIR] [-v]   (usage() below)
  *              [--no-image-guard] [--super-free] [--no-level-tasks] [--create-task A:IM:L]
- *              [--pno1] [--hostobj FILE]
+ *              [--pno1] [--hostobj FILE] [--poke8 ADDR=V[,V..]]
  *
  * Outputs (formats: sa1_trace.h, docs/harness_simulator.md): the trace
  * (version 2: v1 record + the player-exec entry state, see px_hook), the
@@ -44,7 +44,10 @@
  * LoadPlayerTask; with @X,Y,Z[,ANGY] also its position, /SX,SY,SZ its scale,
  * +ocp an OBJ_CONDITION as the SET spawner gives one, +ocp=HEX one with
  * another initial ssCondition, e.g. 8005: a ground item box already
- * broken, round 0.9.4).  --pno1 writes
+ * broken, round 0.9.4; @X,Y,Z,ANGX,ANGY,ANGZ all three rotation words,
+ * 1.0.0 round R0).  --poke8 ADDR=V[,V..] (1.0.0 round R0) writes bytes of
+ * guest RAM after the game init and the character, before the stage load.
+ * --pno1 writes
  * the player-1 / follower-AI sidecar <out>.p1.bin (sa1_trace_ext.h).
  *
  * Host objects (round 5, ho_oracle.c): --hostobj FILE runs libsa1's own
@@ -171,6 +174,9 @@ typedef struct sim_cfg {
                                   round 0.9.4: SA1_TOBJ_T_OCPW (+ocp=HEX) */
     float create_scl[8][3];
     uint32_t create_ocpw[8];   /* round 0.9.4: +ocp=HEX, the initial ssCondition (default 0x8001) */
+    uint32_t create_angx[8], create_angz[8];   /* 1.0.0 round R0: @X,Y,Z,ANGX,ANGY,ANGZ (SA1_TOBJ_T_ANG; hex BAMS) */
+    int n_poke;                /* 1.0.0 round R0: --poke8 ADDR=V[,V..], bytes written before the stage load */
+    uint32_t poke_addr[SA1_TOBJ_MAX_POKES], poke_val[SA1_TOBJ_MAX_POKES];
     const char *hostobj;      /* --hostobj FILE: libsa1's host-object layer under the script's calls (ho_oracle.c) */
     int pno1;                 /* --pno1: the player-1 / follower-AI sidecar <out>.p1.bin */
     int cast;                 /* --cast (--chr 1 or 4, round 0.9.9): Eggman or Tikal as the stage's player, four words of guest RAM (cast_patch) */
@@ -1837,10 +1843,12 @@ static void create_task_now(const sim_cfg *cfg, int i, const char *when)
         {
             sa1_trace_obj_task t;
             sa1_trace_obj_task_ext x;
+            sa1_trace_obj_task_ang ang;
             uint32_t twp = sh4_is_ram(tp) ? sh4_read32(tp + 0x20) : 0;
             int k;
             memset(&t, 0, sizeof t);
             memset(&x, 0, sizeof x);
+            memset(&ang, 0, sizeof ang);
             t.exec = cfg->create_addr[i];
             t.im = cfg->create_im[i];
             t.list = cfg->create_list[i];
@@ -1854,6 +1862,16 @@ static void create_task_now(const sim_cfg *cfg, int i, const char *when)
                 sh4_write32(twp + 0x18, t.angy);
                 printf("sim: --create-task: taskwk %08X pos (%g, %g, %g) ang.y %04X\n", twp, (double)t.pos[0],
                        (double)t.pos[1], (double)t.pos[2], t.angy);
+                /* 1.0.0 round R0 (sa1_trace_ext.h version 3): @X,Y,Z,ANGX,ANGY,ANGZ, the X and Z words too, as the SET
+                   spawner 8C091380 copies an entry's three rotation words (taskwk ang +0x14 / +0x18 / +0x1C) */
+                if (cfg->create_flags[i] & SA1_TOBJ_T_ANG) {
+                    x.flags |= SA1_TOBJ_T_ANG;
+                    ang.angx = cfg->create_angx[i];
+                    ang.angz = cfg->create_angz[i];
+                    sh4_write32(twp + 0x14, ang.angx);
+                    sh4_write32(twp + 0x1C, ang.angz);
+                    printf("sim: --create-task: taskwk %08X ang.x %04X ang.z %04X\n", twp, ang.angx, ang.angz);
+                }
             }
             /* round 0.9.2 (sa1_trace_ext.h version 2): /SX,SY,SZ = taskwk.scl (+0x2C), +ocp = an OBJ_CONDITION as the
                SET spawner 8C091380 writes it (8C0914EA-8C091578) in the first all-zero slot of B_8C79A3E0 */
@@ -1902,7 +1920,7 @@ static void create_task_now(const sim_cfg *cfg, int i, const char *when)
             }
             if (cfg->create_flags[i] & SA1_TOBJ_T_LATE)
                 x.flags |= SA1_TOBJ_T_LATE;
-            ho_oracle_add_task_v2(&t, &x, tp); /* the <out>.obj.bin header: world_replay.c makes the same task */
+            ho_oracle_add_task_v3(&t, &x, &ang, tp); /* the <out>.obj.bin header: world_replay.c makes the same task */
         }
     }
 }
@@ -2794,6 +2812,21 @@ static int sim_setup(const sim_cfg *cfg)
     guard_epoch++;
     sh4_write16(CUR_LEVEL, (uint16_t)cfg->level);
     sh4_write16(CUR_ACT, (uint16_t)cfg->act);
+    {
+        /* 1.0.0 round R0 (gsa1_100_shards.md 12.1): --poke8 ADDR=V[,V..], bytes of guest RAM after the game init and
+           the character, before the stage load and the stage start read them: a row of the hunt's table D_8C15C100 (the
+           hunt is set up before the stage start's first step: MEASURED, a poke after the stage load is too late) and an
+           event flag of B_8C799920 such as 0x119, which the player's creation turns into Knuckles' Shovel Claw. They go
+           to the sidecar's version-3 header, so a replay can write the same bytes */
+        int k;
+        for (k = 0; k < cfg->n_poke; k++) {
+            uint32_t pa = cfg->poke_addr[k], old = sh4_read8(pa);
+            sh4_write8(pa, (uint8_t)cfg->poke_val[k]);
+            ho_oracle_add_poke(pa, cfg->poke_val[k]);
+            printf("sim: --poke8: %08X = %02X (was %02X) before the stage load\n", pa, (unsigned)cfg->poke_val[k],
+                   (unsigned)old);
+        }
+    }
     printf("sim: stage load %s (level %d act %d)\n", fname(STAGE_LOAD), cfg->level, cfg->act);
     if (sim_run("load", STAGE_LOAD, none, 0, 1000000000))
         return -1;
@@ -3716,11 +3749,15 @@ static void usage(void)
          "                  [--super-free]         (level 19 act 0 chr 0: the B_CHAOS7 level task is a stand-in that\n"
          "                                          creates only the sea plane 0C91514A and the trigger 0C914D60)\n"
          "                  [--create-task ADDR[:IM[:LIST]]]   (CreateElementalTask(IM=2, LIST=0, ADDR) after\n"
-         "                                          LoadPlayerTask; repeatable; ...[@X,Y,Z[,ANGY]][/SX,SY,SZ][+ocp[=HEX]]\n"
+         "                                          LoadPlayerTask; repeatable; ...[@X,Y,Z[,ANGY|,AX,AY,AZ]][/SX,SY,SZ][+ocp[=HEX]]\n"
          "                                          [+late]: taskwk pos / ang.y / scl, an OBJ_CONDITION in B_8C79A3E0 as\n"
          "                                          the SET spawner writes it (ssCondition 8001, or HEX: 8005 = a ground\n"
          "                                          item box already broken), made after the whole stage start; /SX..,\n"
-         "                                          +ocp or +late: host-object sidecar version 2)\n"
+         "                                          +ocp or +late: host-object sidecar version 2;\n"
+         "                                          ...@X,Y,Z,ANGX,ANGY,ANGZ: all three rotation words (hex), version 3)\n"
+         "                  [--poke8 ADDR=V[,V..]] (repeatable, at most 16 bytes in all: the bytes V (hex) at the guest\n"
+         "                                          address ADDR (hex) and on, after the game init and the character,\n"
+         "                                          before the stage load; sidecar version 3)\n"
          "                  [--pno1]               (player 1 + follower AI sidecar <out>.p1.bin, sa1_trace_ext.h)\n"
          "                  [--cast]               (--chr 1 or 4: the game's EggmanMain / TikalMain as the stage's player, 4\n"
          "                                          patches in guest RAM, the header's CRCs stay the real ones; --chr 4 loads\n"
@@ -3795,6 +3832,35 @@ int cmd_trace(int argc, char **argv)
         else if (!strcmp(a, "--pno1")) cfg.pno1 = 1;
         else if (!strcmp(a, "--cast")) cfg.cast = 1;
         else if (!strcmp(a, "--hostobj") && v) { cfg.hostobj = v; i++; }
+        else if (!strcmp(a, "--poke8") && v) {
+            /* 1.0.0 round R0: --poke8 ADDR=V[,V..] (hex), the bytes V at ADDR, ADDR + 1, .. before the stage load
+               (sim_setup); each byte is one entry of the sidecar's version-3 header */
+            char *e, *e2 = NULL;
+            unsigned long pa = strtoul(v, &e, 16);
+            int bad = e == v || *e != '=' || pa < 0x8C000000ul;
+            while (!bad) {
+                unsigned long pv = strtoul(e + 1, &e2, 16);
+                if (e2 == e + 1 || pv > 0xFFul || pa > 0x8CFFFFFFul || (*e2 && *e2 != ',')) {
+                    bad = 1;
+                    break;
+                }
+                if (cfg.n_poke >= SA1_TOBJ_MAX_POKES) {
+                    fprintf(stderr, "--poke8 %s: at most %d bytes in all\n", v, SA1_TOBJ_MAX_POKES);
+                    return 2;
+                }
+                cfg.poke_addr[cfg.n_poke] = (uint32_t)pa++;
+                cfg.poke_val[cfg.n_poke++] = (uint32_t)pv;
+                e = e2;
+                if (!*e)
+                    break;
+            }
+            if (bad) {
+                fprintf(stderr, "--poke8 %s: want ADDR=V[,V..] (hex guest address 8C000000-8CFFFFFF, hex bytes 0-FF)\n",
+                        v);
+                return 2;
+            }
+            i++;
+        }
         else if (!strcmp(a, "--create-task") && v && cfg.n_create < 8) {
             char *e;
             cfg.create_addr[cfg.n_create] = (uint32_t)strtoul(v, &e, 16);
@@ -3814,8 +3880,29 @@ int cmd_trace(int argc, char **argv)
                     if (k < 2 && *e != ',')
                         break;
                 }
-                if (*e == ',')
-                    cfg.create_angy[cfg.n_create] = (uint32_t)strtoul(e + 1, &e, 16) & 0xFFFFu;
+                if (*e == ',') {
+                    /* one word: ang.y; 1.0.0 round R0: three words ANGX,ANGY,ANGZ (sidecar version 3) */
+                    uint32_t w[3];
+                    int nw = 0;
+                    while (*e == ',' && nw < 3) {
+                        char *e2;
+                        w[nw] = (uint32_t)strtoul(e + 1, &e2, 16) & 0xFFFFu;
+                        if (e2 == e + 1)
+                            break;
+                        e = e2;
+                        nw++;
+                    }
+                    if (nw == 1) {
+                        cfg.create_angy[cfg.n_create] = w[0];
+                    } else if (nw == 3) {
+                        cfg.create_angx[cfg.n_create] = w[0];
+                        cfg.create_angy[cfg.n_create] = w[1];
+                        cfg.create_angz[cfg.n_create] = w[2];
+                        cfg.create_flags[cfg.n_create] |= SA1_TOBJ_T_ANG;
+                    } else {
+                        e = (char *)"!";        /* refused below: one word or three */
+                    }
+                }
             }
             /* round 0.9.2: [/SX,SY,SZ] taskwk.scl, [+ocp] an OBJ_CONDITION (sidecar version 2); round 0.9.4: [+ocp=HEX]
                its initial ssCondition */
@@ -3857,8 +3944,8 @@ int cmd_trace(int argc, char **argv)
                 }
             }
             if (*e || !cfg.create_addr[cfg.n_create]) {
-                fprintf(stderr, "--create-task %s: want ADDR[:IM[:LIST]][@X,Y,Z[,ANGY]][/SX,SY,SZ][+ocp[=HEX]][+late] (hex address, "
-                                "decimal im / list, SA1 position, hex ang.y, SA1 scale)\n", v);
+                fprintf(stderr, "--create-task %s: want ADDR[:IM[:LIST]][@X,Y,Z[,ANGY | ,ANGX,ANGY,ANGZ]][/SX,SY,SZ][+ocp[=HEX]]"
+                                "[+late] (hex address, decimal im / list, SA1 position, hex angles, SA1 scale)\n", v);
                 return 2;
             }
             cfg.n_create++;

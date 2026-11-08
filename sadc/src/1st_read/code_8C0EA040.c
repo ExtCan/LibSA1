@@ -22,6 +22,10 @@
 #include "common.h"
 #include "sa1/sa1.h"
 #include "sa1/pending.h"
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_EA04);
+#endif
 
 /* one probe result kept by func_8C0EA040 */
 typedef struct {
@@ -206,7 +210,7 @@ void func_8C0EA2F0(task *tp)
     Sint32 d;
     Float spd;
 
-    obj = D_8C565FC4[func_8C0E6E80()]->child;
+    obj = D_8C565FC4[SA1_UPG_LURES()]->child;
     obj->evalflags &= ~NJD_EVAL_UNIT_ANG;
     if (B_8C7A40C8 == NULL) {
         return;

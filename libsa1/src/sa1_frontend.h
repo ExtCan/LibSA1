@@ -67,6 +67,7 @@ typedef struct sa1fw_info {
     int32_t mode, result;       /* the master's current screen and result */
     int32_t frame_result;       /* what 8C9001DA returned */
     int32_t skipped;            /* the dialog skip ran in this frame (the press was withheld, choice 0 and proc 8 written) */
+    int32_t ring;               /* round 1.0.0-beta1: ADV_SELWK.ring (+0x18), the name's pulse phase */
 } sa1fw_info;
 
 /* The world: image (1ST_READ + ADVERTISE.PRS), boot, the archives (sa1_loader_frontend_set), the texlists, the game's init with the

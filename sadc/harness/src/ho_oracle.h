@@ -18,7 +18,14 @@ void ho_oracle_add_task(const sa1_trace_obj_task *t, uint32_t tp);
 /* round 0.9.2: the same with the version-2 fields (x: /SX,SY,SZ and +ocp; x->flags 0: as ho_oracle_add_task). A run with
  * any flag set writes a version-2 sidecar (sa1_trace_ext.h sa1_trace_obj_header_v2) */
 void ho_oracle_add_task_v2(const sa1_trace_obj_task *t, const sa1_trace_obj_task_ext *x, uint32_t tp);
-/* a sidecar is written (--hostobj or --create-task) */
+/* 1.0.0 round R0 (lane p-refs): the same with the task's X and Z words (ang: NULL, or x->flags SA1_TOBJ_T_ANG with
+ * ang->angx / angz). A run with such a task writes a version-3 sidecar (sa1_trace_ext.h sa1_trace_obj_header_v3) */
+void ho_oracle_add_task_v3(const sa1_trace_obj_task *t, const sa1_trace_obj_task_ext *x,
+                           const sa1_trace_obj_task_ang *ang, uint32_t tp);
+/* 1.0.0 round R0: `trace --poke8 ADDR=V`, a byte written before the stage load, for the version-3 header; 0 ok,
+ * -1 when SA1_TOBJ_MAX_POKES are recorded already */
+int ho_oracle_add_poke(uint32_t addr, uint32_t value);
+/* a sidecar is written (--hostobj, --create-task or, 1.0.0 round R0, --poke8) */
 int ho_oracle_active(void);
 /* after the stage start and the routing set-up: libsa1's layer, the hooks; 0 ok */
 int ho_oracle_setup(void);

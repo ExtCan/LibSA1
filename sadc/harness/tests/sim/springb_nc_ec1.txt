@@ -1,0 +1,5 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C065EE4:2:2@-61.64,9.405,32.21/60,1,0+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): SPRINGB with
+# No-control steps 60 (scl.x: MEASURED, the landing 6 steps later than at 0) and Add Y speed 1.
+30 0 0
+400 0 -127

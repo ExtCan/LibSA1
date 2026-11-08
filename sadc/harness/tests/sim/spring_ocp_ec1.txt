@@ -1,0 +1,6 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C065800:2:2@-61.64,3.405,32.21+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): SPRING (8C065800,
+# 2:2) with an OBJ_CONDITION, on Sonic's line at step 100 (spring_ec1 has none): the launch (mode 9 action 16), the
+# fall, the landing.
+30 0 0
+400 0 -127

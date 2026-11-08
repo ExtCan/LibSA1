@@ -67,6 +67,10 @@ static uint32_t g_kind[HOO_MAX_H];
 static uint32_t g_task_tp[SA1_TOBJ_MAX_TASKS];    /* the --create-task tasks */
 static sa1_trace_obj_task_ext g_task_ext[SA1_TOBJ_MAX_TASKS];   /* round 0.9.2: their /SX,SY,SZ and +ocp (version 2) */
 static int g_v2;                                /* some task has a version-2 field: the sidecar is version 2 */
+static sa1_trace_obj_task_ang g_task_ang[SA1_TOBJ_MAX_TASKS];  /* 1.0.0 R0: their X and Z words (version 3) */
+static sa1_trace_obj_poke g_poke[SA1_TOBJ_MAX_POKES];           /* 1.0.0 R0: --poke8 (version 3) */
+static uint32_t g_npokes;
+static int g_v3;                                /* a task with SA1_TOBJ_T_ANG or a poke: the sidecar is version 3 */
 static uint8_t g_task_seen[SA1_TOBJ_MAX_TASKS], g_task_gone[SA1_TOBJ_MAX_TASKS];  /* reported live / ended */
 static unsigned long g_nev[16], g_nwev[3], g_nlost;
 
@@ -617,16 +621,36 @@ int ho_oracle_load(const char *path)
     return 0;
 }
 
-void ho_oracle_add_task_v2(const sa1_trace_obj_task *t, const sa1_trace_obj_task_ext *x, uint32_t tp)
+void ho_oracle_add_task_v3(const sa1_trace_obj_task *t, const sa1_trace_obj_task_ext *x,
+                           const sa1_trace_obj_task_ang *ang, uint32_t tp)
 {
     if (g_hdr.ntasks < SA1_TOBJ_MAX_TASKS) {
         if (x != NULL && x->flags != 0) {
             g_task_ext[g_hdr.ntasks] = *x;
             g_v2 = 1;
+            if ((x->flags & SA1_TOBJ_T_ANG) && ang != NULL) {   /* 1.0.0 round R0: the X and Z words (version 3) */
+                g_task_ang[g_hdr.ntasks] = *ang;
+                g_v3 = 1;
+            }
         }
         g_task_tp[g_hdr.ntasks] = tp;
         g_hdr.task[g_hdr.ntasks++] = *t;
     }
+}
+
+void ho_oracle_add_task_v2(const sa1_trace_obj_task *t, const sa1_trace_obj_task_ext *x, uint32_t tp)
+{
+    ho_oracle_add_task_v3(t, x, NULL, tp);
+}
+
+int ho_oracle_add_poke(uint32_t addr, uint32_t value)
+{
+    if (g_npokes >= SA1_TOBJ_MAX_POKES)
+        return -1;
+    g_poke[g_npokes].addr = addr;
+    g_poke[g_npokes++].value = value & 0xFFu;
+    g_v3 = 1;
+    return 0;
 }
 
 void ho_oracle_add_task(const sa1_trace_obj_task *t, uint32_t tp)
@@ -657,7 +681,7 @@ static void task_state(sa1_trace_obj_st *s, uint32_t tp, uint32_t handle)
 
 int ho_oracle_active(void)
 {
-    return g_loaded || g_hdr.ntasks != 0;
+    return g_loaded || g_hdr.ntasks != 0 || g_npokes != 0;
 }
 
 /* ---- the hooks ------------------------------------------------------------------------------------------------- */
@@ -1108,7 +1132,22 @@ int ho_oracle_write(const char *prefix, const sa1_trace_header *h, int nrecs)
         fprintf(stderr, "cannot write %s\n", path);
         return -1;
     }
-    if (g_v2) {
+    if (g_v3) {
+        /* 1.0.0 round R0: version 3 (sa1_trace_ext.h sa1_trace_obj_header_v3): the v2 header, then the tasks' X and Z
+           words and the pokes; the records are version 2's */
+        sa1_trace_obj_header_v3 h3;
+        memset(&h3, 0, sizeof h3);
+        h3.v2.v1 = g_hdr;
+        h3.v2.v1.x.version = SA1_TRACE_EXT_OBJ_VERSION3;
+        h3.v2.v1.x.header_size = sizeof h3;
+        h3.v2.v1.x.record_size = sizeof(sa1_trace_obj_rec_v2);
+        memcpy(h3.v2.task_ext, g_task_ext, sizeof h3.v2.task_ext);
+        memcpy(h3.task_ang, g_task_ang, sizeof h3.task_ang);
+        h3.npokes = g_npokes;
+        memcpy(h3.poke, g_poke, sizeof h3.poke);
+        fwrite(&h3, sizeof h3, 1, f);
+        g_v2 = 1;               /* version-2 records */
+    } else if (g_v2) {
         /* round 0.9.2: version 2 (sa1_trace_ext.h sa1_trace_obj_header_v2): the v1 header, then the tasks' fields */
         sa1_trace_obj_header_v2 h2;
         memset(&h2, 0, sizeof h2);
@@ -1133,9 +1172,11 @@ int ho_oracle_write(const char *prefix, const sa1_trace_header *h, int nrecs)
         fwrite(&r, g_v2 ? sizeof r : sizeof r.v1, 1, f);    /* version 2: + the OBJ_CONDITIONs (sa1_trace_obj_rec_ext) */
     }
     fclose(f);
-    printf("trace: %s (host-object sidecar version %u, %d records of %u bytes, %u task(s))\n", path,
-           g_v2 ? (unsigned)SA1_TRACE_EXT_OBJ_VERSION2 : (unsigned)g_hdr.x.version, nrecs,
-           g_v2 ? (unsigned)sizeof(sa1_trace_obj_rec_v2) : (unsigned)sizeof(sa1_trace_obj_rec), (unsigned)g_hdr.ntasks);
+    printf("trace: %s (host-object sidecar version %u, %d records of %u bytes, %u task(s)%s)\n", path,
+           g_v3 ? (unsigned)SA1_TRACE_EXT_OBJ_VERSION3 : g_v2 ? (unsigned)SA1_TRACE_EXT_OBJ_VERSION2 :
+           (unsigned)g_hdr.x.version, nrecs,
+           g_v2 ? (unsigned)sizeof(sa1_trace_obj_rec_v2) : (unsigned)sizeof(sa1_trace_obj_rec), (unsigned)g_hdr.ntasks,
+           g_npokes ? ", --poke8" : "");
     return 0;
 }
 
@@ -1153,9 +1194,10 @@ int ho_oracle_check(const char *ref_path, int nrecs)
     FILE *f;
     sa1_trace_obj_header x;
     sa1_trace_obj_header_v2 x2;
+    sa1_trace_obj_header_v3 x3;
     sa1_trace_obj_rec_v2 r, mine;
     size_t L = strlen(ref_path), rsz;
-    int i, n, bad = 0, shown = 0, v1, v2;
+    int i, n, bad = 0, shown = 0, v1, v2, v3;
     if (!ho_oracle_active())
         return 0;
     if (L > 4 && !strcmp(ref_path + L - 4, ".bin"))
@@ -1167,24 +1209,39 @@ int ho_oracle_check(const char *ref_path, int nrecs)
         return 0;
     }
     memset(&x2, 0, sizeof x2);
-    v1 = v2 = 0;
+    memset(&x3, 0, sizeof x3);
+    v1 = v2 = v3 = 0;
     if (fread(&x, sizeof x, 1, f) == 1 && !memcmp(x.x.magic, SA1_TRACE_EXT_MAGIC_OBJ, 8)) {
         v1 = x.x.version == SA1_TRACE_EXT_OBJ_VERSION && x.x.header_size == sizeof x &&
              x.x.record_size == sizeof(sa1_trace_obj_rec);
         v2 = x.x.version == SA1_TRACE_EXT_OBJ_VERSION2 && x.x.header_size == sizeof x2 &&
              x.x.record_size == sizeof(sa1_trace_obj_rec_v2) &&
              fread((uint8_t *)&x2 + sizeof x, sizeof x2 - sizeof x, 1, f) == 1;   /* round 0.9.2: the tasks' fields */
+        /* 1.0.0 round R0: version 3, the v2 header, then the tasks' X and Z words and the pokes; v2 records */
+        v3 = x.x.version == SA1_TRACE_EXT_OBJ_VERSION3 && x.x.header_size == sizeof x3 &&
+             x.x.record_size == sizeof(sa1_trace_obj_rec_v2) &&
+             fread((uint8_t *)&x3 + sizeof x, sizeof x3 - sizeof x, 1, f) == 1;
+        if (v3) {
+            memcpy(&x2, &x3.v2, sizeof x2);
+            v2 = 1;
+        }
     }
     rsz = v2 ? sizeof(sa1_trace_obj_rec_v2) : sizeof(sa1_trace_obj_rec);
     if (!v1 && !v2) {
-        printf("check: %s is not a version-%d / %d host-object sidecar\n", path, SA1_TRACE_EXT_OBJ_VERSION,
-               SA1_TRACE_EXT_OBJ_VERSION2);
+        printf("check: %s is not a version-%d / %d / %d host-object sidecar\n", path, SA1_TRACE_EXT_OBJ_VERSION,
+               SA1_TRACE_EXT_OBJ_VERSION2, SA1_TRACE_EXT_OBJ_VERSION3);
         fclose(f);
         return 1;
     }
     if (x.ntasks != g_hdr.ntasks || memcmp(x.task, g_hdr.task, sizeof x.task) ||
-        memcmp(x2.task_ext, g_task_ext, sizeof x2.task_ext) || v2 != g_v2) {
+        memcmp(x2.task_ext, g_task_ext, sizeof x2.task_ext) || v2 != (g_v2 || g_v3) || v3 != g_v3 ||
+        memcmp(x3.task_ang, g_task_ang, sizeof x3.task_ang)) {
         printf("check: host-object sidecar: other --create-task tasks than the reference\n");
+        bad = 1;
+    }
+    if (x3.npokes != g_npokes || memcmp(x3.poke, g_poke, sizeof x3.poke)) {
+        printf("check: host-object sidecar: other --poke8 bytes than the reference (%u, now %u)\n", x3.npokes,
+               g_npokes);
         bad = 1;
     }
     n = (int)x.x.count < nrecs ? (int)x.x.count : nrecs;

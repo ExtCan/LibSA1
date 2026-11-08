@@ -23,9 +23,9 @@ static const sa1_archive *get_archive(const sa1_context *ctx, int32_t kind, uint
         *st = q != NULL ? SA1_OK : SA1_ERR_NOT_LOADED;
         return q;
     }
-    /* round 0.9.9f: a skin's archive, the same way */
-    if (kind == SA1_CHAR_SONIC && archive == SA1_ARCHIVE_SKIN) {
-        const sa1_archive *k = sa1k_archive(ctx);
+    /* round 0.9.9f: a skin's archive, the same way; round 1.0.0-beta1: SA1_ARCHIVE_SKIN_FIRST + slot (61 stays slot 0's for this version) */
+    if (kind == SA1_CHAR_SONIC && (archive == SA1_ARCHIVE_SKIN || (archive >= SA1_ARCHIVE_SKIN_FIRST && archive <= SA1_ARCHIVE_SKIN_LAST))) {
+        const sa1_archive *k = sa1k_archive(ctx, archive);
         *st = k != NULL ? SA1_OK : SA1_ERR_NOT_LOADED;
         return k;
     }
@@ -181,7 +181,8 @@ sa1_status sa1_texture_variant_get(const sa1_context *ctx, int32_t kind, uint32_
     const sa1_texture *t;
     if (!ctx || !out || out->struct_size < sizeof(uint32_t) || (kind != SA1_KIND_FRONTEND && (kind < 0 || kind >= SA1_CHAR_COUNT)))
         return SA1_ERR_INVALID_ARGUMENT;
-    if (kind != SA1_CHAR_SONIC || variant != SA1_TEXTURE_VARIANT_SUPER_GOLD)
+    if (kind != SA1_CHAR_SONIC || (variant != SA1_TEXTURE_VARIANT_SUPER_GOLD &&
+                                   (variant < SA1_TEXTURE_VARIANT_SKIN_FIRST || variant >= SA1_TEXTURE_VARIANT_SKIN_FIRST + SA1_SKINS_MAX)))
         return SA1_ERR_NOT_FOUND;
     ar = get_archive(ctx, kind, archive, &st);
     if (!ar)
@@ -189,6 +190,14 @@ sa1_status sa1_texture_variant_get(const sa1_context *ctx, int32_t kind, uint32_
     if (index >= ar->num_textures)
         return SA1_ERR_NOT_FOUND;
     t = &ar->tex[index];
+    if (variant >= SA1_TEXTURE_VARIANT_SKIN_FIRST) {
+        /* round 1.0.0-beta1: the trails in skin k's hue (sa1_skin.c sk_trail_build), lcharge01-04 only */
+        const uint8_t *rgba = sa1k_trail_rgba(ctx, variant - SA1_TEXTURE_VARIANT_SKIN_FIRST, archive, index);
+        if (!rgba)
+            return SA1_ERR_NOT_FOUND;
+        texture_info_out(t, rgba, out);
+        return SA1_OK;
+    }
     if (!t->rgba_gold)
         return SA1_ERR_NOT_FOUND;
     texture_info_out(t, t->rgba_gold, out);

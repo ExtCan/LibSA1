@@ -1,0 +1,7 @@
+# args: --level 5 --act 2 --chr 3 --no-objects --create-task 8C05B6C0:3:3@-3151.7,762.3,-1361.9,0,0,13+ocp+late --create-task 8C05B6C0:3:3@-3165.1,762.2,-1372.1,0,0,34+ocp+late --create-task 8C05B6C0:3:3@-3187.9,762.1,-1388,0,0,42+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): Knuckles' hunt at Red
+# Mountain act 3 with the game's own row {6,6,6,3}: the pick 13, 34, 42 (MEASURED, prep100/emerald/notes.txt 3), those
+# three spots placed on his line at steps 50, 70, 90 (5 above, the touch's offset).
+30 0 0
+90 0 -127
+400 0 0

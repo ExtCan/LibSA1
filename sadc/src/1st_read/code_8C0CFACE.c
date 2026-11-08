@@ -1,4 +1,5 @@
 #include "sa1/sa1.h"
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
 
 /*
  * E-102 Gamma (1ST_READ chunk 8C0CBE00):
@@ -151,6 +152,27 @@ void func_8C0D215C(NJS_OBJECT *obj);                    /* node callback (chunk 
 
 #define CLAMP(v, lo, hi) ((v) < (lo) ? (lo) : ((v) > (hi) ? (hi) : (v)))
 
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_CFAC);
+/*
+ * SA1_GA: E-102's two blaster objects by one bit (0x200: the Laser Blaster), as the swap at the top of the display does by
+ * the real bit (sa1/upgdisp.h). The display draws the body and the targeting arm with the shown blaster and puts the real one
+ * back right after each draw, before the arm evaluation (func_8C0583A0 node 6 -> B_8C7A2FC8 -> arm_pos, arm_vec), so node 37 /
+ * the arm's node 6 (the shot's start), GammaWeldList[0].srcobj and the tree the next frame reads stay the real bit's
+ * (gsa1_091b_upgrades.md 2.3, 5.1). The hide list D_8C422C88 holds both blasters.
+ */
+static void sa1_upg_blaster(Sint32 laser)
+{
+    if (laser) {
+        D_8C429324->sibling = &E_102_Gamma_Laser_Blaster;
+        D_8C42D9C0->sibling = &E_102_Gamma_Laser_Blaser_A;
+    } else {
+        D_8C429324->sibling = &E_102_Gamma_Normal_Blaster;
+        D_8C42D9C0->sibling = &E_102_Gamma_Normal_Blaster_A;
+    }
+}
+#endif
+
 /*
  * Matching notes: dx/dz must be separate statements (keeps the target_tp
  * CSE on the stack at sp+4 and ->twp in R4); the pops of the lock-on
@@ -240,6 +262,11 @@ void func_8C0CFACE(task *tp)
         } else {
             ewk->jet_phase = 0;
         }
+#if defined(SA1_GA)
+        if (SA1_UPG_DIFFERS(pwp->equipment, 0x200)) {
+            sa1_upg_blaster(sa1_upgdisp.shown & 0x200);     /* the shown blaster for this draw */
+        }
+#endif
         if (EWP(twp)->list40 != NULL) {
             func_8C04B57C(twp);
             func_8C058434(54, B_8C7A2EC8);
@@ -253,6 +280,11 @@ void func_8C0CFACE(task *tp)
             }
             E102_SetNodeCallback(NULL);
         }
+#if defined(SA1_GA)
+        if (SA1_UPG_DIFFERS(pwp->equipment, 0x200)) {
+            sa1_upg_blaster(pwp->equipment & 0x200);        /* the real one back */
+        }
+#endif
         njPushMatrix(NULL);
         njTranslate(NULL, zero, -(B_8C7A2EBC->body_y * 2.0f), zero);
         njMultiMatrix(NULL, B_8C7A2EC8);
@@ -260,7 +292,7 @@ void func_8C0CFACE(task *tp)
         func_8C040942(&D_8C482E48, ewk->scope_frame);
         func_8C0583A0(D_8C67C640, &D_8C482E48, ewk->scope_frame, 2, B_8C7A2F48);
         njPopMatrix(1);
-        if (pwp->equipment & 0x400) {
+        if (SA1_UPG_SHOWN(pwp->equipment) & 0x400) {
             njPushMatrix(NULL);
             njMultiMatrix(NULL, B_8C7A2F08);
             njRotateZ(NULL, 0x8000);
@@ -285,7 +317,17 @@ void func_8C0CFACE(task *tp)
             njPushMatrix(NULL);
             njTranslate(NULL, zero, -(B_8C7A2EBC->body_y * 2.0f), zero);
             njMultiMatrix(NULL, B_8C7A2F88);
+#if defined(SA1_GA)
+            if (SA1_UPG_DIFFERS(pwp->equipment, 0x200)) {
+                sa1_upg_blaster(sa1_upgdisp.shown & 0x200);     /* the shown blaster for the arm's draw */
+            }
+#endif
             func_8C040942(ewk->arm_action, ewk->arm_frame);
+#if defined(SA1_GA)
+            if (SA1_UPG_DIFFERS(pwp->equipment, 0x200)) {
+                sa1_upg_blaster(pwp->equipment & 0x200);            /* back before the arm evaluation */
+            }
+#endif
             njPopMatrix(1);
             func_8C0583A0(D_8C67C640, ewk->arm_action, ewk->arm_frame, 6, B_8C7A2FC8);
         } else {

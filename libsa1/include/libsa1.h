@@ -114,6 +114,10 @@
  *                    SA1_EVENT_CAMERA; sa1_frontend_*, SA1_KIND_FRONTEND, SA1_EVENT_FRONTEND.
  *   0.5 round 0.9.9 (SA1_VERSION_MINOR 5: SA1_API_FOLLOWER 2, SA1_API_PLAYABLE, SA1_API_QUESTION; gsa1_099_plan.md): sa1_follower_speed, sa1_follower_spot,
  *                    sa1_follower_info.speed_factor, emotes on a follower id; Eggman and Tikal tick, SA1_BUTTON_X; SA1_CREATE_QUESTION, SA1_ARCHIVE_QUESTION, SA1_COPT_QUESTION_SPIN.
+ *   0.6 1.0.0 beta 1 (SA1_VERSION_MINOR 6: SA1_API_SKIN 3, SA1_API_EMOTE_EVENT; gsa1_100_master.md R1): up to 16 skins at once with their own
+ *                    archives, trails and Character Select's slots; SA1_GOPT_UPGRADE_MODELS (which upgrade models show, apart from the
+ *                    abilities, through the game's own draw code); the cutscene animations as emotes (SA1_EMOTE_EVENT,
+ *                    sa1_emote_event_load, SA1_COPT_EMOTE_LIFT).
  */
 #ifndef LIBSA1_H
 #define LIBSA1_H
@@ -130,8 +134,8 @@ extern "C" {
 /* ------------------------------------------------------------------------- */
 
 #define SA1_VERSION_MAJOR 0
-#define SA1_VERSION_MINOR 5
-#define SA1_VERSION_PATCH 4
+#define SA1_VERSION_MINOR 6
+#define SA1_VERSION_PATCH 0
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
 #define SA1_API_VERSION ((SA1_VERSION_MAJOR << 16) | SA1_VERSION_MINOR)
@@ -211,7 +215,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.5.4" */
+SA1_API const char *sa1_version_string(void);     /* "0.6.0" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -1030,6 +1034,9 @@ typedef struct sa1_state_ex {
                                    the event work, 2: a look the game set (the host's POINT / ANGLES waits for its end) */
     int32_t  head_angle[2];     /* the look work's head y / z (BAMS; + y = the character's left, + z = down) */
     int32_t  eye_angle[2];      /* the left eye's y / z (BAMS) */
+    /* round 100-EV (SA1_API_EMOTE_EVENT), written when struct_size covers it: the lift (SA1 units, along SA1 +Y) the render
+       output adds to the body's draws now (SA1_COPT_EMOTE_LIFT on and a lifted cutscene animation drawn; else 0) */
+    float    emote_lift;
 } sa1_state_ex;
 
 /* The state after the last tick (a character without a world: its create / last pose position, yaw,
@@ -3000,9 +3007,58 @@ typedef struct sa1_emote_info {
     uint32_t    frames;          /* NJS_MOTION.nbFrame (from the disc) */
     int32_t     play;            /* SA1_EMOTE_PLAY_LOOP or SA1_EMOTE_PLAY_ONCE: how it plays by default */
     int32_t     dup_of;          /* the list position of the first entry with the same object and motion, -1 none */
+    /* round 100-EV (SA1_API_EMOTE_EVENT), written when struct_size covers them: an EVENT entry's (0 / NULL for rows and extras) */
+    uint32_t        event;       /* the cutscene (its overlay number, 3 = EV0003) */
+    uint32_t        event_order; /* 1.. among this character's animations of that cutscene ("EV0003 #2") */
+    uint32_t        cast;        /* bit (1 << SA1_CHAR_*) per character with animations in that cutscene */
+    float           pace;        /* the cutscene's speed for it, frames per 1/30 s (1 when no call was found) */
+    float           lift;        /* SA1 units, with SA1_EMOTE_F_LIFTED; else 0 (the body the game draws, measured in a
+                                    LIB world: the stand's lowest drawn point minus the pose's at frame 0) */
+    uint32_t        num_events;  /* the cutscenes that use the same animation */
+    const uint16_t *events;      /* their numbers, ascending (static) */
 } sa1_emote_info;
 SA1_API uint32_t   sa1_emote_count(const sa1_context *ctx, int32_t kind, uint32_t form);   /* 0 without a disc */
 SA1_API sa1_status sa1_emote_get(const sa1_context *ctx, int32_t kind, uint32_t form, uint32_t i, sa1_emote_info *out);
+
+/* ---- cutscene animations (SA1_API_EMOTE_EVENT, round 100-EV, G-SA1 1.0.0-beta1; sadc docs/research/emotes_ev.md) ---------
+ * The characters' animations of the 207 cutscene overlays EVxxxx.PRS, offered in the emote catalogue after the rows and the
+ * extras of the six normal-form lists (kinds 0, 2, 3, 5, 6, 7: Sonic 80, Tails 65, Knuckles 35, Amy 88, E-102 31, Big 35;
+ * none for kind 8, the General form, Eggman, Tikal). Every one moves the character's gameplay body (the same tree): played
+ * like an extra, EV_SetMotion's body 8C04B528 with the main body (Tails' flight body for four of his) and the motion copied
+ * into the world (segment 0x18: two slabs of 320 KB, made at the world's first one; a world that never plays one never
+ * makes them, the reference worlds included). Names "ev0003_2" (cutscene EV0003, the character's 2nd animation in it, by
+ * address), no label (""). The catalogue is a generated table of numbers, names and SHA-1 (no world, no disc read); the
+ * motions are read from the disc of the last sa1_load_disc by sa1_emote_event_load, once, then kept until the disc is
+ * unloaded. Speed: the cutscene's own pace (frames per 1/30 s: the event library runs one logic step per 30 Hz frame) times
+ * the item's speed. Errors of sa1_character_emote for an EVENT item: SA1_ERR_NOT_LOADED "the cutscene animation ... is not
+ * loaded yet" (logged at DEBUG: load it and ask again; nothing queued), the load's own failure (SA1_ERR_BAD_HASH,
+ * SA1_ERR_BAD_FORMAT, with the reason), SA1_ERR_LIMIT "the emote is too long" (its animations are more than one slab),
+ * SA1_ERR_INVALID_ARGUMENT for an index the kind and form do not offer. */
+#define SA1_API_EMOTE_EVENT 1
+#define SA1_EMOTE_EVENT          2u     /* sa1_emote_item.source / sa1_emote_info.source; index = its place among the kind's EVENT entries */
+/* 3u reserved: SA1_EMOTE_MOTION (photo mode's loaded motions, sadc docs/research/gsa1_100_photo.md 8.1; gsa1_100_master.md D4) */
+#define SA1_EMOTE_CLASS_EVENT   15u     /* "cutscene" */
+#define SA1_EMOTE_F_EVENT       0x100u  /* needs sa1_emote_event_load before it plays */
+#define SA1_EMOTE_F_ROOT_MOVES  0x200u  /* the root travels or rises more than 2 units: the body leaves the spot and comes back */
+#define SA1_EMOTE_F_LIFTED      0x400u  /* drawn lifted by sa1_emote_info.lift with SA1_COPT_EMOTE_LIFT */
+#define SA1_EMOTE_F_RESTS_ON    0x800u  /* starts above the stand's soles: made to sit or lie on something the cutscene had */
+/* Any thread (the rules of "Preparation on host threads": only the host's allocator and file callbacks; never the log, never
+ * sa1_last_error; never at the same time as sa1_load_disc, sa1_unload_disc, sa1_set_coords or sa1_shutdown of the
+ * context): reads the entry's cutscene file from the disc of the last sa1_load_disc, checks its size and SHA-1 against the
+ * catalogue (a different file is never accepted: the addresses are those of the US 1.005 disc), unpacks it (LIB's PRS),
+ * checks every pointer of the motions it holds for this and the other kinds (the catalogue's frames, node count and bytes)
+ * and keeps them. SA1_OK (also when loaded already), SA1_ERR_NOT_LOADED (no disc), SA1_ERR_BAD_HASH (not the US 1.005
+ * file), SA1_ERR_BAD_FORMAT, SA1_ERR_IO, SA1_ERR_OUT_OF_MEMORY, SA1_ERR_INVALID_ARGUMENT. A failed file keeps BAD_HASH /
+ * BAD_FORMAT and its reason until the disc is unloaded; sa1_character_emote reports the reason on the calling thread. */
+SA1_API sa1_status sa1_emote_event_load(sa1_context *ctx, int32_t kind, uint32_t index);
+/* Any thread: 1 loaded, 0 not yet, < 0 the kept failure of its file (SA1_ERR_BAD_HASH / SA1_ERR_BAD_FORMAT) or
+ * SA1_ERR_INVALID_ARGUMENT */
+SA1_API int32_t    sa1_emote_event_ready(const sa1_context *ctx, int32_t kind, uint32_t index);
+/* sa1_character_set_option (round 100-EV, host deviation D-EV1, render only): 1 = an EVENT entry with a lift (SA1_EMOTE_F_LIFTED,
+ * sa1_emote_info.lift) is drawn that much higher (times the bridge's weight into and out of it), so lying and kneeling poses
+ * lie on the floor; the body's draws only (not the blob shadow, effects, objects or the board), not the collision, the camera
+ * or any game state. 0 (the default) = where the game puts them. sa1_state_ex.emote_lift says the number being added. */
+#define SA1_COPT_EMOTE_LIFT 10u
 
 /* ---- the board (SA1_API_BOARD, round 0.9.5; sadc docs/research/gsa1_095_plan.md 5.3, board095_lib.md 4) -----------------
  * Sonic's and Tails' sand / snow board by the game's own code: what the stage code does (SBOARD 0C9031AE, STG08 0C90EA14):
@@ -3366,6 +3422,9 @@ typedef struct sa1_frontend_state {
     int32_t  pose_frames;       /* frames of the pose so far (the game's timer), 300 ends it */
     int32_t  kind;              /* SA1_CHAR_* of the selected slot; SA1_KIND_FRONTEND for "?" */
     uint32_t faults;            /* 0, or the world is dead: every call returns SA1_ERR_GAME_FAULT, sa1_last_error names it */
+    /* round 1.0.0-beta1; written when struct_size covers it */
+    int32_t  ring;              /* the game's ADV_SELWK.ring (+0x18): the selected name pulses at 0.1845 * (sin(ring) + 1) + 0.615 (BAMS; + 0x5B0 per idle
+                                   frame, proc 0 only: one pulse in 45 frames) */
 } sa1_frontend_state;
 
 /* Composes the image (1ST_READ + ADVERTISE.PRS, SHA-1 checked), makes the world, fills the texlists (5.2), runs the menu init
@@ -3409,12 +3468,14 @@ SA1_API sa1_status sa1_frontend_view(const sa1_frontend *fe, float eye[3], float
 #define SA1_COPT_QUESTION_SPIN 8u      /* sa1_character_set_option: 1 (default) spins as on the menu, 0 faces the way the character faces */
 
 /* ---- a worn skin (SA1_API_SKIN, round 0.9.9f; sadc docs/research/metal099e.md): Metal Sonic over Sonic's world ------------------ */
-#define SA1_API_SKIN 2                 /* 2 (round 0.9.9h): a follower wears one too (SA1_FOLLOW_SKIN, sa1_follower_desc.skin) */
+#define SA1_API_SKIN 3                 /* 2 (round 0.9.9h): a follower wears one too (SA1_FOLLOW_SKIN, sa1_follower_desc.skin); 3 (1.0.0-beta1): up to 16 skins at once, their own archives,
+                                          the trails, Character Select's slots and upgrade models (the section "Character Select's skins and upgrades" at the end) */
 #define SA1_CREATE_SKIN       0x4000u  /* kind 0 only, a world, never a puppet: sa1_character_desc.skin is given (a follower: SA1_FOLLOW_SKIN). The world, its state, its events and its sounds are byte for byte Sonic's: only the
                                           output differs: sa1_character_render, _geometry and the mesh draw the skin's rigid parts in place of Sonic's body, whatever the world draws of him, effects, objects,
                                           a board and the blob as they are. HOST DEVIATIONS, render step only: the parts table and scale, running rows drawn with another row's motion, the spin ball's
                                           texture. Not with SA1_CREATE_SUPER_CAPABLE. SA1_ERR_NOT_LOADED, named in sa1_last_error, without the disc's files */
-#define SA1_ARCHIVE_SKIN      61u      /* sa1_texture_get / _archive (kind 0): the skin's textures, by position in tex_keep. Not counted in num_archives; SA1_ERR_NOT_LOADED before the skin's first use */
+#define SA1_ARCHIVE_SKIN      61u      /* sa1_texture_get / _archive (kind 0): the skin's textures, by position in tex_keep. Not counted in num_archives; SA1_ERR_NOT_LOADED before the skin's first use.
+                                          1.0.0-beta1: the parts draw from SA1_ARCHIVE_SKIN_FIRST + the skin's slot; 61 answers for the first skin loaded, for this version only */
 #define SA1_COPT_SKIN_ANIM    9u       /* sa1_character_set_option: SA1_SKIN_ANIM_* (default FLY and GLOW). At once, no re-creation */
 #define SA1_SKIN_ANIM_FLY     1u       /* the rows of sa1_skin_desc.anim draw their flown row */
 #define SA1_SKIN_ANIM_WALK    2u       /* and of anim_walk (with FLY) */
@@ -3451,10 +3512,83 @@ typedef struct sa1_skin_desc {
     float fast_on, fast_off;           /* playerwk.spd.x: the row flies from fast_on, until under fast_off */
     float glow_rgb[3];                 /* the colour of the charged glow, 0 to 1; all zero: no glow */
     float glow_inflate;                /* the outermost shell stands this far off the part along its normals, SA1 units; three shells at a third, two thirds and all of it */
+    /* round 1.0.0-beta1 (SA1_API_SKIN 3); read when struct_size covers them (zero: none) */
+    const char *id;                    /* the skin's identity (NULL: model_file, model_root and tex_file): a later use with the same identity wears the loaded skin and reads nothing */
+    int32_t base_kind;                 /* the character it is worn over: SA1_CHAR_SONIC (0) only in this version, else SA1_ERR_UNSUPPORTED */
+    float trail_rgb[3];                /* the colour of the Light Speed trails (SA1_SKIN_ANIM_TRAIL, SA1_DRAW_SKIN_TRAIL), 0 to 1; all zero: the game's */
 } sa1_skin_desc;
 /* Character Select's slot 0 draws the skin in place of Sonic, from the next frame (NULL: Sonic). The world, its events and the screen do not change. First use reads the disc's files */
 SA1_API sa1_status sa1_frontend_set_skin(sa1_frontend *fe, const sa1_skin_desc *skin);
 
+/* ---- Character Select's skins and upgrades (SA1_API_SKIN 3, round 1.0.0-beta1 lane r1-s1; sadc docs/research/gsa1_100_select.md 4.3 with its review,
+ *      gsa1_100_master.md R1 and 5.2) ---------------------------------------------------------------------------------------------------------------------------
+ * THE UPGRADE MODELS (HOST DEVIATION D7 of select 5): game option SA1_GOPT_UPGRADE_MODELS decides which of the two parts the game ships a character's display
+ * draws, at the game's own swap points (the SA1_GA blocks of sadc include/sa1/upgdisp.h, one per TU: SonicMain "A77B", TailsMain "B614", Knuckles' hands
+ * "C4C2", Amy's display "DA10", E-102's display "CFAC", BigMain "DFFA", Big's lures "E772", "E681", "EA04"). The ability is never touched: it is the game's own
+ * upgrade (the event flags, PInitialize's playerwk.equipment bits and every test of them), and the display set is never written to playerwk.equipment.
+ *   value 0                                    the game (the default; the reference worlds never set it): every line is the game's own expression
+ *   (int32_t)(SA1_UPGRADE_MODELS_ON | bits)    the parts of these upgrades are drawn and every other upgrade's plain part, whatever the character holds
+ * What stays the real bit's, by design (select 3.2): Amy's Long Hammer and E-102's Laser Blaster are game logic as well as models (the spin's hit sphere,
+ * the shot's start): the tree keeps the real bit's part and the shown one is put in only around the draws. Light Speed Shoes held and not shown still
+ * charge and sparkle; a Jet Booster shown and not held has no flame; a Life Belt shown and not held never inflates; the cast lure is the one of the number
+ * of lures shown (the item object and the fish still follow the flags: func_8C0E6E80 is the game's). Ancient Light has no model: its bit is accepted and
+ * draws nothing. A part that appears for the first time is unwelded for one pair; the feet points of Sonic and Tails follow the drawn shoe.
+ * Any kind may set it (only the nine TUs read it); at once between ticks, and a world made later takes it before its first step. Bits outside
+ * SA1_UPGRADE_MODELS_ALL, or bits without SA1_UPGRADE_MODELS_ON: SA1_ERR_INVALID_ARGUMENT; a value other than 0 on a lowered game code without the blocks:
+ * SA1_ERR_NOT_IMPLEMENTED, naming the missing tags in sa1_last_error (0 is always SA1_OK). */
+#define SA1_GOPT_UPGRADE_MODELS       5u
+#define SA1_UPGRADE_MODELS_ON         0x80000000u
+#define SA1_UPGRADE_CRYSTAL_RING      0x00001u  /* the playerwk.equipment bits (PInitialize 8C06C350) */
+#define SA1_UPGRADE_LIGHT_SPEED_SHOES 0x00002u
+#define SA1_UPGRADE_ANCIENT_LIGHT     0x00004u  /* no model: accepted, draws nothing */
+#define SA1_UPGRADE_JET_ANKLET        0x00008u
+#define SA1_UPGRADE_RHYTHM_BADGE      0x00010u
+#define SA1_UPGRADE_FIGHTING_GLOVES   0x00020u
+#define SA1_UPGRADE_SHOVEL_CLAW       0x00040u
+#define SA1_UPGRADE_LONG_HAMMER       0x00080u
+#define SA1_UPGRADE_WARRIOR_FEATHER   0x00100u
+#define SA1_UPGRADE_LASER_BLASTER     0x00200u
+#define SA1_UPGRADE_JET_BOOSTER       0x00400u  /* with its flame (the flame also needs the hover: the real bit) */
+#define SA1_UPGRADE_POWER_ROD         0x00800u
+#define SA1_UPGRADE_LIFE_BELT         0x01000u
+#define SA1_UPGRADE_LURE_1            0x10000u  /* event flags 0x1DE..0x1E1: the cast lure is the one of the number of lures shown */
+#define SA1_UPGRADE_LURE_2            0x20000u
+#define SA1_UPGRADE_LURE_3            0x40000u
+#define SA1_UPGRADE_LURE_4            0x80000u
+#define SA1_UPGRADE_MODELS_ALL        0xF1FFFu
+/* The same display set in Character Select's own world, for the TUs of `kind` (SA1_CHAR_*: Sonic and Super Sonic "A77B", Tails "B614", Knuckles "C4C2",
+ * Amy "DA10", E-102 "CFAC", Big "DFFA" and the three lures): the character in the circle wears what is shown, from the next frame. The menu's characters
+ * hold no upgrade, so only "shown" ever shows there. The world's events and its 2D draws do not change. SA1_ERR_INVALID_ARGUMENT for Eggman, Tikal or bad
+ * bits, SA1_ERR_NOT_IMPLEMENTED as above */
+SA1_API sa1_status sa1_frontend_set_upgrade_models(sa1_frontend *fe, int32_t kind, uint32_t value);
+
+/* MANY SKINS: up to SA1_SKINS_MAX skins are loaded at once (the 0.9.9f limit of one skin per disc load is gone). A skin is known by sa1_skin_desc.id when
+ * given, else by its model_file, model_root and tex_file: a second create, follower or front end with the same skin wears the loaded one and reads nothing;
+ * a new one takes the next slot (the order of their first use since the disc was loaded), the 17th answers SA1_ERR_LIMIT, named in sa1_last_error. All are
+ * freed with the disc. The skin in slot k draws from archive SA1_ARCHIVE_SKIN_FIRST + k (kind 0; never counted in num_archives, like 61 and 62);
+ * SA1_ARCHIVE_SKIN 61 answers for slot 0 for this version only. sa1_skin_desc.base_kind must be 0 (Sonic) in this version: SA1_ERR_UNSUPPORTED otherwise. */
+#define SA1_SKINS_MAX            16u
+#define SA1_ARCHIVE_SKIN_FIRST   64u
+#define SA1_ARCHIVE_SKIN_LAST    79u
+/* *archive: the archive the character's (or follower's) skin parts draw from; SA1_ERR_NOT_FOUND without such a character, SA1_ERR_UNSUPPORTED (archive 0)
+ * for one that wears no skin. For a host's texture pre-warm before the first draw */
+SA1_API sa1_status sa1_character_skin_archive(sa1_context *ctx, sa1_character_id id, uint32_t *archive);
+/* Character Select's slot `slot` (0..6) draws the skin in place of its character, from the next frame (NULL: the game's character). Only a slot whose
+ * character is the skin's base_kind (Sonic's slot 0 in this version; SA1_ERR_UNSUPPORTED otherwise). Switching between two loaded skins loads nothing.
+ * sa1_frontend_set_skin(fe, skin) is sa1_frontend_set_slot_skin(fe, 0, skin) */
+SA1_API sa1_status sa1_frontend_set_slot_skin(sa1_frontend *fe, int32_t slot, const sa1_skin_desc *skin);
+
+/* THE TRAILS IN THE SKIN'S COLOUR (HOST DEVIATION D8 of select 5): the Light Speed charge's sparkles and streaks (the one-texture texlists 8C1C6A94 lcharge01,
+ * 8C1C6A9C lcharge03, 8C1C6AA4 lcharge02, 8C1C6AAC lcharge04 of Sonic's SON_EFF: the plain charge and the Crystal Ring's, drawn by 8C0B58E0 and 8C0B504A)
+ * of a character that wears a skin with a trail colour (sa1_skin_desc.trail_rgb not all zero) while its SA1_COPT_SKIN_ANIM has SA1_SKIN_ANIM_TRAIL are
+ * marked SA1_DRAW_SKIN_TRAIL, before the merge test. The host draws the texture's variant SA1_TEXTURE_VARIANT_SKIN_FIRST + k (k: the skin's slot, its archive
+ * - SA1_ARCHIVE_SKIN_FIRST) in place of it: every texel's HSV value and saturation kept, the hue of trail_rgb, alpha kept (SA1_TEXTURE_VARIANT_SUPER_GOLD's
+ * method, the hue a parameter); archive and texture stay the game's. sa1_texture_variant_get answers it for the four textures only (else SA1_ERR_NOT_FOUND),
+ * from the skin's first use. Nothing else of the world or the draw changes; Sonic without a skin never has the flag. */
+#define SA1_SKIN_ANIM_TRAIL            8u       /* SA1_COPT_SKIN_ANIM: the trails in the skin's colour (with FLY 1, WALK 2, GLOW 4; the default of a create is
+                                                   FLY | GLOW | TRAIL) */
+#define SA1_DRAW_SKIN_TRAIL            0x8000u  /* the draw is one of the skin's trails: draw SA1_TEXTURE_VARIANT_SKIN_FIRST + the skin's slot of its texture */
+#define SA1_TEXTURE_VARIANT_SKIN_FIRST 16u      /* + the skin's slot (0..15): kind 0, Sonic's SON_EFF archive, lcharge01-04 */
 #ifdef __cplusplus
 }
 #endif

@@ -15,12 +15,24 @@
  * pair, which is his speedwalk under the game's own blend: it starts from the pose he last showed, held against his root (held_r, h), and that is his walk; through the game's links (mtnmode 2) a flight goes on, up to 5 pairs;
  * the top of a walking row, faster than any held walk (anim_fast), flies. A fade out ends on the row he then is in, once the game's link is over. HOST DEVIATION D5.
  * THE GLOW: where the game draws Sonic's aura (func_8C0B4F00: its three passes, read off the capture with their colours, so its pulse is the game's), the parts again, offset along their normals at load. HOST DEVIATION D6.
+ *
+ * Round 1.0.0-beta1 (SA1_API_SKIN 3; sadc docs/research/gsa1_100_select.md 4.3.1, 4.3.2). MANY SKINS: the loaded skins are a list from ctx->skin (the first loaded; each state's `next`), at most
+ * SA1_SKINS_MAX, known by their identity (sa1_skin_desc.id, else the model file, its root and the texture file); slot k draws from archive SA1_ARCHIVE_SKIN_FIRST + k. Every wearer points at its own
+ * state. THE TRAILS: a skin with a trail colour keeps the four Light Speed charge textures of Sonic's SON_EFF (lcharge01-04) in its hue, value and saturation kept (the gold variant's method,
+ * sa1_texture.c), made at its load: sa1_texture_variant_get's SA1_TEXTURE_VARIANT_SKIN_FIRST + k. HOST DEVIATION D8 of select 5; the capture marks the draws (SA1_DRAW_SKIN_TRAIL).
+ * Round 1.0.0-beta1, the owner's answer 17 (Mecha Sonic "runs instead of flies ... he uses the Jog"; gsa1_100_select.md 4.2.1). A DRAWN ROW OF SONIC'S OWN TREE (his body's object: Mecha's
+ * rows 12 and 13 drawn as row 11) is posed by the mesh nodes Sonic's own drawing uses (s_flown), so it is the live row's pose, part for part; between two speed loops of that tree (mtnmode 9 or 10)
+ * the drawn phase runs k = (racio(drawn) / racio(world row)) x (frames(world row) / frames(drawn)) times the world row's rate (sa1k_step): the game's own step of the drawn row at the same speed.
+ * THE PLANT (HOST DEVIATION D9): a skin that never leaves Sonic's own tree (every row of its tables in his body's tree, lift 0) moves along his up axis each pair so that its lowest point is Sonic's
+ * own lowest point in the pose it was drawn from (his plain models' points, no weld): Mecha's shorter legs and long shoe fronts then never sink into the floor. Metal Sonic's rows are all in
+ * the Super tree: neither change reaches him.
  */
 #include "sa1_skin.h"
 #include "sa1_api_world.h"
 
 #include <math.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #define SK_PI 3.14159265358979323846
@@ -71,6 +83,20 @@ typedef struct sa1k_state {
     uint32_t glow_np[SA1K_PARTS_MAX], glow_nmat[SA1K_PARTS_MAX];
     const uint8_t *glow_mats;                   /* the same material, as many as a part asks */
     uint32_t glow_no_normals;
+    /* round 1.0.0-beta1: the slot (archive SA1_ARCHIVE_SKIN_FIRST + slot), the identity, the next skin loaded, the trails */
+    uint32_t slot;
+    char ident[256];
+    struct sa1k_state *next;
+    int32_t trail;                              /* the four variants are made */
+    double trail_hue;                           /* degrees, of trail_rgb */
+    uint32_t trail_arc;                         /* Sonic's SON_EFF archive */
+    uint32_t trail_tex[4];                      /* lcharge01-04 in it */
+    uint8_t *trail_rgba[4];
+    /* round 1.0.0-beta1, the owner's answer 17: the plant (the top of this file) */
+    int32_t plant;                              /* every row of its tables is in Sonic's own tree, lift 0 */
+    const uint8_t *part_pts[SA1K_PARTS_MAX];    /* each part's points in `model`, part_np of them */
+    uint32_t part_np[SA1K_PARTS_MAX];
+    int32_t body_model[SA1K_NODES];             /* the model (sa1_charset.models) each drawn node of Sonic's body holds, -1: none */
 } sa1k_state;
 
 struct sa1k_char {
@@ -110,6 +136,9 @@ struct sa1k_char {
     float out_live;
     int32_t out_have_flown;
     double out_flown[SA1K_PARTS_MAX][9];
+    /* round 1.0.0-beta1: the world row `rate` was measured in (-1: none), the plant's last shift along the up axis */
+    int32_t rate_row;
+    double out_shift;
 };
 
 /* ---- small maths --------------------------------------------------------------------------------------------------------------------------------- */
@@ -314,7 +343,7 @@ static int32_t s_resolve(void *user, uint32_t texlist, uint32_t id, int32_t *arc
 {
     const sa1k_state *q = (const sa1k_state *)user;
     (void)texlist;
-    *archive = (int32_t)SA1_ARCHIVE_SKIN;
+    *archive = (int32_t)(SA1_ARCHIVE_SKIN_FIRST + q->slot);     /* round 1.0.0-beta1: the slot's own archive */
     return s_keep_pos(q, id);
 }
 
@@ -582,21 +611,245 @@ static sa1_status s_glow_build(sa1_context *ctx, sa1k_state *q, const sa1_skin_d
     return SA1_OK;
 }
 
-sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *d)
+/* ---- round 1.0.0-beta1: many skins, the trails ---------------------------------------------------------------------------------------------------- */
+static int sk_name_is(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) {
+        char x = (*a >= 'A' && *a <= 'Z') ? (char)(*a + 32) : *a, y = (*b >= 'A' && *b <= 'Z') ? (char)(*b + 32) : *b;
+        if (x != y) {
+            return 0;
+        }
+    }
+    return *a == *b;
+}
+
+/* the identity a description names (select 4.3.1); 0: too long */
+static int sk_ident(const sa1_skin_desc *d, char *out, size_t cap)
+{
+    int n;
+    if (d->struct_size >= offsetof(sa1_skin_desc, id) + sizeof d->id && d->id != NULL && d->id[0] != '\0') {
+        n = snprintf(out, cap, "id:%s", d->id);
+    } else {
+        n = snprintf(out, cap, "disc:%s:%08X:%s", d->model_file, (unsigned)d->model_root, d->tex_file);
+    }
+    return n > 0 && (size_t)n < cap;
+}
+
+static uint8_t sk_byte(double v)
+{
+    if (!(v > 0.0)) {
+        return 0;
+    }
+    return v >= 255.0 ? 255 : (uint8_t)(v + 0.5);
+}
+
+/* the gold variant's texel (sa1_texture.c sa1_texture_gold_texel) with the hue a parameter: HSV value and saturation kept, alpha kept */
+static void sk_hue_texel(const uint8_t in[4], uint8_t out[4], double hue)
+{
+    double mx = in[0], mn = in[0], h = hue / 60.0, f, q, t;
+    int i;
+    if (in[1] > mx) mx = in[1];
+    if (in[2] > mx) mx = in[2];
+    if (in[1] < mn) mn = in[1];
+    if (in[2] < mn) mn = in[2];
+    i = (int)h;
+    if (i < 0 || i > 5) {
+        i = 0;
+    }
+    f = h - (double)i;
+    q = mx - (mx - mn) * f;
+    t = mn + (mx - mn) * f;
+    switch (i) {
+    case 0:  out[0] = sk_byte(mx); out[1] = sk_byte(t);  out[2] = sk_byte(mn); break;
+    case 1:  out[0] = sk_byte(q);  out[1] = sk_byte(mx); out[2] = sk_byte(mn); break;
+    case 2:  out[0] = sk_byte(mn); out[1] = sk_byte(mx); out[2] = sk_byte(t);  break;
+    case 3:  out[0] = sk_byte(mn); out[1] = sk_byte(q);  out[2] = sk_byte(mx); break;
+    case 4:  out[0] = sk_byte(t);  out[1] = sk_byte(mn); out[2] = sk_byte(mx); break;
+    default: out[0] = sk_byte(mx); out[1] = sk_byte(mn); out[2] = sk_byte(q);  break;
+    }
+    out[3] = in[3];
+}
+
+/* the hue of an RGB colour, degrees in [0, 360) */
+static double sk_hue_of(const float rgb[3])
+{
+    double r = rgb[0], g = rgb[1], b = rgb[2], mx = r, mn = r, h;
+    if (g > mx) mx = g;
+    if (b > mx) mx = b;
+    if (g < mn) mn = g;
+    if (b < mn) mn = b;
+    if (!(mx > mn)) {
+        return 0.0;
+    }
+    if (mx == r) {
+        h = 60.0 * (g - b) / (mx - mn);
+    } else if (mx == g) {
+        h = 60.0 * (b - r) / (mx - mn) + 120.0;
+    } else {
+        h = 60.0 * (r - g) / (mx - mn) + 240.0;
+    }
+    while (h < 0.0) {
+        h += 360.0;
+    }
+    while (h >= 360.0) {
+        h -= 360.0;
+    }
+    return h;
+}
+
+/* lcharge01-04 of Sonic's SON_EFF in the skin's hue (found by the archive's and the textures' names, as the gold variant). Without them: no trail (q->trail 0) */
+static sa1_status sk_trail_build(sa1_context *ctx, sa1k_state *q, const sa1_skin_desc *d)
+{
+    static const char *const k_names[4] = { "lcharge01", "lcharge02", "lcharge03", "lcharge04" };
+    const sa1_charset *cs = &ctx->chars[SA1_CHAR_SONIC];
+    uint32_t a, i, k, found = 0;
+    if (!(d->trail_rgb[0] > 0.0f || d->trail_rgb[1] > 0.0f || d->trail_rgb[2] > 0.0f)) {
+        return SA1_OK;
+    }
+    q->trail_hue = sk_hue_of(d->trail_rgb);
+    for (a = 0; a < cs->num_archives && !sk_name_is(cs->archives[a].name, "SON_EFF"); a++)
+        ;
+    if (a == cs->num_archives) {
+        sa1_log(ctx, SA1_LOG_WARN, "skin %s: Sonic's SON_EFF archive is not loaded: the trails keep the game's colour", q->ident);
+        return SA1_OK;
+    }
+    q->trail_arc = a;
+    for (k = 0; k < 4u; k++) {
+        const sa1_archive *ar = &cs->archives[a];
+        for (i = 0; i < ar->num_textures && !sk_name_is(ar->tex[i].name, k_names[k]); i++)
+            ;
+        if (i < ar->num_textures && ar->tex[i].rgba != NULL && ar->tex[i].width != 0u && ar->tex[i].height != 0u) {
+            size_t np = (size_t)ar->tex[i].width * ar->tex[i].height, p;
+            q->trail_tex[k] = i;
+            q->trail_rgba[k] = (uint8_t *)sa1_mem_alloc(ctx, 4u * np);
+            if (q->trail_rgba[k] == NULL) {
+                return SA1_ERR_OUT_OF_MEMORY;
+            }
+            for (p = 0; p < np; p++) {
+                sk_hue_texel(ar->tex[i].rgba + 4u * p, q->trail_rgba[k] + 4u * p, q->trail_hue);
+            }
+            found++;
+        } else {
+            q->trail_tex[k] = 0xFFFFFFFFu;
+        }
+    }
+    q->trail = found != 0u;
+    return SA1_OK;
+}
+
+static void sk_state_free(sa1_context *ctx, sa1k_state *q)
+{
+    uint32_t k;
+    for (k = 0; k < 4u; k++) {
+        sa1_mem_free(ctx, q->trail_rgba[k]);
+    }
+    sa1_mem_free(ctx, q->glow_block);
+    sa1_charset_free(ctx, &q->set);
+    sa1_mem_free(ctx, q->model);
+    sa1_mem_free(ctx, q);
+}
+
+/* ---- round 1.0.0-beta1, the owner's answer 17: Sonic's own tree, the plant (the top of this file) ------------------------------------------------------ */
+static int s_row_ok(const sa1_charset *cs, int32_t row);
+
+/* 1: the row's object is Sonic's own body (the tree his live rows draw) */
+static int s_own_tree(const sa1_charset *cs, int32_t row)
+{
+    return s_row_ok(cs, row) && cs->actions[row].object == cs->main_object;
+}
+
+/* whether the skin plants (every row of its tables in Sonic's own tree, lift 0); each part's points; the model of each drawn node of Sonic's body */
+static void s_plant_init(sa1k_state *q, const sa1_charset *cs)
+{
+    uint32_t i;
+    int own = q->lift == 0.0;
+    for (i = 0; i < q->num_anim; i++) {
+        own = own && s_own_tree(cs, (int32_t)q->anim[i][1]);
+    }
+    for (i = 0; i < q->num_anim_walk; i++) {
+        own = own && s_own_tree(cs, (int32_t)q->anim_walk[i][1]);
+    }
+    for (i = 0; i < q->num_anim_fast; i++) {
+        own = own && s_own_tree(cs, (int32_t)q->anim_fast[i][1]);
+    }
+    for (i = 0; i < SA1K_NODES; i++) {
+        q->body_model[i] = -1;
+    }
+    if (cs->main_object >= 0 && (uint32_t)cs->main_object < cs->objects.count) {
+        const sa1_object *o = &SA1_VEC(cs->objects, sa1_object)[cs->main_object];
+        for (i = 0; i < o->num_nodes && i < SA1K_NODES; i++) {
+            if (o->nodes[i].model >= 0 && (uint32_t)o->nodes[i].model < cs->models.count && o->nodes[i].drawn) {
+                q->body_model[i] = o->nodes[i].model;
+            }
+        }
+    }
+    for (i = 0; i < q->num_parts; i++) {
+        const uint8_t *mp = q->parts[i].model != 0u ? s_read(q, q->parts[i].model, 0x28u) : NULL;
+        int32_t np = mp != NULL ? sa1_rds32(mp + 8) : 0;
+        q->part_pts[i] = (np > 0 && (uint32_t)np <= SA1_MAX_POINTS) ? s_read(q, sa1_rd32(mp), 12u * (uint32_t)np) : NULL;
+        q->part_np[i] = q->part_pts[i] != NULL ? (uint32_t)np : 0u;
+    }
+    q->plant = own;
+}
+
+/* the least of up . (R v + t) over Sonic's plain model `model` (the charset's points); R, t of a node's 3x4 matrix m (row major) */
+static double s_model_low(const sa1_charset *cs, int32_t model, const double m[12], const double up[3], double low)
+{
+    const sa1_model *md = &SA1_VEC(cs->models, sa1_model)[model];
+    double a0 = up[0] * m[0] + up[1] * m[4] + up[2] * m[8];
+    double a1 = up[0] * m[1] + up[1] * m[5] + up[2] * m[9];
+    double a2 = up[0] * m[2] + up[1] * m[6] + up[2] * m[10];
+    double b = up[0] * m[3] + up[1] * m[7] + up[2] * m[11];
+    uint32_t v;
+    if (md->points == NULL) {
+        return low;
+    }
+    for (v = 0; v < md->num_points; v++) {
+        const float *p = md->points + 3u * v;
+        double h = a0 * (double)p[0] + a1 * (double)p[1] + a2 * (double)p[2] + b;
+        if (h < low) {
+            low = h;
+        }
+    }
+    return low;
+}
+
+sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *d, sa1k_state **out)
 {
     const sa1_api_ext *x = sa1_api_ext_of(ctx);
     const sa1_file_desc *fm, *ft;
-    sa1k_state *q;
+    sa1k_state *q, *last = NULL, *e;
     uint8_t *overlay = NULL;
-    uint32_t overlay_size = 0, first, i, n = 0;
+    uint32_t overlay_size = 0, first, i, n = 0, count = 0;
     sa1_status st;
+    char ident[256];
+    if (out != NULL) {
+        *out = NULL;
+    }
     if (d == NULL || d->struct_size < offsetof(sa1_skin_desc, anim_fast) || d->model_file == NULL || d->tex_file == NULL || d->parts == NULL || d->tex_keep == NULL ||
         d->num_parts == 0u || d->num_parts > SA1K_PARTS_MAX || d->num_tex_keep == 0u || d->num_tex_keep > 64u || d->num_anim > 16u || d->num_anim_walk > 8u ||
         !(d->scale > 0.0f) || d->model_end <= d->model_first) {
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_SKIN: the skin's description is not whole");
     }
-    if (ctx->skin != NULL) {
-        return ctx->skin->root == d->model_root ? SA1_OK : sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "SA1_CREATE_SKIN: one skin per disc load for now, 0x%08X is there", (unsigned)ctx->skin->root);
+    /* round 1.0.0-beta1: the skin by its identity; a loaded one is the same skin (the one-skin refusal of 0.9.9f is gone) */
+    if (d->struct_size >= offsetof(sa1_skin_desc, base_kind) + sizeof d->base_kind && d->base_kind != SA1_CHAR_SONIC) {
+        return sa1_fail(ctx, SA1_ERR_UNSUPPORTED, "SA1_CREATE_SKIN: base_kind %d: a skin is worn over Sonic (kind 0) only in this version", (int)d->base_kind);
+    }
+    if (!sk_ident(d, ident, sizeof ident)) {
+        return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_CREATE_SKIN: the skin's id or file names are too long");
+    }
+    for (e = ctx->skin; e != NULL; e = e->next) {
+        if (strcmp(e->ident, ident) == 0) {
+            if (out != NULL) {
+                *out = e;
+            }
+            return SA1_OK;
+        }
+        last = e;
+        count++;
+    }
+    if (count >= SA1_SKINS_MAX) {
+        return sa1_fail(ctx, SA1_ERR_LIMIT, "SA1_CREATE_SKIN: %u skins are loaded (SA1_SKINS_MAX): %s would be one more", (unsigned)count, ident);
     }
     if (!ctx->disc_loaded || x == NULL || !x->gdi[0]) {
         return sa1_fail(ctx, SA1_ERR_NOT_LOADED, "SA1_CREATE_SKIN: no disc is loaded");
@@ -616,6 +869,8 @@ sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *d)
     if (q == NULL) {
         return SA1_ERR_OUT_OF_MEMORY;
     }
+    q->slot = count;
+    memcpy(q->ident, ident, sizeof q->ident);
     q->first = d->model_first & 0x1FFFFFFFu;
     q->size = d->model_end - d->model_first;
     q->root = d->model_root;
@@ -673,56 +928,130 @@ sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *d)
     if (st == SA1_OK) {
         st = s_from_body(ctx, q, &ctx->chars[SA1_CHAR_SONIC], d);
     }
-    if (st == SA1_OK && d->struct_size >= sizeof *d && (d->glow_rgb[0] > 0.0f || d->glow_rgb[1] > 0.0f || d->glow_rgb[2] > 0.0f)) {
+    if (st == SA1_OK) {
+        s_plant_init(q, &ctx->chars[SA1_CHAR_SONIC]);      /* round 1.0.0-beta1 */
+    }
+    if (st == SA1_OK && d->struct_size >= offsetof(sa1_skin_desc, glow_inflate) + sizeof d->glow_inflate && (d->glow_rgb[0] > 0.0f || d->glow_rgb[1] > 0.0f || d->glow_rgb[2] > 0.0f)) {
         st = s_glow_build(ctx, q, d);
     }
+    if (st == SA1_OK && d->struct_size >= offsetof(sa1_skin_desc, trail_rgb) + sizeof d->trail_rgb) {
+        st = sk_trail_build(ctx, q, d);     /* round 1.0.0-beta1 */
+    }
     if (st != SA1_OK) {
-        sa1_mem_free(ctx, q->glow_block);
-        sa1_charset_free(ctx, &q->set);
-        sa1_mem_free(ctx, q->model);
-        sa1_mem_free(ctx, q);
+        sk_state_free(ctx, q);
         return st;
     }
     for (i = 0; i < q->num_keep; i++) {
         const sa1_texture *t = &q->set.archives[0].tex[i];
         q->alpha[i] = t->rgba != NULL ? sa1_texture_alpha_kind(t->rgba, t->width, t->height) : SA1_TEXALPHA_NONE;
     }
-    ctx->skin = q;
+    if (last != NULL) {
+        last->next = q;
+    } else {
+        ctx->skin = q;
+    }
+    if (out != NULL) {
+        *out = q;
+    }
     return SA1_OK;
 }
 
 void sa1k_free(sa1_context *ctx)
 {
     sa1k_state *q = ctx->skin;
-    if (q != NULL) {
-        ctx->skin = NULL;
-        sa1_mem_free(ctx, q->glow_block);
-        sa1_charset_free(ctx, &q->set);
-        sa1_mem_free(ctx, q->model);
-        sa1_mem_free(ctx, q);
+    ctx->skin = NULL;
+    while (q != NULL) {
+        sa1k_state *nx = q->next;
+        sk_state_free(ctx, q);
+        q = nx;
     }
 }
 
-const sa1_archive *sa1k_archive(const sa1_context *ctx)
+/* the state of slot k, NULL: none */
+static const sa1k_state *sk_slot(const sa1_context *ctx, uint32_t k)
 {
-    const sa1k_state *q = ctx->skin;
+    const sa1k_state *q;
+    for (q = ctx->skin; q != NULL && q->slot != k; q = q->next)
+        ;
+    return q;
+}
+
+const sa1_archive *sa1k_archive(const sa1_context *ctx, uint32_t archive)
+{
+    const sa1k_state *q = NULL;
+    if (archive == SA1_ARCHIVE_SKIN) {
+        q = sk_slot(ctx, 0u);       /* "the first skin loaded", for this version only */
+    } else if (archive >= SA1_ARCHIVE_SKIN_FIRST && archive <= SA1_ARCHIVE_SKIN_LAST) {
+        q = sk_slot(ctx, archive - SA1_ARCHIVE_SKIN_FIRST);
+    }
     return q != NULL ? &q->set.archives[0] : NULL;
 }
 
-/* ---- per character --------------------------------------------------------------------------------------------------------------------------------- */
-sa1_status sa1k_char_new(sa1_context *ctx, uint32_t anim, sa1k_char **out)
+const uint8_t *sa1k_trail_rgba(const sa1_context *ctx, uint32_t slot, uint32_t archive, uint32_t index)
+{
+    const sa1k_state *q = sk_slot(ctx, slot);
+    uint32_t k;
+    if (q == NULL || !q->trail || archive != q->trail_arc) {
+        return NULL;
+    }
+    for (k = 0; k < 4u; k++) {
+        if (q->trail_tex[k] == index && q->trail_rgba[k] != NULL) {
+            return q->trail_rgba[k];
+        }
+    }
+    return NULL;
+}
+
+uint32_t sa1k_char_archive(const sa1k_char *sc)
+{
+    return SA1_ARCHIVE_SKIN_FIRST + sc->q->slot;
+}
+
+int sa1k_trail_on(const sa1k_char *sc)
+{
+    return sc != NULL && sc->q->trail && (sc->anim & SA1_SKIN_ANIM_TRAIL) != 0u;
+}
+
+const sa1k_state *sa1k_char_state(const sa1k_char *sc)
+{
+    return sc != NULL ? sc->q : NULL;
+}
+
+sa1_status sa1_character_skin_archive(sa1_context *ctx, sa1_character_id id, uint32_t *archive)
 {
     sa1k_char *sc;
-    if (ctx->skin == NULL) {
+    if (archive != NULL) {
+        *archive = 0u;
+    }
+    if (ctx == NULL || archive == NULL) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    if (sa1w_character_peek(ctx, id, NULL, NULL, NULL) != SA1_OK) {
+        return SA1_ERR_NOT_FOUND;
+    }
+    sc = sa1k_char_of(ctx, id);
+    if (sc == NULL) {
+        return sa1_refuse(ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "sa1_character_skin_archive: character %d wears no skin", (int)id);
+    }
+    *archive = sa1k_char_archive(sc);
+    return SA1_OK;
+}
+
+/* ---- per character --------------------------------------------------------------------------------------------------------------------------------- */
+sa1_status sa1k_char_new(sa1_context *ctx, const sa1k_state *q, uint32_t anim, sa1k_char **out)
+{
+    sa1k_char *sc;
+    if (q == NULL) {
         return SA1_ERR_NOT_LOADED;
     }
     sc = (sa1k_char *)sa1_mem_alloc(ctx, sizeof *sc);
     if (sc == NULL) {
         return SA1_ERR_OUT_OF_MEMORY;
     }
-    sc->q = ctx->skin;
+    sc->q = q;
     sc->anim = anim;
     sc->cur = sc->prev = sc->last_row = -1;
+    sc->rate_row = -1;
     sc->drive.row = -1;     /* (Character Select never steps: no row is known there) */
     sc->x = 1.0f;
     *out = sc;
@@ -872,7 +1201,7 @@ static int32_t ball_resolve(void *user, uint32_t texlist, uint32_t id, int32_t *
 {
     (void)texlist;
     (void)id;
-    *archive = (int32_t)SA1_ARCHIVE_SKIN;
+    *archive = (int32_t)(SA1_ARCHIVE_SKIN_FIRST + ((const sa1k_ball_ctx *)user)->q->slot);
     return ((const sa1k_ball_ctx *)user)->q->ball_pos;
 }
 
@@ -933,6 +1262,25 @@ static uint32_t s_frames(const sa1_charset *cs, int32_t row)
         return 0u;
     }
     return SA1_VEC(cs->motions, sa1_motion)[cs->actions[row].motion].num_frames;
+}
+
+/* round 1.0.0-beta1 (gsa1_100_select.md 4.2.1 change 2): a speed loop (mtnmode 9 or 10) advances racio x speed frames a step (PSetMotion, code_8C079476.c:117-136), so the drawn row of Sonic's own
+   tree steps k times the world row's phase: k = (racio(drawn) / racio(world)) x (frames(world) / frames(drawn)); 1 for any other pair (a flown row of another tree: Metal Sonic's) */
+static double s_rate_k(const sa1_charset *cs, int32_t drawn, int32_t world)
+{
+    const sa1_action *a, *b;
+    uint32_t fa, fb;
+    if (drawn < 0 || world < 0 || drawn == world || !s_own_tree(cs, drawn) || !s_own_tree(cs, world)) {
+        return 1.0;
+    }
+    a = &cs->actions[drawn];
+    b = &cs->actions[world];
+    fa = s_frames(cs, drawn);
+    fb = s_frames(cs, world);
+    if ((a->mode != 9 && a->mode != 10) || (b->mode != 9 && b->mode != 10) || !(a->speed > 0.0f) || !(b->speed > 0.0f) || fa == 0u || fb == 0u) {
+        return 1.0;
+    }
+    return ((double)a->speed / (double)b->speed) * ((double)fb / (double)fa);
 }
 
 void sa1k_step(sa1k_char *sc, const sa1_charset *cs, const sa1k_drive *d)
@@ -1022,6 +1370,7 @@ void sa1k_step(sa1k_char *sc, const sa1_charset *cs, const sa1k_drive *d)
         if (sc->phase_have == 1 && sc->last_row == d->row) {
             double dr = ph - sc->last_ph;
             sc->rate = dr < 0.0 ? dr + 1.0 : dr;
+            sc->rate_row = d->row;
         } else if (sc->phase_have == 0) {
             sc->phase = ph;
         }
@@ -1034,7 +1383,11 @@ void sa1k_step(sa1k_char *sc, const sa1_charset *cs, const sa1k_drive *d)
     if (sc->phase_have == 2 && target >= 0 && d->steady) {
         sc->phase_have = 1;
     }
-    sc->phase = fmod(sc->phase + sc->rate, 1.0);
+    /* round 1.0.0-beta1 (the owner's answer 17): a drawn speed loop of Sonic's own tree steps as the game steps it at this speed (k, the top of this file); any other row at the world row's rate */
+    {
+        double k = s_rate_k(cs, sc->cur, sc->rate_row);
+        sc->phase = fmod(sc->phase + (k != 1.0 ? sc->rate * k : sc->rate), 1.0);
+    }
     sc->w_was = sc->w;
     sc->w += target >= 0 ? 0.125f : -0.125f;
     if (sc->w > 1.0f) {
@@ -1060,6 +1413,7 @@ void sa1k_step(sa1k_char *sc, const sa1_charset *cs, const sa1k_drive *d)
         sc->x = 1.0f;
         sc->phase_have = 0;
         sc->rate = 0.0;
+        sc->rate_row = -1;
     }
 }
 
@@ -1113,8 +1467,10 @@ static void s_fly_root(const sa1k_drive *d, double lift, double m[12])
     m[11] = (double)d->pos[2] + up[2] * ((double)d->center_height + lift);
 }
 
-/* each part's rotation and the torso's place in a flown row: the joint column of a private evaluation of that row's own tree (RM.3) */
-static sa1_status s_flown(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, int32_t row, const double root[12], double r[][9], double p0[3])
+/* each part's rotation and the torso's place in a flown row: the joint column of a private evaluation of that row's own tree (RM.3). Round 1.0.0-beta1 (the owner's answer 17): a row of Sonic's
+   own tree by the mesh column instead, the nodes his own drawing turns each part by (sa1k_append's live pose), so the row is drawn as Sonic's live row would be; *low: with the plant, the least
+   of Sonic's own body along up in that pose (the plant's reference), else 1e30 */
+static sa1_status s_flown(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, int32_t row, const double root[12], const double up[3], double r[][9], double p0[3], double *low)
 {
     const sa1k_state *q = sc->q;
     const sa1_action *ac = &cs->actions[row];
@@ -1123,26 +1479,50 @@ static sa1_status s_flown(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs
     uint32_t i;
     sa1_status st = sa1_pose_evaluate(ctx, cs, &sc->inst, ac->object, ac->motion, (float)f, SA1_POSE_MODEL_SPACE | SA1_POSE_NO_WELD);
     const float *t0;
+    int own = ac->object == cs->main_object;
+    *low = 1e30;
     if (st != SA1_OK) {
         return st;
     }
     m3_of(root, rr);
     for (i = 0; i < q->num_parts; i++) {
         const sk_part *pt = &q->parts[i];
-        const float *m = sc->inst.node_mtx + 12u * (uint32_t)pt->joint;
+        int32_t n = (own && pt->mesh >= 0 && (uint32_t)pt->mesh < q->body_nodes) ? pt->mesh : pt->joint;
+        const float *m = sc->inst.node_mtx + 12u * (uint32_t)n;
         double a[9], b[9];
         a[0] = m[0]; a[1] = m[1]; a[2] = m[2];
         a[3] = m[4]; a[4] = m[5]; a[5] = m[6];
         a[6] = m[8]; a[7] = m[9]; a[8] = m[10];
         m3_rot(a, b);
         m3_mul(rr, b, a);
-        m3_mul_t(a, q->rest_r[pt->joint], b);
+        m3_mul_t(a, q->rest_r[n], b);
         m3_mul(b, pt->ag, r[i]);
     }
-    t0 = sc->inst.node_mtx + 12u * (uint32_t)q->parts[0].joint;
+    t0 = sc->inst.node_mtx + 12u * (uint32_t)((own && q->parts[0].mesh >= 0 && (uint32_t)q->parts[0].mesh < q->body_nodes) ? q->parts[0].mesh : q->parts[0].joint);
     p0[0] = root[0] * t0[3] + root[1] * t0[7] + root[2] * t0[11] + root[3];
     p0[1] = root[4] * t0[3] + root[5] * t0[7] + root[6] * t0[11] + root[7];
     p0[2] = root[8] * t0[3] + root[9] * t0[7] + root[10] * t0[11] + root[11];
+    if (own && q->plant) {
+        double l = 1e30;
+        for (i = 0; i < q->body_nodes && i < SA1K_NODES; i++) {
+            const float *m = sc->inst.node_mtx + 12u * i;
+            double w[12];
+            int k;
+            if (q->body_model[i] < 0) {
+                continue;
+            }
+            /* root * node (model space) */
+            for (k = 0; k < 3; k++) {
+                const double *rk = root + 4 * k;
+                w[4 * k + 0] = rk[0] * m[0] + rk[1] * m[4] + rk[2] * m[8];
+                w[4 * k + 1] = rk[0] * m[1] + rk[1] * m[5] + rk[2] * m[9];
+                w[4 * k + 2] = rk[0] * m[2] + rk[1] * m[6] + rk[2] * m[10];
+                w[4 * k + 3] = rk[0] * m[3] + rk[1] * m[7] + rk[2] * m[11] + rk[3];
+            }
+            l = s_model_low(cs, q->body_model[i], w, up, l);
+        }
+        *low = l;
+    }
     return SA1_OK;
 }
 
@@ -1151,6 +1531,7 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
 {
     const sa1k_state *q = sc->q;
     double turn[SA1K_PARTS_MAX][9], r[SA1K_PARTS_MAX][9], fr[SA1K_PARTS_MAX][9], fo[SA1K_PARTS_MAX][9], p0[3], pos[SA1K_PARTS_MAX][3];
+    double up[3] = { 0.0, 1.0, 0.0 }, low_live = 1e30, low_fly = 1e30;      /* round 1.0.0-beta1: the plant */
     const sa1_motion *mo = NULL;
     sa1_emit_info ei;
     sa1_draw_state ds;
@@ -1250,9 +1631,24 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
         sc->last_src_p0[2] = rt[2] * d0[0] + rt[5] * d0[1] + rt[8] * d0[2];
         sc->last_src_ok = 1;
     }
+    /* round 1.0.0-beta1, the plant (the top of this file): Sonic's up axis, and his own lowest point in the pose the world drew */
+    if (q->plant) {
+        if (sc->drive.have_root) {
+            double ub[12];
+            s_fly_root(&sc->drive, 0.0, ub);
+            up[0] = ub[1];
+            up[1] = ub[5];
+            up[2] = ub[9];
+        }
+        for (i = 0; i < q->body_nodes && i < SA1K_NODES; i++) {
+            if (sc->have[i] && q->body_model[i] >= 0) {
+                low_live = s_model_low(cs, q->body_model[i], sc->mtx[i], up, low_live);
+            }
+        }
+    }
     /* the flying (4.4) */
     if (sc->w > 0.0f && sc->cur >= 0 && sc->drive.have_root) {
-        double root[12], pf[3], po[3];
+        double root[12], pf[3], po[3], lf = 1e30, lo = 1e30;
         if (!sc->inst_ok) {
             memset(&sc->inst, 0, sizeof sc->inst);
             sc->inst.kind = SA1_CHAR_SONIC;
@@ -1264,12 +1660,12 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
         }
         s_fly_root(&sc->drive, q->lift, root);
         memcpy(sc->fly_root, root, sizeof root);
-        st = s_flown(ctx, sc, cs, sc->cur, root, fr, pf);
+        st = s_flown(ctx, sc, cs, sc->cur, root, up, fr, pf, &lf);
         if (st != SA1_OK) {
             return st;
         }
         if (sc->prev >= 0 && sc->x < 1.0f && s_row_ok(cs, sc->prev)) {
-            st = s_flown(ctx, sc, cs, sc->prev, root, fo, po);
+            st = s_flown(ctx, sc, cs, sc->prev, root, up, fo, po, &lo);
             if (st != SA1_OK) {
                 return st;
             }
@@ -1279,7 +1675,11 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
             pf[0] = po[0] + (double)sc->x * (pf[0] - po[0]);
             pf[1] = po[1] + (double)sc->x * (pf[1] - po[1]);
             pf[2] = po[2] + (double)sc->x * (pf[2] - po[2]);
+            if (lf < 1e29 && lo < 1e29) {
+                lf = lo + (double)sc->x * (lf - lo);
+            }
         }
+        low_fly = lf;
         memcpy(sc->out_flown, fr, q->num_parts * sizeof fr[0]);
         sc->out_have_flown = 1;
         sc->out_live *= 1.0f - sc->w;
@@ -1300,6 +1700,41 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
         pos[i][0] = pp[0] + q->scale * (pr[0] * p->off[0] + pr[1] * p->off[1] + pr[2] * p->off[2]);
         pos[i][1] = pp[1] + q->scale * (pr[3] * p->off[0] + pr[4] * p->off[1] + pr[5] * p->off[2]);
         pos[i][2] = pp[2] + q->scale * (pr[6] * p->off[0] + pr[7] * p->off[1] + pr[8] * p->off[2]);
+    }
+    /* round 1.0.0-beta1, the plant: the figure along up, its lowest point on Sonic's own lowest point of the pose it shows (a flight's share by w) */
+    sc->out_shift = 0.0;
+    if (q->plant) {
+        double ls = low_live, lm = 1e30;
+        if (sc->out_have_flown && low_fly < 1e29) {
+            ls = ls < 1e29 ? ls + (double)sc->w * (low_fly - ls) : low_fly;
+        }
+        for (i = 0; i < q->num_parts; i++) {
+            const uint8_t *pts = q->part_pts[i];
+            double a0, a1, a2, bb;
+            uint32_t v;
+            if (pts == NULL) {
+                continue;
+            }
+            a0 = q->scale * (up[0] * r[i][0] + up[1] * r[i][3] + up[2] * r[i][6]);
+            a1 = q->scale * (up[0] * r[i][1] + up[1] * r[i][4] + up[2] * r[i][7]);
+            a2 = q->scale * (up[0] * r[i][2] + up[1] * r[i][5] + up[2] * r[i][8]);
+            bb = up[0] * pos[i][0] + up[1] * pos[i][1] + up[2] * pos[i][2];
+            for (v = 0; v < q->part_np[i]; v++) {
+                double hgt = a0 * (double)sa1_rdf32(pts + 12u * v) + a1 * (double)sa1_rdf32(pts + 12u * v + 4u) + a2 * (double)sa1_rdf32(pts + 12u * v + 8u) + bb;
+                if (hgt < lm) {
+                    lm = hgt;
+                }
+            }
+        }
+        if (ls < 1e29 && lm < 1e29) {
+            double s = ls - lm;
+            for (i = 0; i < q->num_parts; i++) {
+                pos[i][0] += s * up[0];
+                pos[i][1] += s * up[1];
+                pos[i][2] += s * up[2];
+            }
+            sc->out_shift = s;
+        }
     }
     memcpy(sc->out_r, r, q->num_parts * sizeof r[0]);
     memcpy(sc->out_p, pos, q->num_parts * sizeof pos[0]);

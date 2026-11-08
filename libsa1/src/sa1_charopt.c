@@ -128,9 +128,15 @@ sa1_status sa1_character_set_game_option(sa1_context *ctx, sa1_character_id id, 
         return SA1_ERR_NOT_FOUND;
     }
     if (option != SA1_GOPT_TAILS_SNAP_TAILS && option != SA1_GOPT_SUPER_IDLE_BY_FORM && option != SA1_GOPT_SUPER_AURA_ANIM &&
-        option != SA1_GOPT_ITEM_ICON_LIMIT) {     /* round 0.9.4: the item icon list's bound */
+        option != SA1_GOPT_ITEM_ICON_LIMIT &&       /* round 0.9.4: the item icon list's bound */
+        option != SA1_GOPT_UPGRADE_MODELS) {        /* round 1.0.0-beta1: the upgrades' display set */
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_character_set_game_option: unknown option %u",
                         (unsigned)option);
+    }
+    if (option == SA1_GOPT_UPGRADE_MODELS && value != 0 &&
+        (!((uint32_t)value & SA1_UPGRADE_MODELS_ON) || ((uint32_t)value & ~(SA1_UPGRADE_MODELS_ON | SA1_UPGRADE_MODELS_ALL)) != 0u)) {
+        return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_GOPT_UPGRADE_MODELS: value 0x%08X (0, or SA1_UPGRADE_MODELS_ON | SA1_UPGRADE_* bits)",
+                        (unsigned)value);
     }
     if (option == SA1_GOPT_SUPER_AURA_ANIM && (value < SA1_AURA_ANIM_DREAMCAST || value > SA1_AURA_ANIM_SLOW)) {
         return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "SA1_GOPT_SUPER_AURA_ANIM: value %d (0 Dreamcast, 1 calm, 2 slow)",

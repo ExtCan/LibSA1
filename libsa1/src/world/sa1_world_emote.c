@@ -123,6 +123,19 @@
  * board, not holding, under speed 1 and within 30 units of the proxy (its spot; else "on the way"), and the pair start waits up to 30 pairs for the stand. SA1_EMOTE_IN_AIR is refused in src/sa1_emote.c. No reference world
  * makes the call: w->slot is 0 in every world but a follower's.
  *
+ * THE CUTSCENE ANIMATIONS (round 100-EV, SA1_API_EMOTE_EVENT; sadc docs/research/emotes_ev.md 3.4-3.7). An EVENT item is
+ * played exactly as an extra (8C04B528 with the kind's body, Tails' flight body for four of his), but its motion is not in
+ * the world's memory: src/sa1_emote_ev.c reads it from the cutscene's file into a host block, and sa1em_world_latch_ev
+ * (between ticks) copies the request's blocks into one of two slabs of SA1EM_SLAB_SIZE in segment 0x18 (made at the first
+ * EVENT emote of the world), the one that the running, holding or fading emote does NOT use, relocated to guest addresses;
+ * two requests before one pair go into that same slab (the second replaces the first, which never ran), so the running
+ * emote's motion stays valid while the next one's bridge samples it at the pair start. Speed: the cutscene's pace (frames
+ * per 1/30 s) x rate / 2 x the item's multiplier. The lift (host deviation D-EV1, render only): each EVENT entry carries the
+ * catalogue's lift (round r1-fix-ev: the game's drawn body measured in a LIB world, tests/emote_test.c --measure-lift);
+ * sa1em_world_lift says what is drawn now (an entry its own, a bridge from one end's lift to the other's by its
+ * frame); src/sa1_character.c adds it to the body's draws when SA1_COPT_EMOTE_LIFT is on. A world without an EVENT emote
+ * never makes the slabs; the reference worlds never call any of it.
+ *
  * DEFERRED (faces_wheel_plan.md 4.8): the render hint and the CPU pose of a hidden pair read the gameplay action, not
  * the queue head (measured mid-pair deviation while emoting <= 0.81 against the gameplay's own 1.20; a later round
  * extends sa1_character.c's hint helper). UNVERIFIED: whether Big's rod shows in his fishing rows (the body's triangle
@@ -132,6 +145,7 @@
 #include "sa1_internal.h"
 #include "sa1_api_world.h"
 #include "sa1_emote.h"
+#include "sa1_emote_ev.h"           /* round 100-EV: the cutscene animations (sa1ev_entry_of, sa1ev_body) */
 
 #include <stddef.h>
 #include <stdio.h>
@@ -223,6 +237,7 @@ typedef struct em_entry {
     int32_t row, extra;         /* -1 none */
     uint32_t hold;              /* 1: SA1_EMOTE_HOLD's entry (the emote's last, a once entry): held on its last frame */
     uint32_t node;              /* guest address of its queue entry once queued (0: not queued) */
+    float lift;                 /* round 100-EV: an EVENT entry's lift (SA1 units, the table's); 0 for the others */
 } em_entry;
 
 typedef struct em_state {
@@ -269,6 +284,14 @@ typedef struct em_state {
     /* round 0.9.9 (an emote on a follower id, gsa1_099_plan.md 6.4 item 4): the world's character slot; pair starts a follower's start has waited for its stand */
     uint32_t slot, settle_wait;
     uint32_t bridges;           /* round 0.9.9a: bridges queued */
+    /* round 100-EV (THE CUTSCENE ANIMATIONS, the file comment): two slabs of SA1EM_SLAB_SIZE in segment 0x18, made at the
+       first EVENT emote; the copies of the latched request go into the one the running, holding or fading emote does not use */
+    uint32_t slab[2];           /* guest, 0: not made */
+    uint32_t run_slab;          /* the running emote's slab, 2: it holds no copy */
+    uint32_t req_slab, req_has_ev;
+    uint32_t req_ev[SA1_EMOTE_MAX_ITEMS];   /* the latched items' motions (guest, in req_slab); 0: not an EVENT item */
+    float br_lift_from, br_lift_to; /* the lift at the two ends of the bridge in the queue */
+    uint32_t ev_copies, ev_bytes;   /* motions copied into a slab, their bytes */
 } em_state;
 
 /* ---- guest memory: the arena and the allocated part of segment 0x18 (GT, GA and their actions live there) ----------- */
@@ -560,6 +583,7 @@ typedef struct em_plan_ctx {
     float rate;                 /* 2 (once per pair) or 1 (twice) */
     int lift_missing;
     int back;                   /* the bridge back after its last entry */
+    const uint32_t *ev_mot;     /* round 100-EV: the latched items' motions in the slab (NULL: a check, no copy yet) */
     char why[SA1EM_WHY_MAX];
 } em_plan_ctx;
 
@@ -661,8 +685,40 @@ static int em_plan(em_plan_ctx *c, const sa1_emote *e, em_entry *out, uint32_t *
         float mult = it->speed > 0.0f ? it->speed : 1.0f;
         int last_item = i + 1u == e->count;
         uint32_t pos = 0;
-        const sa1em_entry *ce = sa1em_find(c->list, it->source, it->index, &pos);
+        const sa1em_entry *ce;
         em_entry x;
+        if (it->source == SA1_EMOTE_EVENT) {
+            /* round 100-EV: a cutscene animation, its motion copied into the slab by the latch (sa1em_world_latch_ev):
+               EV_SetMotion's body with the kind's body (Tails' flight body for four), as an extra (the file comment) */
+            const sa1ev_entry *ev = c->p->form == SA1_EMOTE_FORM_NORMAL ? sa1ev_entry_of(c->p->kind, it->index) : NULL;
+            uint32_t body = ev != NULL ? sa1ev_body(c->p->kind, ev->object) : 0u, mot = c->ev_mot != NULL ? c->ev_mot[i] : 0u;
+            if (ev == NULL || !em_valid(c->w, body) ||
+                (c->ev_mot != NULL && (!em_valid(c->w, mot) || em_rd32(c->w, mot + EM_MOT_NBFRAME) != ev->frames))) {
+                em_why(c, "cutscene animation", it->index, ev != NULL ? ev->name : NULL);
+                return 0;
+            }
+            if (n >= EM_MAX_ENTRIES - 1u) {
+                snprintf(c->why, sizeof c->why, "the emote is too long");
+                return 0;
+            }
+            memset(&x, 0, sizeof x);
+            x.how = EM_HOW_MOTION;
+            x.object = body;
+            x.motion = mot;
+            x.obj_key = em_key(body);
+            /* the cutscene's pace is frames per 1/30 s, one pair (the event library runs one step a frame at 30 Hz:
+               emotes_ev.md 2.5): as is for the kinds whose queue moves once a pair, half for Amy and E-102 (twice) */
+            x.speed = ev->pace * (c->rate * 0.5f) * mult;
+            x.row = -1;
+            x.extra = -1;
+            x.item = (int32_t)i;
+            x.lift = ev->lift;
+            last_loops = last_item && (it->play == SA1_EMOTE_PLAY_LOOP || (it->play == SA1_EMOTE_PLAY_DEFAULT && ev->loop));
+            x.loop = (uint32_t)last_loops;
+            out[n++] = x;
+            continue;
+        }
+        ce = sa1em_find(c->list, it->source, it->index, &pos);
         if (ce == NULL) {
             em_why(c, it->source == SA1_EMOTE_EXTRA ? "extra" : "row", it->index, NULL);
             return 0;
@@ -1339,14 +1395,38 @@ static void em_bridge_queue(sa1g_world *w, em_state *S, const em_player *p, em_e
     S->bridges++;
 }
 
-/* group g, by a bridge from `from` when one can be made */
-static void em_begin_group(sa1g_world *w, em_state *S, const em_player *p, uint32_t g, const em_pose *from)
+/* round 100-EV (the lift, host deviation D-EV1): the lift of what the queue draws now - a bridge from one end's lift to the
+   other's by its frame, an entry its own; 0 without an emote (the option is the caller's: sa1ev_lift_of) */
+static float em_lift_now(const sa1g_world *w, const em_state *S, const em_player *p)
+{
+    uint32_t head = em_rd32(w, p->ewp + EM_EWP_LIST40), j, h = 0xFFFFFFFFu;
+    if (S->in_bridge || S->in_back || (S->state == SA1_EMOTE_STATE_NONE && S->fading)) {
+        float f = em_arena(head) ? em_rdf(w, p->ewp + EM_EWP_F3C) : 1.0f;
+        float t = S->br_speed < 1.0f ? f / (1.0f - S->br_speed) : 1.0f;
+        t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        return S->br_lift_from + (S->br_lift_to - S->br_lift_from) * t;
+    }
+    if (S->state == SA1_EMOTE_STATE_NONE) {
+        return 0.0f;
+    }
+    for (j = 0; j < S->n && h == 0xFFFFFFFFu; j++) {
+        if (S->e[j].group == S->group && (S->e[j].node == head || !em_arena(head))) {
+            h = j;              /* the head, or (the queue ran empty: between groups) the group that just played */
+        }
+    }
+    return h != 0xFFFFFFFFu ? S->e[h].lift : 0.0f;
+}
+
+/* group g, by a bridge from `from` when one can be made; from_lift: the lift drawn where the bridge starts (round 100-EV) */
+static void em_begin_group(sa1g_world *w, em_state *S, const em_player *p, uint32_t g, const em_pose *from, float from_lift)
 {
     uint32_t j;
     for (j = 0; j < S->n; j++) {
         if (S->e[j].group == g) {
             em_pose to;
             em_entry x;
+            S->br_lift_from = from_lift;
+            S->br_lift_to = S->e[j].lift;
             if (from != NULL && em_entry_pose(w, &S->e[j], &to) && em_bridge_make(w, S, from, &to, S->e[j].texlist, &x)) {
                 em_bridge_queue(w, S, p, &x);
                 S->group = g;
@@ -1365,6 +1445,9 @@ static int em_begin_back(sa1g_world *w, em_state *S, const em_player *p, const e
 {
     em_pose to;
     em_entry x;
+    float lf = em_lift_now(w, S, p);    /* round 100-EV: before the bridge replaces what is drawn */
+    S->br_lift_from = lf;
+    S->br_lift_to = 0.0f;
     if (p->jvmode != 1u || !em_gameplay_pose(w, p, &to) || !em_bridge_make(w, S, from, &to, 0u, &x)) {
         return 0;
     }
@@ -1527,6 +1610,7 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
         uint32_t n = 0, link = 0;
         em_pose from;
         int have_from;
+        float lift0;
         em_entry plan[EM_MAX_ENTRIES];  /* round 0.9.4b: a refused start leaves a running emote's entries as they are */
         if (p.jvmode != 1u) {
             S->waits_jvmode++;  /* review R.8: 8C04BF00 needs jvmode 1; the start waits (latched) */
@@ -1555,6 +1639,7 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
         c.w = w;
         c.p = &p;
         c.list = sa1em_list_of(p.kind, p.form);
+        c.ev_mot = S->req_ev;   /* round 100-EV: the slab copies of the latch (0 for the other items) */
         if (why == NULL && (c.list == NULL || !em_plan(&c, &S->req, plan, &n, &link))) {
             why = c.why[0] ? c.why : "busy";
         }
@@ -1576,7 +1661,9 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
         if (S->hammer) {
             em_hammer(S, 0.0f);
         }
+        lift0 = (S->state != SA1_EMOTE_STATE_NONE || S->fading) ? em_lift_now(w, S, &p) : 0.0f;    /* round 100-EV */
         memcpy(S->e, plan, sizeof(em_entry) * n);
+        S->run_slab = S->req_has_ev ? S->req_slab : 2u;     /* round 100-EV: the other slab is free for the next request */
         S->n = n;
         S->link = link;
         S->groups = S->e[n - 1u].group + 1u;
@@ -1593,7 +1680,7 @@ static void em_pre(sa1g_world *w, int32_t sub, void *user)
         /* the state before the queue: a held entry may be held right away (HOLDING, em_hold_step) */
         S->state = SA1_EMOTE_STATE_PLAYING;
         have_from = em_drawn_now(w, &p, &from);
-        em_begin_group(w, S, &p, 0u, have_from ? &from : NULL);
+        em_begin_group(w, S, &p, 0u, have_from ? &from : NULL, lift0);
         if (p.kind == SA1_CHAR_AMY && !(S->flags & SA1_EMOTE_NO_PROPS)) {
             uint32_t j, attack = 0;
             for (j = 0; j < S->n; j++) {
@@ -1682,7 +1769,7 @@ static void em_post(sa1g_world *w, int32_t sub, void *user)
                         have = 1;
                     }
                 }
-                em_begin_group(w, S, &p, g, have ? &from : NULL);
+                em_begin_group(w, S, &p, g, have ? &from : NULL, em_lift_now(w, S, &p));
             }
         } else {
             em_pose from;
@@ -1832,7 +1919,101 @@ sa1_status sa1em_world_latch(sa1_context *ctx, struct sa1g_world *w, const sa1_e
     S->req_start = 1;
     S->req_early = early != 0;
     S->req_stop = 0;            /* a start replaces a running emote and a stop asked before it */
+    S->req_has_ev = 0;          /* round 100-EV: no copies (sa1em_world_latch_ev) */
+    memset(S->req_ev, 0, sizeof S->req_ev);
     return SA1_OK;
+}
+
+/* round 100-EV: the latch with the request's cutscene animations, copied into the free slab (src/sa1_emote.h) */
+sa1_status sa1em_world_latch_ev(sa1_context *ctx, struct sa1g_world *w, const sa1_emote *e, int early,
+                                const sa1em_motion_block *const *blocks)
+{
+    em_state *S;
+    uint32_t i, j, k, slab, busy, used = 0, ev[SA1_EMOTE_MAX_ITEMS];
+    uint8_t *base;
+    if (w == NULL || e == NULL || blocks == NULL || e->count > SA1_EMOTE_MAX_ITEMS) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    S = em_attach(ctx, w);
+    if (S == NULL) {
+        return SA1_ERR_OUT_OF_MEMORY;
+    }
+    for (k = 0; k < 2u; k++) {
+        if (S->slab[k] == 0) {
+            S->slab[k] = sa1g_world_ext_alloc(w, SA1EM_SLAB_SIZE, 16, NULL);
+            if (S->slab[k] == 0) {
+                return SA1_ERR_OUT_OF_MEMORY;
+            }
+        }
+    }
+    busy = (S->state != SA1_EMOTE_STATE_NONE || S->fading) ? S->run_slab : 2u;
+    slab = busy == 0u ? 1u : 0u;
+    base = w->ext + (S->slab[slab] & 0xFFFFFFu);
+    memset(ev, 0, sizeof ev);
+    for (i = 0; i < e->count; i++) {
+        const sa1em_motion_block *b = blocks[i];
+        uint32_t size, g, off, nf, nodes, dup = 0;
+        uint8_t *d;
+        if (b == NULL) {
+            continue;
+        }
+        for (j = 0; j < i && !dup; j++) {
+            if (blocks[j] == b) {
+                ev[i] = ev[j];
+                dup = 1;
+            }
+        }
+        if (dup) {
+            continue;
+        }
+        size = (b->size + 15u) & ~15u;
+        if (b->size < 12u || used + size > SA1EM_SLAB_SIZE) {
+            return SA1_ERR_LIMIT;
+        }
+        g = S->slab[slab] + used;
+        d = base + used;
+        memcpy(d, b->data, b->size);
+        /* relocate: the header's mdata and every channel pointer of the per-node table, offsets -> guest addresses */
+        nf = (uint32_t)(b->inp_fn & 0xFu);
+        nodes = b->nodes;
+        {
+            uint32_t v = g + sa1_rd32(d);
+            memcpy(d, &v, 4);
+        }
+        for (off = 0; off < nodes * nf; off++) {
+            uint8_t *q = d + 12u + 8u * nf * (off / nf) + 4u * (off % nf);
+            uint32_t v = sa1_rd32(q);
+            if (v != 0u) {
+                v += g;
+                memcpy(q, &v, 4);
+            }
+        }
+        ev[i] = g;
+        used += size;
+        S->ev_copies++;
+        S->ev_bytes += b->size;
+    }
+    S->req = *e;
+    S->req_start = 1;
+    S->req_early = early != 0;
+    S->req_stop = 0;
+    S->req_slab = slab;
+    S->req_has_ev = used > 0u;
+    memcpy(S->req_ev, ev, sizeof ev);
+    return SA1_OK;
+}
+
+float sa1em_world_lift(const struct sa1g_world *w)
+{
+    const em_state *S = em_state_of(w);
+    em_player p;
+    if (S == NULL || (S->state == SA1_EMOTE_STATE_NONE && !S->fading)) {
+        return 0.0f;
+    }
+    if (!em_player_of(w, &p) || p.twp != S->ptwp) {
+        return 0.0f;
+    }
+    return em_lift_now(w, S, &p);
 }
 
 sa1_status sa1em_world_stop(sa1_context *ctx, struct sa1g_world *w, uint32_t how)

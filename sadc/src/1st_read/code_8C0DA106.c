@@ -1,6 +1,7 @@
 #include "common.h"
 #include "sa1/sa1.h"
 #include "sa1/pending.h"
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
 
 /*
  * 1ST_READ 8C0DA106-8C0DA6E8 (chunk 8C0D6B40, functions 3-8 of 32): Amy.
@@ -26,6 +27,46 @@ extern NJS_OBJECT D_8C4C38B8;           /* normal hammer object */
 extern NJS_OBJECT Amy_Long_Hammer;      /* 8C4CBA84 */
 extern NJS_OBJECT Amy_Warrior_Feather;  /* 8C4CC1D0 */
 extern NJS_MATRIX B_8C7A4058;           /* node matrix out of func_8C0583A0 */
+
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_DA10);
+/*
+ * SA1_GA: the shown hammer, for the display's draws only (sa1/upgdisp.h). func_8C0DA662 keeps putting the real bit's hammer
+ * into the hand's sibling, and node 36 of that part is the spin's hit sphere (func_8C0DCCA8, after this display): so when
+ * the shown Long Hammer bit differs from the real one, the other hammer goes into the sibling after the morph block with
+ * the real one's scale and NJD_EVAL_HIDE / NJD_EVAL_UNIT_SCL bits (object and child), and func_8C0DA122 puts the real one
+ * back at its end (one exit). Returns the real object to put back, or NULL when nothing was swapped.
+ */
+static void sa1_upg_hammer_copy(NJS_OBJECT *to, NJS_OBJECT *from)
+{
+    to->scl[0] = from->scl[0];
+    to->scl[1] = from->scl[1];
+    to->scl[2] = from->scl[2];
+    to->evalflags = (to->evalflags & ~(NJD_EVAL_HIDE | NJD_EVAL_UNIT_SCL))
+                  | (from->evalflags & (NJD_EVAL_HIDE | NJD_EVAL_UNIT_SCL));
+}
+
+static NJS_OBJECT *sa1_upg_hammer(playerwk *pwp)
+{
+    NJS_OBJECT *real;
+    NJS_OBJECT *shown;
+
+    if (!SA1_UPG_DIFFERS(pwp->equipment, 0x80)) {
+        return NULL;
+    }
+    real = D_8C4C3B20->sibling;
+    shown = (sa1_upgdisp.shown & 0x80) ? &Amy_Long_Hammer : &D_8C4C38B8;
+    if (real == shown || (real != &Amy_Long_Hammer && real != &D_8C4C38B8)) {
+        return NULL;
+    }
+    sa1_upg_hammer_copy(shown, real);
+    if (shown->child != NULL && real->child != NULL) {
+        sa1_upg_hammer_copy(shown->child, real->child);
+    }
+    D_8C4C3B20->sibling = shown;
+    return real;
+}
+#endif
 
 #if !defined(TARGET_PC)
 /*
@@ -101,6 +142,9 @@ void func_8C0DA122(task *tp)
     NJS_OBJECT *obj;
     NJS_OBJECT *child;
     CCL_INFO *info;
+#if defined(SA1_GA)
+    NJS_OBJECT *sa1_hammer;
+#endif
 
     twp = tp->twp;
     mwp = tp->mwp;
@@ -142,6 +186,9 @@ void func_8C0DA122(task *tp)
             child->evalflags &= ~NJD_EVAL_UNIT_SCL;
         }
     }
+#if defined(SA1_GA)
+    sa1_hammer = sa1_upg_hammer(pwp);  /* the shown hammer for the draws below; the real one back at the end */
+#endif
     action = pwp->mj.reqaction;
     if (pwp->mj.mtnmode == 2) {
         action = pwp->mj.action;
@@ -196,6 +243,11 @@ void func_8C0DA122(task *tp)
     if (func_8C04FE40()) {
         func_8C09247E(twp, &pwp->shadow);
     }
+#if defined(SA1_GA)
+    if (sa1_hammer != NULL) {
+        D_8C4C3B20->sibling = sa1_hammer;
+    }
+#endif
 }
 
 /*
@@ -238,7 +290,7 @@ void func_8C0DA560(taskwk *twp, motionwk *mwp, playerwk *pwp)
     NJS_ACTION *action;
     Float frame;
 
-    if (pwp->equipment & 0x100) {
+    if (SA1_UPG_SHOWN(pwp->equipment) & 0x100) {
         if (B_8C754EC8 == 0) {
             njPushMatrix(NULL);
             njTranslateV(NULL, &CWP(twp)->info->center);

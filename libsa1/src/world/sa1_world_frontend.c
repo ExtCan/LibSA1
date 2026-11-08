@@ -64,6 +64,7 @@
 #define FW_SEL_SLOT         0x20u
 #define FW_SEL_TIMER        0x2Cu
 #define FW_SEL_CHOICE       0x30u
+#define FW_SEL_RING         0x18u           /* round 1.0.0-beta1: Sint32 ring, the highlight phase (code_8C9031C0.c ADV_SELWK) */
 #define FW_MASTER_MODE      0x04u
 #define FW_MASTER_RESULT    0x14u
 /* the NJS_TEXMEMLIST block and NJS_TEXNAME */
@@ -188,6 +189,7 @@ void sa1fw_read(const struct sa1g_world *w, sa1fw_info *info)
         info->slot = (int32_t)fw_rd32(w, awp + FW_SEL_SLOT);
         info->timer = (int32_t)(int16_t)(fw_rd32(w, awp + FW_SEL_TIMER) & 0xFFFFu);
         info->choice = (int32_t)fw_rd32(w, awp + FW_SEL_CHOICE);
+        info->ring = (int32_t)fw_rd32(w, awp + FW_SEL_RING);
     }
     awp = fw_work(w, FW_ADDR_MASTER);
     info->master_alive = fw_arena(awp);

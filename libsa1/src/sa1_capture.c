@@ -76,6 +76,7 @@ struct sa1_capture {
     uint32_t object_models, object_sprites;     /* the last emit: SA1_DRAW_OBJECT draws (round 0.9.4) */
     int32_t super_gold;                 /* round 0.9.4a: the snapshot's pair is shown in Super Sonic's gold (cap_super_gold) */
     uint32_t gold_sprites, gold_polygons, gold_models;  /* the last emit: SA1_DRAW_SUPER_GOLD draws (round 0.9.4a) */
+    int32_t skin_trail;                 /* round 1.0.0-beta1: this emit marks the skin's trails (sa1k_trail_on) */
     /* texture resolution: the NJS_TEXNAME arrays of the character's archives in the world */
     const sa1_context *ctx;
     const sa1_charset *cs;
@@ -750,6 +751,18 @@ static int cap_gold_texlist(const sa1_capture *c, uint32_t texlist)
     return c->super_gold && (t == CAP_GOLD_STREAK || t == CAP_GOLD_SPARKLE);
 }
 
+/* round 1.0.0-beta1 (SA1_DRAW_SKIN_TRAIL; sadc docs/research/gsa1_100_select.md 4.3.2, HOST DEVIATION D8): while the emit's skin has a trail colour and
+ * SA1_SKIN_ANIM_TRAIL, a textured sprite or polygon draw of one of the four one-texture texlists of the Light Speed charge, the plain charge's (8C1C6A94
+ * lcharge01, 8C1C6AA4 lcharge02) and the Crystal Ring's (8C1C6A9C lcharge03, 8C1C6AAC lcharge04), gets the flag before the merge test: the host draws
+ * the texture's SA1_TEXTURE_VARIANT_SKIN_FIRST + the skin's slot. Presentation only, as the gold */
+#define CAP_TRAIL_STREAK_RING  0x0C1C6A9Cu
+#define CAP_TRAIL_SPARKLE_RING 0x0C1C6AACu
+static int cap_trail_texlist(const sa1_capture *c, uint32_t texlist)
+{
+    uint32_t t = texlist & 0x1FFFFFFFu;
+    return c->skin_trail && (t == CAP_GOLD_STREAK || t == CAP_GOLD_SPARKLE || t == CAP_TRAIL_STREAK_RING || t == CAP_TRAIL_SPARKLE_RING);
+}
+
 /* a record of the aura's skeleton: Ninja's action draw of a model with the aura's materials */
 static int cap_aura_rec(const sa1_capture *c, const sa1_cap_rec *r)
 {
@@ -882,6 +895,8 @@ static sa1_status emit_sprite(sa1_context *ctx, sa1_capture *c, sa1_meshbuf *b, 
         flags |= SA1_DRAW_SUPER_GOLD;   /* round 0.9.4a M2: a plain charge sparkle, part of the merge key below */
         c->gold_sprites++;
     }
+    if (tex >= 0 && cap_trail_texlist(c, r->texlist))
+        flags |= SA1_DRAW_SKIN_TRAIL;   /* round 1.0.0-beta1: a charge sparkle in the skin's hue, part of the merge key below */
     st = sa1_meshbuf_reserve_extra(ctx, b, 1u, 1u, 0u);
     if (st != SA1_OK)
         return st;
@@ -1221,6 +1236,8 @@ static sa1_status emit_polygon(sa1_context *ctx, sa1_capture *c, sa1_meshbuf *b,
         flags |= SA1_DRAW_SUPER_GOLD;   /* round 0.9.4a M2: a plain charge streak */
         c->gold_polygons++;
     }
+    if (textured && cap_trail_texlist(c, r->texlist))
+        flags |= SA1_DRAW_SKIN_TRAIL;   /* round 1.0.0-beta1: a charge streak in the skin's hue */
     d = sa1_meshbuf_add_draw(ctx, b);
     if (!d)
         return SA1_ERR_OUT_OF_MEMORY;
@@ -1290,6 +1307,7 @@ sa1_status sa1_capture_emit_into(sa1_context *ctx, sa1_capture *c, const sa1_cap
     c->shadows = c->others = 0;
     c->object_models = c->object_sprites = 0;
     c->gold_sprites = c->gold_polygons = c->gold_models = 0;
+    c->skin_trail = o->skin != NULL && sa1k_trail_on(o->skin);    /* round 1.0.0-beta1 */
     if (o->cs && c->cs != o->cs)
         sa1_capture_set_archives(c, o->cs);
     if (o->skin && o->cs)

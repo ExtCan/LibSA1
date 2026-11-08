@@ -10,6 +10,10 @@
  *     SA1_ARCHIVE_SKIN in place of his body, his effects, objects, a board and the blob as they are, from before the first pair on.
  *   - SA1_COPT_SKIN_ANIM: the running rows draw the flown rows; at once. sa1_frontend_set_skin: slot 0 of Character Select the same way, the screen and its events unchanged.
  *   - sa1_texture_get(0, SA1_ARCHIVE_SKIN, n): the kept textures by position, SA1_ERR_NOT_LOADED before the first use.
+ * Round 1.0.0-beta1 (SA1_API_SKIN 3; sadc docs/research/gsa1_100_select.md 7.1 S1-S5, the "100-S" lines): up to 16 skins at once on archives 64-79 (Metal is the first loaded here:
+ * 64; Mecha Sonic the second: 65), Mecha Sonic's table (LANDING.md B of sadc build/staging/upgdisp), the trails in the skin's hue, the display set of the upgrades under a skin.
+ * 100-S6 (select 4.2.1, 7.1 S6; the owner's answer 17, rounds plan 14.1bl): Mecha's entry is feat/sh_skins.lua's (rows 12, 13 -> 11, lift 0, no walk or fast rows): rows 12 and 13 drawn as the live
+ * row 11 at k (1.6, 1.65) its rate, the plant (his lowest point on Sonic's own), r1-verify-s's feet phases against plain Sonic and Metal in lockstep; Metal's flown rows never in Sonic's tree.
  */
 #include <math.h>
 #include <stddef.h>
@@ -66,6 +70,12 @@ static const uint16_t k_anim[4][2] = { {10, 132}, {11, 133}, {12, 134}, {13, 134
 static const uint16_t k_walk[1][2] = { {9, 131} };
 static const uint16_t k_fast[1][2] = { {9, 132} };
 static sa1_skin_desc g_skin;
+/* round 1.0.0-beta1: the skin create() wears, the archive tally_of counts as the skin's, the parts' parents s3_run checks */
+static const sa1_skin_desc *g_cur = &g_skin;
+static uint32_t g_tally_arch = SA1_ARCHIVE_SKIN_FIRST;
+static const int8_t k_parent_metal[25] = { -1, 0, 1, 0, 3, 4, 5, 6, 6, 0, 9, 10, 11, 12, 12, 0, 15, 16, 17, 17, 0, 20, 21, 22, 22 };
+static const int8_t *g_parent = k_parent_metal;
+static uint32_t g_nparts = 25u;
 
 static void skin_init(void)
 {
@@ -99,6 +109,12 @@ static void skin_init(void)
     g_skin.glow_rgb[1] = 0.10f;
     g_skin.glow_rgb[2] = 1.00f;
     g_skin.glow_inflate = 0.30f;
+    /* round 1.0.0-beta1: the entry's id and trail (feat/sh_skins.lua: Metal's purple, his glow's colour) */
+    g_skin.id = "metalsonic";
+    g_skin.base_kind = SA1_CHAR_SONIC;
+    g_skin.trail_rgb[0] = 0.55f;
+    g_skin.trail_rgb[1] = 0.10f;
+    g_skin.trail_rgb[2] = 1.00f;
 }
 
 /* ---- the scene --------------------------------------------------------------------------------------------------------------------------- */
@@ -147,7 +163,7 @@ static sa1_status create(uint32_t flags, sa1_character_id *id)
     d.kind = SA1_CHAR_SONIC;
     d.flags = SA1_CREATE_WORLD | flags;
     d.position[2] = 40.0f;
-    d.skin = (flags & SA1_CREATE_SKIN) ? &g_skin : NULL;
+    d.skin = (flags & SA1_CREATE_SKIN) ? g_cur : NULL;
     *id = 0;
     return sa1_character_create_ex(g_ctx, &d, id);
 }
@@ -215,7 +231,7 @@ static void tally_of(const sa1_render *r, tally *t)
             continue;
         }
         t->effect_draws += (d->flags & SA1_DRAW_EFFECT) != 0u && !(d->flags & SA1_DRAW_SHADOW);
-        if ((uint32_t)d->archive == SA1_ARCHIVE_SKIN) {
+        if ((uint32_t)d->archive == g_tally_arch) {
             uint32_t k;
             t->skin_tris += d->count;
             t->skin_draws++;
@@ -521,7 +537,7 @@ static void s3_run(int ups, const char *what)
     sa1_character_id id = 0;
     sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti);
     int rows_seen[160], rows_all[160], p, k;
-    double worst_joint = 0.0, bone[25];
+    double worst_joint = 0.0, bone[SA1K_PARTS_MAX];
     uint32_t nan_seen = 0, bad_ball = 0, ball_pairs = 0, parts_in_ball = 0;
     int have_rows = 0;
     memset(rows_seen, 0, sizeof rows_seen);
@@ -580,8 +596,8 @@ static void s3_run(int ups, const char *what)
         }
         /* S5: joints: from the table's parents, by other code than the append's: each part's distance to its parent stays the bone's, whatever the pose; each part's rotation stays a rotation */
         if (ti->drew) {
-            static const int8_t parent[25] = { -1, 0, 1, 0, 3, 4, 5, 6, 6, 0, 9, 10, 11, 12, 12, 0, 15, 16, 17, 17, 0, 20, 21, 22, 22 };
-            for (i = 1; i < 25u; i++) {
+            const int8_t *parent = g_parent;     /* round 1.0.0-beta1: Metal's 25 or Mecha's 20 */
+            for (i = 1; i < g_nparts; i++) {
                 const double *a = ti->p[i], *q = ti->p[parent[i]];
                 double d = sqrt((a[0] - q[0]) * (a[0] - q[0]) + (a[1] - q[1]) * (a[1] - q[1]) + (a[2] - q[2]) * (a[2] - q[2]));
                 if (d != d) {
@@ -618,7 +634,7 @@ static void s3_run(int ups, const char *what)
         }
     }
     CHECK(nan_seen == 0u && worst_joint < 1e-3, "S5 %s: no NaN (%u); joints never come apart: each part's distance to its parent moved by at most %.6f units over 900 pairs (1e-3)", what, (unsigned)nan_seen, worst_joint);
-    CHECK(ball_pairs > 0u && bad_ball == 0u && parts_in_ball == 0u, "S7 %s a jump (state row 14): the ball with archive 61 on all %u pairs of it (%u bad), no parts (%u)", what, (unsigned)ball_pairs, (unsigned)bad_ball, (unsigned)parts_in_ball);
+    CHECK(ball_pairs > 0u && bad_ball == 0u && parts_in_ball == 0u, "S7 %s a jump (state row 14): the ball with archive %u on all %u pairs of it (%u bad), no parts (%u)", what, (unsigned)g_tally_arch, (unsigned)ball_pairs, (unsigned)bad_ball, (unsigned)parts_in_ball);
     (void)have_rows;
     free(ti);
     sa1_character_destroy(g_ctx, id);
@@ -1463,7 +1479,7 @@ static void test_s11(void)
                     if (d->prim != SA1_PRIM_TRIANGLES) {
                         continue;
                     }
-                    if ((uint32_t)d->archive == SA1_ARCHIVE_SKIN && sf == 0xFFFFFFFFu) {
+                    if ((uint32_t)d->archive == SA1_ARCHIVE_SKIN_FIRST && sf == 0xFFFFFFFFu) {
                         sf = d->first;
                     }
                     if (d->archive == -1 && (d->flags & SA1_DRAW_ADDITIVE) && d->source == SA1_SOURCE_MODEL && gf == 0xFFFFFFFFu) {
@@ -1492,7 +1508,7 @@ static void test_s11(void)
                     if (d->prim != SA1_PRIM_TRIANGLES) {
                         continue;
                     }
-                    if ((uint32_t)d->archive == SA1_ARCHIVE_SKIN && skin_first == 0xFFFFFFFFu) {
+                    if ((uint32_t)d->archive == SA1_ARCHIVE_SKIN_FIRST && skin_first == 0xFFFFFFFFu) {
                         skin_first = d->first;
                     }
                     if (d->archive == -1 && (d->flags & SA1_DRAW_ADDITIVE) && d->source == SA1_SOURCE_MODEL && glow_first == 0xFFFFFFFFu) {
@@ -2003,6 +2019,935 @@ static void test_s9(const char *gdi)
     g_quiet_log = 0;
 }
 
+/* ---- round 1.0.0-beta1 (gsa1_100_select.md 7.1 S1-S5): many skins, Mecha Sonic, the trails, the display set under a skin ----------------------------- */
+/* Mecha Sonic, as sadc build/staging/upgdisp/LANDING.md B gives him (numbers and names only; the bytes are read from the disc at run time) */
+static const uint16_t k_mkeep[22] = { 7, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96 };
+static const sa1_skin_part k_mparts[20] = {
+    {1, 10, -1, -1}, {12, 22, -1, -1}, {12, 22, -1, -1}, {1, 10, -1, -1},
+    {47, 55, 5, 49}, {49, 51, 6, 52}, {52, 52, -1, -1}, {52, 52, -1, -1}, {52, 52, -1, -1},
+    {25, 34, 10, 27}, {27, 29, 11, 30}, {30, 30, -1, -1},
+    {57, 65, 13, 59}, {59, 61, 14, 62}, {62, 62, -1, -1}, {62, 62, -1, -1}, {62, 62, -1, -1},
+    {36, 45, 18, 38}, {38, 40, 19, 41}, {41, 41, -1, -1},
+};
+static const int8_t k_parent_mecha[20] = { -1, 0, 1, 0, 0, 4, 5, 6, 6, 0, 9, 10, 0, 12, 13, 14, 14, 0, 17, 18 };
+/* the owner's answer 17 (rounds plan 14.1bl; select 4.2.1): "he runs instead of flies ... he uses the Jog": Sonic's own rows, the jog (row 11) where Sonic runs with his arms behind him (12, 13) */
+static const uint16_t k_mjog[2][2] = { {12, 11}, {13, 11} };
+static sa1_skin_desc g_mecha;
+
+static void mecha_init(void)
+{
+    g_mecha = g_skin;                           /* Metal's files, then his own (feat/sh_skins.lua's entry) */
+    g_mecha.anim = k_mjog;
+    g_mecha.num_anim = 2;
+    g_mecha.anim_walk = NULL;
+    g_mecha.num_anim_walk = 0;
+    g_mecha.anim_fast = NULL;
+    g_mecha.num_anim_fast = 0;
+    g_mecha.fast_on = 0.0f;
+    g_mecha.fast_off = 0.0f;
+    g_mecha.model_first = 0x0CA824C0u;
+    g_mecha.model_end = 0x0CA88AF8u;
+    g_mecha.model_root = 0x0CA88AC4u;
+    g_mecha.tex_keep = k_mkeep;
+    g_mecha.num_tex_keep = 22;
+    g_mecha.scale = 0.52f;                      /* LANDING.md D2: his feet on the ground at a stand */
+    g_mecha.lift = 0.0f;                        /* Sonic's own rows stand on the game's own root (select 4.2.1) */
+    g_mecha.ball_texture = 86;                  /* mrd_064s_msa */
+    g_mecha.parts = k_mparts;
+    g_mecha.num_parts = 20;
+    g_mecha.glow_rgb[0] = 1.00f;
+    g_mecha.glow_rgb[1] = 0.45f;
+    g_mecha.glow_rgb[2] = 0.05f;
+    g_mecha.glow_inflate = 0.35f;
+    g_mecha.id = "mechasonic";
+    g_mecha.trail_rgb[0] = 1.00f;
+    g_mecha.trail_rgb[1] = 0.45f;
+    g_mecha.trail_rgb[2] = 0.05f;
+}
+
+/* ---- 100-S6's helpers (the owner's answer 17): a speed above dash_speed, the lowest vertex of a render ------------------------------------------------- */
+#define A_PLAYER_PWP 0x8C78C668u        /* playerpwp[8] (tests/super_test.c); playerwk.spd.x at +0x38 */
+
+/* playerwk.spd.x set before a pair (tests/super_test.c pair_at_speed): faster than dash_speed the game's own row choice is 13, the sprint (row 13 is never reached on the flat floor) */
+static void s6_speed(sa1_character_id id, float v)
+{
+    struct sa1g_world *w = sa1_character_world(g_ctx, id);
+    uint32_t p = 0, u;
+    if (w == NULL) {
+        return;
+    }
+    sa1g_world_rd32(w, A_PLAYER_PWP, &p);
+    if (p == 0u || ((p >> 24) & 31u) != SA1G_SEG_ARENA) {
+        return;
+    }
+    memcpy(&u, &v, 4);
+    sa1g_world_wr32(w, p + 0x38u, u);
+}
+
+/* the lowest vertex of a render in SA1 units (the host's z / 4, the floor at 0): the skin's parts (archives 64-79), or the body (r1-verify-s's r1vs_probe.c: no effect, shadow or object) */
+static double s6_low(const sa1_render *r, int skin)
+{
+    uint32_t i, k;
+    double lo = 1e30;
+    if (r == NULL) {
+        return lo;
+    }
+    for (i = 0; i < r->num_draws; i++) {
+        const sa1_draw *d = &r->draws[i];
+        int is_skin = d->archive >= (int32_t)SA1_ARCHIVE_SKIN_FIRST && d->archive <= (int32_t)SA1_ARCHIVE_SKIN_LAST;
+        if (d->prim != SA1_PRIM_TRIANGLES || (skin ? !is_skin : (d->flags & (SA1_DRAW_EFFECT | SA1_DRAW_SHADOW | SA1_DRAW_OBJECT)) != 0u)) {
+            continue;
+        }
+        for (k = 0; k < 3u * d->count; k++) {
+            double z = (double)r->positions[3u * (3u * d->first) + 3u * k + 2u] / 4.0;
+            if (z < lo) {
+                lo = z;
+            }
+        }
+    }
+    return lo;
+}
+
+static void flags_on(sa1_character_id id, const uint32_t *fl, int n)
+{
+    struct sa1g_world *w = sa1_character_world(g_ctx, id);
+    int k;
+    for (k = 0; k < n; k++) {
+        uint32_t a = EVF + fl[k], word = a & ~3u, v = 0, sh = 8u * (a & 3u);
+        sa1g_world_rd32(w, word, &v);
+        v = (v & ~(0xFFu << sh)) | (1u << sh);
+        sa1g_world_wr32(w, word, v);
+    }
+}
+
+static int name_ci(const char *a, const char *b)
+{
+    if (a == NULL || b == NULL) {
+        return 0;
+    }
+    for (; *a && *b; a++, b++) {
+        char x = (*a >= 'A' && *a <= 'Z') ? (char)(*a + 32) : *a, y = (*b >= 'A' && *b <= 'Z') ? (char)(*b + 32) : *b;
+        if (x != y) {
+            return 0;
+        }
+    }
+    return *a == *b;
+}
+
+/* Sonic's SON_EFF archive and its lcharge01-04 */
+static int32_t g_eff_arc = -1, g_lch[4] = { -1, -1, -1, -1 };
+static void find_lcharge(void)
+{
+    uint32_t a, n = 0, k;
+    const char *name = NULL;
+    for (a = 0; a < 64u && sa1_texture_archive(g_ctx, SA1_CHAR_SONIC, a, &name, &n) == SA1_OK; a++) {
+        if (!name_ci(name, "SON_EFF")) {
+            continue;
+        }
+        g_eff_arc = (int32_t)a;
+        for (k = 0; k < n; k++) {
+            sa1_texture_info ti;
+            int j;
+            memset(&ti, 0, sizeof ti);
+            ti.struct_size = sizeof ti;
+            if (sa1_texture_get(g_ctx, SA1_CHAR_SONIC, a, k, &ti) != SA1_OK) {
+                continue;
+            }
+            for (j = 0; j < 4; j++) {
+                static const char *const nm[4] = { "lcharge01", "lcharge02", "lcharge03", "lcharge04" };
+                if (name_ci(ti.name, nm[j])) {
+                    g_lch[j] = (int32_t)k;
+                }
+            }
+        }
+    }
+}
+
+/* S4: a charged Light Speed Dash (the shoes, the ring if `ring`), action held: the draws of lcharge01-04 and their SA1_DRAW_SKIN_TRAIL */
+typedef struct s4_out {
+    uint32_t lch, lch_flag, other_flag, glow;
+    uint8_t glow_col[3];
+} s4_out;
+
+static void s4_run(const sa1_skin_desc *skin, int ring, int32_t anim, s4_out *o)
+{
+    static const uint32_t fl[2] = { 0x8Du, 0x8Eu };
+    sa1_character_id id = 0;
+    int p;
+    memset(o, 0, sizeof *o);
+    g_cur = skin != NULL ? skin : &g_skin;
+    if (create(skin != NULL ? SA1_CREATE_SKIN : 0u, &id) != SA1_OK) {
+        g_cur = &g_skin;
+        return;
+    }
+    g_cur = &g_skin;
+    flags_on(id, fl, ring ? 2 : 1);
+    if (anim >= 0) {
+        sa1_character_set_option(g_ctx, id, SA1_COPT_SKIN_ANIM, anim);
+    }
+    for (p = 0; p < 200; p++) {
+        const sa1_render *r = NULL;
+        uint32_t i, k;
+        uint8_t col[3][3];
+        tick(id, 0.0f, 0.0f, (p >= 30 && p < 170) ? SA1_BUTTON_ACTION : 0u);
+        sa1_character_render(g_ctx, id, 1.0f, &r);
+        if (r == NULL) {
+            continue;
+        }
+        for (i = 0; i < r->num_draws; i++) {
+            const sa1_draw *d = &r->draws[i];
+            int is = 0;
+            for (k = 0; k < 4u; k++) {
+                is |= g_eff_arc >= 0 && d->archive == g_eff_arc && g_lch[k] >= 0 && d->texture == g_lch[k];
+            }
+            if (is) {
+                o->lch++;
+                o->lch_flag += (d->flags & SA1_DRAW_SKIN_TRAIL) != 0u;
+            } else {
+                o->other_flag += (d->flags & SA1_DRAW_SKIN_TRAIL) != 0u;
+            }
+        }
+        if (skin != NULL && glow_tally(r, col, skin->num_parts == 20u ? 819u : 1015u) > 0u && o->glow++ == 0u) {
+            memcpy(o->glow_col, col[0], 3);
+        }
+    }
+    sa1_character_destroy(g_ctx, id);
+}
+
+static double hue_of(double r, double g, double b)
+{
+    double mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b), h;
+    if (!(mx > mn)) {
+        return 0.0;
+    }
+    if (mx == r) {
+        h = 60.0 * (g - b) / (mx - mn);
+    } else if (mx == g) {
+        h = 60.0 * (b - r) / (mx - mn) + 120.0;
+    } else {
+        h = 60.0 * (r - g) / (mx - mn) + 240.0;
+    }
+    return h < 0.0 ? h + 360.0 : h;
+}
+
+/* the variant 16 + slot of the four textures: the trail's hue (within 2 degrees where the texel has colour), value and saturation within 1, alpha kept */
+static void s4_variant(uint32_t slot, const float rgb[3], const char *what)
+{
+    double want = hue_of(rgb[0], rgb[1], rgb[2]), worst_h = 0.0;
+    uint32_t texels = 0, bad_vs = 0, bad_a = 0, k, have = 0;
+    for (k = 0; k < 4u; k++) {
+        sa1_texture_info a, v;
+        uint32_t i;
+        if (g_lch[k] < 0) {
+            continue;
+        }
+        memset(&a, 0, sizeof a);
+        memset(&v, 0, sizeof v);
+        a.struct_size = v.struct_size = sizeof a;
+        if (sa1_texture_get(g_ctx, SA1_CHAR_SONIC, (uint32_t)g_eff_arc, (uint32_t)g_lch[k], &a) != SA1_OK ||
+            sa1_texture_variant_get(g_ctx, SA1_CHAR_SONIC, (uint32_t)g_eff_arc, (uint32_t)g_lch[k], SA1_TEXTURE_VARIANT_SKIN_FIRST + slot, &v) != SA1_OK ||
+            v.width != a.width || v.height != a.height || a.rgba == NULL || v.rgba == NULL) {
+            continue;
+        }
+        have++;
+        for (i = 0; i < a.width * a.height; i++) {
+            const uint8_t *s0 = a.rgba + 4u * i, *s1 = v.rgba + 4u * i;
+            int mx0 = s0[0] > s0[1] ? (s0[0] > s0[2] ? s0[0] : s0[2]) : (s0[1] > s0[2] ? s0[1] : s0[2]);
+            int mn0 = s0[0] < s0[1] ? (s0[0] < s0[2] ? s0[0] : s0[2]) : (s0[1] < s0[2] ? s0[1] : s0[2]);
+            int mx1 = s1[0] > s1[1] ? (s1[0] > s1[2] ? s1[0] : s1[2]) : (s1[1] > s1[2] ? s1[1] : s1[2]);
+            int mn1 = s1[0] < s1[1] ? (s1[0] < s1[2] ? s1[0] : s1[2]) : (s1[1] < s1[2] ? s1[1] : s1[2]);
+            bad_vs += abs(mx0 - mx1) > 1 || abs(mn0 - mn1) > 1;
+            bad_a += s0[3] != s1[3];
+            if (mx1 - mn1 >= 64) {
+                double h = hue_of(s1[0], s1[1], s1[2]), e = fabs(h - want);
+                e = e > 180.0 ? 360.0 - e : e;
+                worst_h = e > worst_h ? e : worst_h;
+                texels++;
+            }
+        }
+    }
+    CHECK(have == 4u && texels > 0u && worst_h <= 2.0 && bad_vs == 0u && bad_a == 0u,
+          "100-S4 %s: variant %u of lcharge01-04 (%u of 4): the trail's hue %.1f within %.2f degrees on %u coloured texels, value and saturation within 1/255 (%u off), alpha kept (%u off)",
+          what, (unsigned)(SA1_TEXTURE_VARIANT_SKIN_FIRST + slot), (unsigned)have, want, worst_h, (unsigned)texels, (unsigned)bad_vs, (unsigned)bad_a);
+}
+
+static void test_100_s4(void)
+{
+    s4_out o;
+    sa1_texture_info v;
+    printf("100-S4 the Light Speed trails in the skin's hue\n");
+    find_lcharge();
+    CHECK(g_eff_arc >= 0 && g_lch[0] >= 0 && g_lch[1] >= 0 && g_lch[2] >= 0 && g_lch[3] >= 0, "100-S4 Sonic's SON_EFF is archive %d, lcharge01-04 are %d %d %d %d",
+          (int)g_eff_arc, (int)g_lch[0], (int)g_lch[1], (int)g_lch[2], (int)g_lch[3]);
+    s4_run(&g_skin, 0, -1, &o);
+    CHECK(o.lch > 0u && o.lch_flag == o.lch && o.other_flag == 0u, "100-S4 Metal, plain charge: %u draws of lcharge01-04, %u with SA1_DRAW_SKIN_TRAIL; %u other draws with it (0)",
+          (unsigned)o.lch, (unsigned)o.lch_flag, (unsigned)o.other_flag);
+    s4_run(&g_skin, 1, -1, &o);
+    CHECK(o.lch > 0u && o.lch_flag == o.lch && o.other_flag == 0u, "100-S4 Metal with the Crystal Ring: %u draws of lcharge01-04, %u with the flag; %u other draws with it (0)",
+          (unsigned)o.lch, (unsigned)o.lch_flag, (unsigned)o.other_flag);
+    s4_run(&g_skin, 0, (int32_t)(SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_GLOW), &o);
+    CHECK(o.lch > 0u && o.lch_flag == 0u && o.other_flag == 0u, "100-S4 Metal with SA1_SKIN_ANIM_TRAIL off: %u draws of lcharge01-04, none flagged (%u, %u)",
+          (unsigned)o.lch, (unsigned)o.lch_flag, (unsigned)o.other_flag);
+    s4_run(NULL, 1, -1, &o);
+    CHECK(o.lch > 0u && o.lch_flag == 0u && o.other_flag == 0u, "100-S4 Sonic without a skin: %u draws of lcharge01-04, none flagged (%u, %u)",
+          (unsigned)o.lch, (unsigned)o.lch_flag, (unsigned)o.other_flag);
+    s4_variant(0u, g_skin.trail_rgb, "Metal (slot 0, purple)");
+    memset(&v, 0, sizeof v);
+    v.struct_size = sizeof v;
+    CHECK(sa1_texture_variant_get(g_ctx, SA1_CHAR_SONIC, (uint32_t)g_eff_arc, 0u, SA1_TEXTURE_VARIANT_SKIN_FIRST, &v) == SA1_ERR_NOT_FOUND || g_lch[0] == 0 || g_lch[1] == 0 ||
+          g_lch[2] == 0 || g_lch[3] == 0, "100-S4 another texture of SON_EFF has no trail variant (SA1_ERR_NOT_FOUND)");
+    CHECK(sa1_texture_variant_get(g_ctx, SA1_CHAR_SONIC, (uint32_t)g_eff_arc, (uint32_t)g_lch[0], SA1_TEXTURE_VARIANT_SKIN_FIRST + 9u, &v) == SA1_ERR_NOT_FOUND,
+          "100-S4 the variant of a slot no skin holds: SA1_ERR_NOT_FOUND");
+}
+
+/* S5: the skin's parts do not change with the display set of the upgrades (select 3.3) */
+static uint32_t skin_hash(const sa1_render *r, uint32_t arch, uint32_t *tris)
+{
+    uint32_t i, h = 2166136261u, k;
+    *tris = 0;
+    if (r == NULL) {
+        return 0;
+    }
+    for (i = 0; i < r->num_draws; i++) {
+        const sa1_draw *d = &r->draws[i];
+        const uint8_t *b;
+        if (d->prim != SA1_PRIM_TRIANGLES || (uint32_t)d->archive != arch) {
+            continue;
+        }
+        *tris += d->count;
+        b = (const uint8_t *)(r->positions + 9u * d->first);
+        for (k = 0; k < 36u * d->count; k++) {
+            h = (h ^ b[k]) * 16777619u;
+        }
+    }
+    return h;
+}
+
+static void test_100_s5(void)
+{
+    static const uint32_t fl[2] = { 0x8Du, 0x8Eu };
+    sa1_character_id a = 0, b = 0, c = 0;
+    int p, differ = 0, drew = 0;
+    printf("100-S5 a skin's look under the display set\n");
+    create(SA1_CREATE_SKIN, &a);
+    create(SA1_CREATE_SKIN, &b);
+    create(SA1_CREATE_SKIN, &c);
+    flags_on(a, fl, 2);
+    flags_on(b, fl, 2);
+    CHECK(sa1_character_set_game_option(g_ctx, b, SA1_GOPT_UPGRADE_MODELS, (int32_t)SA1_UPGRADE_MODELS_ON) == SA1_OK &&
+          sa1_character_set_game_option(g_ctx, c, SA1_GOPT_UPGRADE_MODELS, (int32_t)(SA1_UPGRADE_MODELS_ON | SA1_UPGRADE_MODELS_ALL)) == SA1_OK,
+          "100-S5 the display set on two Metal worlds: none shown on one holding the shoes and the ring, all shown on one holding none");
+    for (p = 0; p < 240; p++) {
+        const sa1_render *ra = NULL, *rb = NULL, *rc = NULL;
+        uint32_t ta, tb, tc, ha, hb, hc;
+        float sy = (p >= 60 && p < 180) ? 1.0f : 0.0f;
+        tick(a, 0.0f, sy, 0u);
+        tick(b, 0.0f, sy, 0u);
+        tick(c, 0.0f, sy, 0u);
+        sa1_character_render(g_ctx, a, 1.0f, &ra);
+        sa1_character_render(g_ctx, b, 1.0f, &rb);
+        sa1_character_render(g_ctx, c, 1.0f, &rc);
+        ha = skin_hash(ra, SA1_ARCHIVE_SKIN_FIRST, &ta);
+        hb = skin_hash(rb, SA1_ARCHIVE_SKIN_FIRST, &tb);
+        hc = skin_hash(rc, SA1_ARCHIVE_SKIN_FIRST, &tc);
+        drew += ta > 0u;
+        differ += ha != hb || ta != tb || ha != hc || ta != tc;
+    }
+    CHECK(drew > 200 && differ == 0, "100-S5 Metal's parts bit for bit the same with no display set, with none shown and with all shown: %d of 240 pairs differ (%d drew)", differ, drew);
+    sa1_character_destroy(g_ctx, a);
+    sa1_character_destroy(g_ctx, b);
+    sa1_character_destroy(g_ctx, c);
+}
+
+/* S2: Mecha Sonic's parts, his archive, his textures, his glow */
+static void test_100_s2(void)
+{
+    static const uint32_t fl[1] = { 0x8Du };
+    sa1_character_id id = 0;
+    sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti);
+    uint32_t arch = 0, num = 0, i;
+    const char *name = NULL;
+    const sa1_render *r = NULL;
+    tally t;
+    sa1_status st;
+    int p, nan = 0;
+    s4_out o;
+    printf("100-S2 Mecha Sonic\n");
+    g_cur = &g_mecha;
+    st = create(SA1_CREATE_SKIN, &id);
+    g_cur = &g_skin;
+    CHECK(st == SA1_OK, "100-S2 a world wears Mecha Sonic beside Metal's: %s %s", sa1_status_string(st), st == SA1_OK ? "" : sa1_last_error(g_ctx));
+    if (st != SA1_OK) {
+        free(ti);
+        return;
+    }
+    CHECK(sa1_character_skin_archive(g_ctx, id, &arch) == SA1_OK && arch == SA1_ARCHIVE_SKIN_FIRST + 1u, "100-S2 his parts draw from archive %u (65: the second skin loaded)", (unsigned)arch);
+    CHECK(sa1_texture_archive(g_ctx, SA1_CHAR_SONIC, arch, &name, &num) == SA1_OK && num == 22u, "100-S2 archive %u: %s, %u textures (22: 7 and 76-96)", (unsigned)arch, name ? name : "?", (unsigned)num);
+    g_tally_arch = arch;
+    for (p = 0; p < 60; p++) {
+        tick(id, 0.0f, 0.0f, 0u);
+    }
+    sa1_character_render(g_ctx, id, 1.0f, &r);
+    tally_of(r, &t);
+    info_of(id, ti);
+    for (i = 0; r != NULL && i < 9u * r->num_triangles; i++) {
+        nan += !sa1_finite(r->positions[i]);
+    }
+    printf("  info  after the landing: %u parts, %u triangles on archive %u, lowest vertex %.3f units\n", (unsigned)ti->num_parts, (unsigned)t.skin_tris, (unsigned)arch, t.lowest);
+    CHECK(ti->num_parts == 20u && ti->drew && t.skin_tris == 819u && t.body_tris == 0u && nan == 0, "100-S2 20 parts, 819 triangles (%u), no Sonic body (%u), no NaN (%d)",
+          (unsigned)t.skin_tris, (unsigned)t.body_tris, nan);
+    {
+        /* a run, then a stop: row 0, the stand (S6's method for Metal). Round 1.0.0-beta1 (the plant, the owner's answer 17): against plain Sonic's own lowest body vertex through the same pairs */
+        sa1_state_ex x;
+        sa1_character_id s = 0;
+        double sl = 1e30;
+        create(0, &s);
+        for (p = 0; p < 60; p++) {
+            tick(s, 0.0f, 0.0f, 0u);
+        }
+        for (p = 0; p < 60; p++) {
+            tick(id, 0.0f, 0.5f, 0u);
+            tick(s, 0.0f, 0.5f, 0u);
+        }
+        for (p = 0; p < 90; p++) {
+            tick(id, 0.0f, 0.0f, 0u);
+            tick(s, 0.0f, 0.0f, 0u);
+        }
+        sa1_character_render(g_ctx, id, 1.0f, &r);
+        tally_of(r, &t);
+        state_of(id, &x);
+        if (s != 0) {
+            const sa1_render *rs = NULL;
+            sa1_character_render(g_ctx, s, 1.0f, &rs);
+            sl = s6_low(rs, 0);
+            sa1_character_destroy(g_ctx, s);
+        }
+        CHECK(x.action == 0 && fabs(t.lowest - sl) <= 0.1, "100-S2 at the scale 0.52 his feet stand where Sonic's do in row %d: lowest vertex %.3f, Sonic's %.3f (within 0.1; r1-verify-s: Sonic +0.36)",
+              (int)x.action, t.lowest, sl);
+    }
+    sa1_character_destroy(g_ctx, id);
+    g_tally_arch = SA1_ARCHIVE_SKIN_FIRST;
+    s4_run(&g_mecha, 0, -1, &o);
+    CHECK(o.glow > 0u && o.glow_col[0] > o.glow_col[2] && o.glow_col[0] >= o.glow_col[1] && o.glow_col[1] >= o.glow_col[2],
+          "100-S2 his charged glow: %u pairs of shells, orange (%u, %u, %u)", (unsigned)o.glow, o.glow_col[0], o.glow_col[1], o.glow_col[2]);
+    CHECK(o.lch > 0u && o.lch_flag == o.lch && o.other_flag == 0u, "100-S4 Mecha, plain charge: %u draws of lcharge01-04, %u with SA1_DRAW_SKIN_TRAIL; %u other draws with it (0)",
+          (unsigned)o.lch, (unsigned)o.lch_flag, (unsigned)o.other_flag);
+    s4_variant(1u, g_mecha.trail_rgb, "Mecha (slot 1, orange)");
+    (void)fl;
+    free(ti);
+}
+
+/* S3: the rows, the joints and the ball as Metal's S3, S5 and S7 check them, then the world identity of S1, on Mecha Sonic */
+static void test_100_s3(void)
+{
+    printf("100-S3 Mecha Sonic's rows and world\n");
+    g_cur = &g_mecha;
+    g_tally_arch = SA1_ARCHIVE_SKIN_FIRST + 1u;
+    g_parent = k_parent_mecha;
+    g_nparts = 20u;
+    s3_run(0, "Mecha plain");
+    s3_run(1, "Mecha with the upgrades");
+    test_s1();
+    g_cur = &g_skin;
+    g_tally_arch = SA1_ARCHIVE_SKIN_FIRST;
+    g_parent = k_parent_metal;
+    g_nparts = 25u;
+}
+
+/* S1: many skins: Metal and Mecha on two worlds and a follower, their archives, their own draws; 16 at most; all freed with the disc */
+static void test_100_s1(void)
+{
+    sa1_character_id a = 0, b = 0, f = 0, plain = 0;
+    sa1_follower_desc fd;
+    uint32_t aa = 0, ab = 0, af = 0, k, wrong = 0, mine_a = 0, mine_b = 0, dummy = 0;
+    sa1_texture_info t0, t1;
+    sa1_status st;
+    const char *err;
+    int p;
+    static char ids[16][16];
+    static sa1_skin_desc more[16];
+    printf("100-S1 many skins\n");
+    create(SA1_CREATE_SKIN, &a);
+    g_cur = &g_mecha;
+    create(SA1_CREATE_SKIN, &b);
+    g_cur = &g_skin;
+    create(0, &plain);
+    memset(&fd, 0, sizeof fd);
+    fd.struct_size = sizeof fd;
+    fd.kind = SA1_CHAR_SONIC;
+    fd.leader = a;
+    fd.flags = SA1_FOLLOW_SEED | SA1_FOLLOW_NO_SET | SA1_FOLLOW_SKIN;
+    fd.seed = 0x5EED0100u;
+    fd.skin = &g_mecha;
+    st = sa1_follower_create(g_ctx, &fd, &f);
+    CHECK(a != 0 && b != 0 && st == SA1_OK, "100-S1 Metal on a world, Mecha on a second world and on a follower of the first: %s", st == SA1_OK ? "every load answers" : sa1_last_error(g_ctx));
+    sa1_character_skin_archive(g_ctx, a, &aa);
+    sa1_character_skin_archive(g_ctx, b, &ab);
+    sa1_character_skin_archive(g_ctx, f, &af);
+    CHECK(aa == SA1_ARCHIVE_SKIN_FIRST && ab == SA1_ARCHIVE_SKIN_FIRST + 1u && af == ab, "100-S1 the archives: Metal %u, Mecha %u, the Mecha follower %u (64, 65, 65: one load each)",
+          (unsigned)aa, (unsigned)ab, (unsigned)af);
+    CHECK(sa1_character_skin_archive(g_ctx, plain, &dummy) == SA1_ERR_UNSUPPORTED && sa1_character_skin_archive(g_ctx, (sa1_character_id)0x7FFF00FF, &dummy) == SA1_ERR_NOT_FOUND,
+          "100-S1 a plain Sonic: SA1_ERR_UNSUPPORTED; no such character: SA1_ERR_NOT_FOUND");
+    for (p = 0; p < 30; p++) {
+        const sa1_render *ra = NULL, *rb = NULL;
+        uint32_t i;
+        tick(a, 0.0f, 0.0f, 0u);
+        tick(b, 0.0f, 0.0f, 0u);
+        sa1_character_render(g_ctx, a, 1.0f, &ra);
+        sa1_character_render(g_ctx, b, 1.0f, &rb);
+        for (i = 0; ra != NULL && i < ra->num_draws; i++) {
+            wrong += (uint32_t)ra->draws[i].archive == ab || (uint32_t)ra->draws[i].archive == SA1_ARCHIVE_SKIN;
+            mine_a += (uint32_t)ra->draws[i].archive == aa;
+        }
+        for (i = 0; rb != NULL && i < rb->num_draws; i++) {
+            wrong += (uint32_t)rb->draws[i].archive == aa || (uint32_t)rb->draws[i].archive == SA1_ARCHIVE_SKIN;
+            mine_b += (uint32_t)rb->draws[i].archive == ab;
+        }
+    }
+    CHECK(mine_a > 0u && mine_b > 0u && wrong == 0u, "100-S1 each world's draws use only its own skin's archive: %u and %u draws, %u on another's (0)", (unsigned)mine_a, (unsigned)mine_b, (unsigned)wrong);
+    memset(&t0, 0, sizeof t0);
+    memset(&t1, 0, sizeof t1);
+    t0.struct_size = t1.struct_size = sizeof t0;
+    CHECK(sa1_texture_get(g_ctx, SA1_CHAR_SONIC, aa, 0, &t0) == SA1_OK && sa1_texture_get(g_ctx, SA1_CHAR_SONIC, ab, 0, &t1) == SA1_OK &&
+          (t0.width != t1.width || t0.height != t1.height || (t0.name && t1.name && strcmp(t0.name, t1.name) != 0)),
+          "100-S1 the textures differ: archive %u texture 0 %s %ux%u, archive %u texture 0 %s %ux%u", (unsigned)aa, t0.name ? t0.name : "?", (unsigned)t0.width, (unsigned)t0.height,
+          (unsigned)ab, t1.name ? t1.name : "?", (unsigned)t1.width, (unsigned)t1.height);
+    CHECK(sa1_texture_archive(g_ctx, SA1_CHAR_SONIC, SA1_ARCHIVE_SKIN_FIRST + 2u, NULL, NULL) == SA1_ERR_NOT_LOADED && sa1_texture_archive(g_ctx, SA1_CHAR_SONIC, SA1_ARCHIVE_SKIN, NULL, &k) == SA1_OK,
+          "100-S1 archive 66 holds nothing yet; 61 still answers the first skin");
+    sa1_character_destroy(g_ctx, f);
+    sa1_character_destroy(g_ctx, a);
+    sa1_character_destroy(g_ctx, b);
+    sa1_character_destroy(g_ctx, plain);
+    /* fourteen more by their id (Metal's files: one load each), then the seventeenth */
+    for (k = 2; k < 17u; k++) {
+        struct sa1k_state *q = NULL;
+        more[k - 1u] = g_skin;
+        snprintf(ids[k - 1u], sizeof ids[0], "test-%u", (unsigned)k);
+        more[k - 1u].id = ids[k - 1u];
+        st = sa1k_load(g_ctx, &more[k - 1u], &q);
+        if (k < 16u && st != SA1_OK) {
+            CHECK(0, "100-S1 skin %u loads: %s", (unsigned)(k + 1u), sa1_last_error(g_ctx));
+            break;
+        }
+        if (k == 16u) {
+            err = sa1_last_error(g_ctx);
+            CHECK(st == SA1_ERR_LIMIT && err != NULL && strstr(err, "test-16") != NULL, "100-S1 the seventeenth skin: %s, \"%s\"", sa1_status_string(st), err ? err : "");
+        }
+    }
+    CHECK(sa1_texture_archive(g_ctx, SA1_CHAR_SONIC, SA1_ARCHIVE_SKIN_LAST, NULL, &k) == SA1_OK && sa1_texture_archive(g_ctx, SA1_CHAR_SONIC, SA1_ARCHIVE_SKIN_LAST + 1u, NULL, NULL) != SA1_OK,
+          "100-S1 sixteen skins: archive 79 answers, 80 does not");
+    g_cur = &g_mecha;
+    st = create(SA1_CREATE_SKIN, &b);
+    g_cur = &g_skin;
+    CHECK(st == SA1_OK, "100-S1 a loaded skin is worn again with sixteen loaded: %s", st == SA1_OK ? "ok" : sa1_last_error(g_ctx));
+    sa1_character_destroy(g_ctx, b);
+    sa1_unload_disc(g_ctx);
+    CHECK(sa1_texture_archive(g_ctx, SA1_CHAR_SONIC, SA1_ARCHIVE_SKIN_FIRST, NULL, NULL) != SA1_OK && sa1_texture_archive(g_ctx, SA1_CHAR_SONIC, SA1_ARCHIVE_SKIN_LAST, NULL, NULL) != SA1_OK,
+          "100-S1 freeing the disc frees all sixteen");
+}
+
+/* ---- 100-S6 (gsa1_100_select.md 4.2.1, 7.1 S6; the owner's answer 17, rounds plan 14.1bl): Mecha Sonic jogs where Sonic runs with his arms behind him, and stands where Sonic stands ------- */
+static void mul3_tn(const double a[9], const double b[9], double o[9])     /* transpose(a) * b */
+{
+    double t[9];
+    int r, c;
+    for (r = 0; r < 3; r++) {
+        for (c = 0; c < 3; c++) {
+            t[3 * r + c] = a[r] * b[c] + a[3 + r] * b[3 + c] + a[6 + r] * b[6 + c];
+        }
+    }
+    memcpy(o, t, sizeof t);
+}
+
+static uint32_t s6_frames(const sa1_charset *cs, int row)
+{
+    if (row < 0 || (uint32_t)row >= cs->num_actions || cs->actions[row].motion < 0) {
+        return 0u;
+    }
+    return SA1_VEC(cs->motions, sa1_motion)[cs->actions[row].motion].num_frames;
+}
+
+/* the stick of pair p (and a speed above dash_speed): a stand, a ramp up, the run, the sprint, the run again, a stop */
+static float s6_stick(int p, int *sprint)
+{
+    *sprint = p >= 240 && p < 330;
+    if (p < 30) {
+        return 0.0f;
+    }
+    if (p < 150) {
+        return (float)(p - 30) / 120.0f;
+    }
+    return p < 450 ? 1.0f : 0.0f;
+}
+
+/* Sonic's own lowest point along up under root * the model-space pose in inst (his plain models, no weld; the drawn nodes of his body): other code than the library's */
+static double s6_pose_low(const sa1_charset *cs, const sa1_instance *inst, const double root[12], const double up[3])
+{
+    const sa1_object *o = &SA1_VEC(cs->objects, sa1_object)[cs->main_object];
+    double low = 1e30;
+    uint32_t n, v;
+    for (n = 0; n < o->num_nodes; n++) {
+        const sa1_model *md;
+        const float *m = inst->node_mtx + 12u * n;
+        double w[12];
+        int k;
+        if (o->nodes[n].model < 0 || !o->nodes[n].drawn) {
+            continue;
+        }
+        md = &SA1_VEC(cs->models, sa1_model)[o->nodes[n].model];
+        for (k = 0; k < 3; k++) {
+            int c;
+            for (c = 0; c < 4; c++) {
+                w[4 * k + c] = root[4 * k] * m[c] + root[4 * k + 1] * m[4 + c] + root[4 * k + 2] * m[8 + c] + (c == 3 ? root[4 * k + 3] : 0.0);
+            }
+        }
+        for (v = 0; md->points != NULL && v < md->num_points; v++) {
+            const float *pt = md->points + 3u * v;
+            double hx = w[0] * pt[0] + w[1] * pt[1] + w[2] * pt[2] + w[3];
+            double hy = w[4] * pt[0] + w[5] * pt[1] + w[6] * pt[2] + w[7];
+            double hz = w[8] * pt[0] + w[9] * pt[1] + w[10] * pt[2] + w[11];
+            double h = up[0] * hx + up[1] * hy + up[2] * hz;
+            if (h < low) {
+                low = h;
+            }
+        }
+    }
+    return low;
+}
+
+static void test_100_s6(void)
+{
+    enum { PAIRS = 600 };
+    const sa1_charset *cs = &g_ctx->chars[SA1_CHAR_SONIC];
+    sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti), *tp = (sa1k_test_info *)malloc(sizeof *tp);
+    sa1k_test_info *tm = (sa1k_test_info *)malloc(sizeof *tm), *tq = (sa1k_test_info *)malloc(sizeof *tq);
+    sa1_instance *inst = (sa1_instance *)calloc(1, sizeof *inst);
+    static double ag[SA1K_PARTS_MAX][9], off[SA1K_PARTS_MAX][3];
+    sa1_character_id m = 0, s = 0, t = 0;
+    sa1_state_ex x, xp, xs;
+    double k12, k13, worst_ang = 0.0, worst_perp = 0.0, worst_shape = 0.0, worst_plant = 0.0, sum_d[2] = { 0.0, 0.0 }, sum_w[2] = { 0.0, 0.0 };
+    double stand_worst = 0.0, sink_m = -1e30, sink_t = -1e30, live_worst = 0.0;
+    int live_n = 0, have_live = 0, p, row, last_jog = -1000, have_prev = 0, prev_jog = 0, jog[2] = { 0, 0 }, rate_n[2] = { 0, 0 };
+    int super_tree = 0, flown_other = 0, live_bad = 0, mismatch = 0, metal_own = 0, metal_rate_bad = 0, metal_flown = 0, stand_n = 0;
+    uint32_t mhash = 2166136261u, mtris = 0;
+    int own = 1;
+    printf("100-S6 Mecha Sonic's jog (the owner: \"he uses the Jog\") and his feet\n");
+    for (row = 9; row <= 13; row++) {
+        const sa1_action *a = &cs->actions[row];
+        printf("  info  row %d: object %d (Sonic's body: %d), mtnmode %d, racio %.3f, %u frames\n", row, (int)a->object, (int)cs->main_object, (int)a->mode, (double)a->speed, (unsigned)s6_frames(cs, row));
+        own = own && (row < 11 || a->object == cs->main_object);
+    }
+    k12 = ((double)cs->actions[11].speed / (double)cs->actions[12].speed) * ((double)s6_frames(cs, 12) / (double)s6_frames(cs, 11));
+    k13 = ((double)cs->actions[11].speed / (double)cs->actions[13].speed) * ((double)s6_frames(cs, 13) / (double)s6_frames(cs, 11));
+    CHECK(own && cs->actions[11].mode == 10 && cs->actions[12].mode == 10 && cs->actions[13].mode == 9 && fabs(k12 - 1.6) < 1e-3 && fabs(k13 - 1.65) < 1e-3,
+          "100-S6 rows 11-13 are Sonic's own tree and speed loops (mtnmode 10, 10, 9): the jog's k %.4f from row 12, %.4f from row 13 (select 4.2.1: 1.6, 1.65)", k12, k13);
+    inst->kind = 0;
+    if (sa1_instance_alloc(g_ctx, cs, inst) != SA1_OK) {
+        CHECK(0, "100-S6 an instance");
+        free(ti); free(tp); free(tm); free(tq); free(inst);
+        return;
+    }
+    g_cur = &g_mecha;
+    create(SA1_CREATE_SKIN, &m);
+    g_cur = &g_skin;
+    create(SA1_CREATE_SKIN, &t);
+    create(0, &s);
+    if (m == 0 || s == 0 || t == 0) {
+        CHECK(0, "100-S6 three worlds: Mecha, plain Sonic, Metal: %s", sa1_last_error(g_ctx));
+        sa1_instance_free(g_ctx, inst);
+        free(ti); free(tp); free(tm); free(tq); free(inst);
+        return;
+    }
+    memset(&xp, 0, sizeof xp);
+    for (p = 0; p < PAIRS; p++) {
+        int sprint, is_jog, ri = 0;
+        float sy = s6_stick(p, &sprint);
+        const sa1_render *rm = NULL, *rs = NULL, *rt = NULL;
+        double lm, ls, lt;
+        uint32_t tris = 0;
+        if (sprint) {
+            s6_speed(m, 5.6f);
+            s6_speed(s, 5.6f);
+            s6_speed(t, 5.6f);
+        }
+        tick(m, 0.0f, sy, 0u);
+        tick(s, 0.0f, sy, 0u);
+        tick(t, 0.0f, sy, 0u);
+        state_of(m, &x);
+        state_of(s, &xs);
+        mismatch += x.action != xs.action || x.frame != xs.frame;
+        info_of(m, ti);
+        info_of(t, tm);
+        sa1_character_render(g_ctx, m, 1.0f, &rm);
+        lm = s6_low(rm, 1);
+        sa1_character_render(g_ctx, s, 1.0f, &rs);
+        ls = s6_low(rs, 0);
+        sa1_character_render(g_ctx, t, 1.0f, &rt);
+        lt = s6_low(rt, 1);
+        mhash = (mhash ^ skin_hash(rt, SA1_ARCHIVE_SKIN_FIRST, &tris)) * 16777619u;
+        mtris += tris;
+        if (lm < 1e29 && ls < 1e29 && ls - lm > sink_m) {
+            sink_m = ls - lm;
+        }
+        if (ti->w <= 0.0f && ti->live_mix >= 1.0f && lm < 1e29 && ls < 1e29) {
+            live_n++;
+            live_worst = fabs(lm - ls) > live_worst ? fabs(lm - ls) : live_worst;
+        }
+        if (getenv("S6_DEBUG") != NULL) {
+            printf("    s6 %3d act %3d req %3d spd %.2f drive %3d cur %3d prev %3d w %.3f x %.3f live %.3f | Mecha %+.3f Sonic %+.3f Metal %+.3f\n", p, (int)x.action, (int)x.req_action, (double)x.player_speed[0],
+                   (int)ti->drive_row, (int)ti->cur, (int)ti->prev, (double)ti->w, (double)ti->x, (double)ti->live_mix, lm, ls, lt);
+        }
+        if (lt < 1e29 && ls < 1e29 && ls - lt > sink_t) {
+            sink_t = ls - lt;
+        }
+        if (p >= 480 && x.action == 0 && lm < 1e29 && ls < 1e29) {
+            stand_n++;
+            stand_worst = fabs(lm - ls) > stand_worst ? fabs(lm - ls) : stand_worst;
+        }
+        /* the drawn rows: only Sonic's own tree, only the jog */
+        if (ti->cur >= 0) {
+            super_tree += cs->actions[ti->cur].object != cs->main_object;
+            flown_other += ti->cur != 11;
+        }
+        if (tm->cur >= 0) {
+            metal_own += cs->actions[tm->cur].object == cs->main_object;
+            if (tm->w >= 1.0f && have_prev && tq->cur == tm->cur && tq->w >= 1.0f) {
+                double dd = tm->phase - tq->phase;
+                if (dd < 0.0) {
+                    dd += 1.0;
+                }
+                metal_flown++;
+                metal_rate_bad += fabs(dd - tm->rate) > 1e-9;
+            }
+        }
+        /* a live pair at a stand: each part's A(i) G and offset, read back from the library's own output (r = turn * AG; offset = R(parent)^T (p - p(parent))) */
+        if (!have_live && ti->drew && ti->w <= 0.0f && ti->live_mix >= 1.0f && x.action == 0) {
+            int i, ok = 1;
+            for (i = 0; i < 20 && ok; i++) {
+                int n = k_mparts[i].mesh_node;
+                double R[9], T[9];
+                if (!ti->have[n]) {
+                    ok = 0;
+                    break;
+                }
+                rot_of(ti->mtx[n], R);
+                mul3_t(R, ti->rest[n], T);
+                mul3_tn(T, ti->r[i], ag[i]);
+                if (i > 0) {
+                    const double *pp = ti->p[k_parent_mecha[i]], *pc = ti->p[i], *pr = ti->r[k_parent_mecha[i]];
+                    double d[3];
+                    d[0] = pc[0] - pp[0];
+                    d[1] = pc[1] - pp[1];
+                    d[2] = pc[2] - pp[2];
+                    off[i][0] = pr[0] * d[0] + pr[3] * d[1] + pr[6] * d[2];
+                    off[i][1] = pr[1] * d[0] + pr[4] * d[1] + pr[7] * d[2];
+                    off[i][2] = pr[2] * d[0] + pr[5] * d[1] + pr[8] * d[2];
+                }
+            }
+            have_live = ok;
+        }
+        is_jog = ti->drew && (ti->drive_row == 12 || ti->drive_row == 13) && ti->cur == 11 && ti->w >= 1.0f && ti->prev < 0 && ti->live_mix <= 0.0f;
+        if (is_jog) {
+            ri = ti->drive_row - 12;
+            jog[ri]++;
+            last_jog = p;
+        }
+        if (is_jog && have_live) {
+            /* row 11 at the drawn frame by the library's evaluator, posed as the live path poses a drawn row (Sonic's mesh nodes), under the jog's root */
+            const double *fr = ti->fly_root;
+            double f = ti->phase * (double)s6_frames(cs, 11), Rr[9], up[3], e[SA1K_PARTS_MAX][3], er[SA1K_PARTS_MAX][9], d[3], al, perp, low;
+            const float *nm;
+            int i, k;
+            sa1_pose_evaluate(g_ctx, cs, inst, cs->actions[11].object, cs->actions[11].motion, (float)f, SA1_POSE_MODEL_SPACE | SA1_POSE_NO_WELD);
+            Rr[0] = fr[0]; Rr[1] = fr[1]; Rr[2] = fr[2];
+            Rr[3] = fr[4]; Rr[4] = fr[5]; Rr[5] = fr[6];
+            Rr[6] = fr[8]; Rr[7] = fr[9]; Rr[8] = fr[10];
+            up[0] = fr[1];
+            up[1] = fr[5];
+            up[2] = fr[9];
+            for (i = 0; i < 20; i++) {
+                int nn = k_mparts[i].mesh_node;
+                const float *q = inst->node_mtx + 12u * (uint32_t)nn;
+                double nmx[12], Rn[9], A[9], B[9], a;
+                for (k = 0; k < 12; k++) {
+                    nmx[k] = (double)q[k];
+                }
+                rot_of(nmx, Rn);
+                mul3(Rr, Rn, A);
+                mul3_t(A, ti->rest[nn], B);
+                mul3(B, ag[i], er[i]);
+                a = m3_angle_between(er[i], ti->r[i]);
+                worst_ang = a > worst_ang ? a : worst_ang;
+            }
+            nm = inst->node_mtx + 12u * (uint32_t)k_mparts[0].mesh_node;
+            for (k = 0; k < 3; k++) {
+                e[0][k] = fr[4 * k] * nm[3] + fr[4 * k + 1] * nm[7] + fr[4 * k + 2] * nm[11] + fr[4 * k + 3];
+            }
+            for (i = 1; i < 20; i++) {
+                const double *pr = er[k_parent_mecha[i]], *pe = e[k_parent_mecha[i]];
+                e[i][0] = pe[0] + pr[0] * off[i][0] + pr[1] * off[i][1] + pr[2] * off[i][2];
+                e[i][1] = pe[1] + pr[3] * off[i][0] + pr[4] * off[i][1] + pr[5] * off[i][2];
+                e[i][2] = pe[2] + pr[6] * off[i][0] + pr[7] * off[i][1] + pr[8] * off[i][2];
+            }
+            for (k = 0; k < 3; k++) {
+                d[k] = ti->p[0][k] - e[0][k];
+            }
+            al = d[0] * up[0] + d[1] * up[1] + d[2] * up[2];
+            perp = sqrt((d[0] - al * up[0]) * (d[0] - al * up[0]) + (d[1] - al * up[1]) * (d[1] - al * up[1]) + (d[2] - al * up[2]) * (d[2] - al * up[2]));
+            worst_perp = perp > worst_perp ? perp : worst_perp;
+            for (i = 1; i < 20; i++) {
+                double dx = (ti->p[i][0] - ti->p[0][0]) - (e[i][0] - e[0][0]);
+                double dy = (ti->p[i][1] - ti->p[0][1]) - (e[i][1] - e[0][1]);
+                double dz = (ti->p[i][2] - ti->p[0][2]) - (e[i][2] - e[0][2]);
+                double dl = sqrt(dx * dx + dy * dy + dz * dz);
+                worst_shape = dl > worst_shape ? dl : worst_shape;
+            }
+            /* the plant: his drawn lowest point (the render) is Sonic's own lowest in that pose (the floor is flat: up is the SA1 y the render's z / 4 is) */
+            low = s6_pose_low(cs, inst, fr, up);
+            if (lm < 1e29 && fabs(lm - low) > worst_plant) {
+                worst_plant = fabs(lm - low);
+            }
+            /* the jog's step against the world row's, from the world's own frame (sa1_state_ex.frame) */
+            if (have_prev && prev_jog && tp->drive_row == ti->drive_row && x.action == x.req_action && xp.action == x.action) {
+                double dw = ((double)x.frame - (double)xp.frame) / (double)s6_frames(cs, ti->drive_row), dd = ti->phase - tp->phase;
+                if (dw < 0.0) {
+                    dw += 1.0;
+                }
+                if (dd < 0.0) {
+                    dd += 1.0;
+                }
+                if (dw > 0.0 && dw < 0.5) {
+                    sum_w[ri] += dw;
+                    sum_d[ri] += dd;
+                    rate_n[ri]++;
+                }
+            }
+        }
+        if (x.action >= 0 && x.action <= 11 && p - last_jog > 14 && ti->w > 0.0f) {
+            live_bad++;
+        }
+        memcpy(tp, ti, sizeof *tp);
+        memcpy(tq, tm, sizeof *tq);
+        xp = x;
+        have_prev = 1;
+        prev_jog = is_jog;
+    }
+    CHECK(mismatch == 0, "100-S6 Mecha's world is plain Sonic's: the same action and frame in all %d pairs (%d differ)", PAIRS, mismatch);
+    CHECK(jog[0] > 50 && jog[1] > 30 && super_tree == 0 && flown_other == 0,
+          "100-S6 in rows 12 and 13 he jogs: %d and %d pairs drawn from row 11; no part from the Super tree (%d pairs), no other drawn row (%d)", jog[0], jog[1], super_tree, flown_other);
+    CHECK(have_live && worst_ang <= 0.5 && worst_perp <= 1e-3 && worst_shape <= 1e-3,
+          "100-S6 rows 12 and 13 drawn as the live row-11 pose at the drawn frame (Sonic's mesh nodes): every part's rotation within %.4f degrees (0.5), the torso's place %.2e units across the up axis, each part's place against it %.2e (1e-3)",
+          worst_ang, worst_perp, worst_shape);
+    CHECK(worst_plant <= 1e-3, "100-S6 planted in the jog: his lowest drawn point is Sonic's own lowest point in that pose within %.2e units (1e-3)", worst_plant);
+    CHECK(rate_n[0] > 20 && rate_n[1] > 20 && fabs(sum_d[0] / sum_w[0] / 1.6 - 1.0) <= 0.01 && fabs(sum_d[1] / sum_w[1] / 1.65 - 1.0) <= 0.01,
+          "100-S6 the jog's step: %.4f x the world row's from row 12 (%d pairs), %.4f x from row 13 (%d pairs) (1.6, 1.65 within 1 %%)", rate_n[0] ? sum_d[0] / sum_w[0] : 0.0, rate_n[0],
+          rate_n[1] ? sum_d[1] / sum_w[1] : 0.0, rate_n[1]);
+    CHECK(live_bad == 0, "100-S6 rows 0-11 away from a jog's fade out: Sonic's own pose, no flown pair (%d)", live_bad);
+    CHECK(stand_n > 20 && stand_worst <= 0.1, "100-S6 at a stand after the run: his lowest point within %.3f units of Sonic's own (%d pairs; 0.1)", stand_worst, stand_n);
+    printf("  info  the whole run: his lowest point at most %.3f units under plain Sonic's (whose run, rows 12-13, is not the jog he shows there); Metal's at most %.3f\n", sink_m, sink_t);
+    CHECK(live_n > 200 && live_worst <= 0.1, "100-S6 every pair he shows Sonic's own pose (rows 0-11): his lowest point within %.3f units of plain Sonic's (%d pairs; 0.1): he walks, runs and stops on it", live_worst, live_n);
+    printf("  info  Metal through the same pairs: %u skin triangles, his draws' hash %08X (compared before and after the change by hand)\n", (unsigned)mtris, (unsigned)mhash);
+    CHECK(metal_own == 0 && metal_flown > 50 && metal_rate_bad == 0,
+          "100-S6 Metal Sonic: none of his drawn rows is in Sonic's own tree (%d pairs), his phase steps exactly at the world row's rate (k 1) in %d flown pairs (%d off)", metal_own, metal_flown, metal_rate_bad);
+    sa1_character_destroy(g_ctx, m);
+    sa1_character_destroy(g_ctx, s);
+    sa1_character_destroy(g_ctx, t);
+    sa1_instance_free(g_ctx, inst);
+    free(ti);
+    free(tp);
+    free(tm);
+    free(tq);
+    free(inst);
+}
+
+/* 100-S6's feet, as r1-verify-s measured them (r1vs_probe.c test F: the phases, the lowest vertex every pair in lockstep with plain Sonic on the flat floor), Metal Sonic the same way */
+static void test_100_s6_feet(int ups)
+{
+    static const struct { const char *name; int n; float sy; } ph[4] = { { "standing after a spawn", 90, 0.0f }, { "walking (stick 0.3)", 90, 0.3f }, { "running (stick 1)", 220, 1.0f }, { "stopping", 90, 0.0f } };
+    sa1_character_id m = 0, s = 0, t = 0;
+    int i, p, stand_n = 0, deeper = 0, live_n = 0;
+    double stand_worst = 0.0, live_worst = 0.0, live_above = 0.0;
+    sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti);
+    printf("100-S6 his feet against Sonic's and Metal's, by phase (r1-verify-s's test F)%s\n", ups ? ", the three holding the Light Speed Shoes and the Crystal Ring" : "");
+    g_cur = &g_mecha;
+    create(SA1_CREATE_SKIN, &m);
+    g_cur = &g_skin;
+    create(SA1_CREATE_SKIN, &t);
+    create(0, &s);
+    if (m == 0 || s == 0 || t == 0) {
+        CHECK(0, "100-S6 feet: three worlds");
+        free(ti);
+        return;
+    }
+    if (ups) {
+        upgrades_on(m);
+        upgrades_on(s);
+        upgrades_on(t);
+    }
+    for (i = 0; i < 4; i++) {
+        double mlo = 1e30, slo_at = 0.0, slo = 1e30, tlo = 1e30, sm = -1e30, st = -1e30;
+        int mact = -1, mpair = -1;
+        for (p = 0; p < ph[i].n; p++) {
+            const sa1_render *rm = NULL, *rs = NULL, *rt = NULL;
+            sa1_state_ex x;
+            double a, b, c;
+            tick(m, 0.0f, ph[i].sy, 0u);
+            tick(s, 0.0f, ph[i].sy, 0u);
+            tick(t, 0.0f, ph[i].sy, 0u);
+            sa1_character_render(g_ctx, m, 1.0f, &rm);
+            a = s6_low(rm, 1);
+            sa1_character_render(g_ctx, s, 1.0f, &rs);
+            b = s6_low(rs, 0);
+            sa1_character_render(g_ctx, t, 1.0f, &rt);
+            c = s6_low(rt, 1);
+            state_of(m, &x);
+            info_of(m, ti);
+            /* Sonic's own rows: how far under Sonic's lowest point (a sink), and over it (with the upgrades the plant reads the plain shoes' points: the worn ones reach a little lower) */
+            if (ti->w <= 0.0f && ti->live_mix >= 1.0f && a < 1e29 && b < 1e29) {
+                live_n++;
+                live_worst = b - a > live_worst ? b - a : live_worst;
+                live_above = a - b > live_above ? a - b : live_above;
+            }
+            if (a < 1e29 && a < mlo) {
+                mlo = a;
+                mact = (int)x.action;
+                mpair = p;
+                slo_at = b;
+            }
+            slo = b < slo ? b : slo;
+            tlo = c < tlo ? c : tlo;
+            if (a < 1e29 && b < 1e29) {
+                sm = b - a > sm ? b - a : sm;
+            }
+            if (c < 1e29 && b < 1e29) {
+                st = b - c > st ? b - c : st;
+            }
+            /* a stand: rows 0-2 on the ground after the landing (spawned 10 units up), and the end of the stop */
+            if (((i == 0 && p >= 45) || (i == 3 && p >= 50)) && x.action >= 0 && x.action <= 2 && a < 1e29 && b < 1e29) {
+                stand_n++;
+                stand_worst = fabs(a - b) > stand_worst ? fabs(a - b) : stand_worst;
+            }
+        }
+        printf("  info  %-23s Mecha lowest %+.3f (pair %d, action %d; Sonic there %+.3f); Sonic's lowest %+.3f; Metal's lowest %+.3f; under Sonic by up to: Mecha %.3f, Metal %.3f\n", ph[i].name, mlo, mpair,
+               mact, slo_at, slo, tlo, sm, st);
+        /* the goal (r1-delta's task (7)): no deeper than Metal Sonic's own sink; where Sonic himself dips deeper than Metal did (the stop's links) the plant keeps him on Sonic's own point */
+        if (i > 0 && mlo < tlo - 1e-3 && mlo < slo - 1e-3) {
+            deeper++;
+        }
+        if (i > 0) {
+            printf("  info  %-23s deepest: Mecha %+.3f, Metal %+.3f, Sonic %+.3f: %s\n", ph[i].name, mlo, tlo, slo, mlo >= tlo - 1e-3 ? "no deeper than Metal" : "deeper than Metal, as deep as Sonic himself");
+        }
+    }
+    CHECK(stand_n > 40 && stand_worst <= 0.1, "100-S6%s standing after a spawn and after a stop: his lowest point within %.3f units of Sonic's own (%d pairs; the goal 0.1)", ups ? " (upgrades)" : "", stand_worst, stand_n);
+    CHECK(live_n > 200 && live_worst <= 0.1, "100-S6%s walking, running and stopping in Sonic's own rows: his lowest point at most %.3f units under Sonic's own (%d pairs; 0.1), at most %.3f over it", ups ? " (upgrades)" : "",
+          live_worst, live_n, live_above);
+    CHECK(deeper == 0, "100-S6%s walking, running and stopping: his deepest point no deeper than Metal Sonic's, or than Sonic's own (%d phases deeper)", ups ? " (upgrades)" : "", deeper);
+    free(ti);
+    sa1_character_destroy(g_ctx, m);
+    sa1_character_destroy(g_ctx, s);
+    sa1_character_destroy(g_ctx, t);
+}
+
 int main(int argc, char **argv)
 {
     sa1_host h;
@@ -2014,6 +2959,7 @@ int main(int argc, char **argv)
         return 2;
     }
     skin_init();
+    mecha_init();
     sa1_host_defaults(&h);
     h.log = log_cb;
     h.log_level = SA1_LOG_WARN;
@@ -2051,6 +2997,15 @@ int main(int argc, char **argv)
     test_s9(gdi);
     test_s12();
     test_s1();
+    /* round 1.0.0-beta1 (select 7.1): Metal is slot 0 (archive 64) from the tests above; Mecha takes slot 1 (65); S1 fills all 16 last */
+    test_100_s5();
+    test_100_s4();
+    test_100_s2();
+    test_100_s3();
+    test_100_s6();          /* the owner's answer 17: the jog, the plant (Metal is still slot 0, Mecha slot 1) */
+    test_100_s6_feet(0);
+    test_100_s6_feet(1);
+    test_100_s1();
     printf("DETERMINISM skin %08X\n", (unsigned)g_hash);
     printf("\nskin_test: %d checks, %d failed\n", g_ok + g_fail, g_fail);
     sa1_shutdown(g_ctx);

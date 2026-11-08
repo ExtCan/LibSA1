@@ -1,0 +1,6 @@
+# args: --level 5 --act 2 --chr 3 --no-objects
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): Knuckles' hunt at Red
+# Mountain act 3 with no objects: no spot is known, the radar stays faint.
+30 0 0
+80 0 -127
+490 0 0

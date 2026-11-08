@@ -1,0 +1,9 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C062640:2:3@-48,3.58,25.07+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): O RELEASE, the Egg
+# Capsule (8C062640, 2:3) on Sonic's line, the jump onto its button (plan 6.2's ready-made script): the clear chain,
+# animals, the pose, the run ends before the results' 8C04E386(1).
+30 0 0
+20 0 -127
+30 0 -127 A
+40 0 -127
+300 0 0

@@ -20,6 +20,10 @@
 #include "common.h"
 #include "sa1/sa1.h"
 #include "sa1/pending.h"
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_E772);
+#endif
 
 extern task *B_8C7A40C8;        /* lure task (func_8C0E6DA0's result) */
 extern Uint16 B_8C7A40E8;       /* fishing state bits (MOV.W + EXTU.W) */
@@ -80,7 +84,7 @@ void func_8C0E7720(task *tp)
         njScale(NULL, 0.29999999f, 0.29999999f, 0.29999999f);
         /* func_8C036F12 takes an NJS_OBJECT * (code_8C036BC0.c); the cast
          * only bridges the NJS_MODEL * prototype in sa1/engine.h */
-        func_8C036F12((NJS_MODEL *)D_8C565FC4[func_8C0E6E80()]);
+        func_8C036F12((NJS_MODEL *)D_8C565FC4[SA1_UPG_LURES()]);
         njPopMatrix(1);
     }
     if (B_8C754EC8 != 0) {
@@ -129,7 +133,7 @@ void func_8C0E78C0(task *tp)
         njScale(NULL, 0.29999999f, 0.29999999f, 0.29999999f);
         /* func_8C036F12 takes an NJS_OBJECT * (code_8C036BC0.c); the cast
          * only bridges the NJS_MODEL * prototype in sa1/engine.h */
-        func_8C036F12((NJS_MODEL *)D_8C565FC4[func_8C0E6E80()]);
+        func_8C036F12((NJS_MODEL *)D_8C565FC4[SA1_UPG_LURES()]);
         njPopMatrix(1);
     }
     if (twp->mode >= 3) {

@@ -23,6 +23,7 @@
 #include "sa1_capture.h"
 #include "sa1_frontend.h"
 #include "sa1_skin.h"
+#include "sa1_api_world.h"     /* round 1.0.0-beta1: sa1w_world_upgdisp (the upgrade models in the menu's world) */
 
 #include <math.h>
 #include <stddef.h>
@@ -68,8 +69,9 @@ struct sa1_frontend {
     uint32_t cap_tris;
     int32_t render_frame, render_kind;
     uint32_t render_gen;
-    /* round 0.9.9f (sa1_frontend_set_skin; NULL: Sonic): slot 0 draws the skin */
-    struct sa1k_char *skin;
+    /* round 0.9.9f (sa1_frontend_set_skin; NULL: Sonic): slot 0 draws the skin; round 1.0.0-beta1: per slot (sa1_frontend_set_slot_skin) */
+    struct sa1k_char *skins[SA1_FRONTEND_SLOTS];
+    int32_t ring;                   /* round 1.0.0-beta1: the game's ADV_SELWK.ring after the last frame */
 };
 
 #if !defined(SA1_NO_WORLD)
@@ -219,6 +221,9 @@ static sa1_status fe_frame(sa1_frontend *fe, int quiet)
         }
     }
     fe->slots = inf.slots;
+    if (inf.select_alive) {
+        fe->ring = inf.ring;    /* round 1.0.0-beta1 */
+    }
     if (inf.skipped) {
         fe->withheld |= bits & (SA1_FRONTEND_B_A | SA1_FRONTEND_B_START | SA1_FRONTEND_B_B);
         fe_push_own(fe, f, SA1_EVENT_SOUND, FE_SE_CONFIRM, 0u);
@@ -232,6 +237,7 @@ static sa1_status fe_frame(sa1_frontend *fe, int quiet)
 static void fe_free(sa1_frontend *fe)
 {
     sa1_context *ctx = fe->ctx;
+    uint32_t k;
     sa1_meshbuf_free_exec(ctx, &fe->mb);
     sa1_meshbuf_free(ctx, &fe->mb);
     sa1_mem_free(ctx, fe->pos);
@@ -240,7 +246,9 @@ static void fe_free(sa1_frontend *fe)
     sa1_capture_free(ctx, fe->cap);
     sa1fw_destroy(ctx, fe->w);
     sa1_mem_free(ctx, fe->q);
-    sa1k_char_free(ctx, fe->skin);
+    for (k = 0; k < SA1_FRONTEND_SLOTS; k++) {
+        sa1k_char_free(ctx, fe->skins[k]);
+    }
     sa1_mem_free(ctx, fe);
 }
 #endif /* !SA1_NO_WORLD */
@@ -430,6 +438,7 @@ sa1_status sa1_frontend_state_get(const sa1_frontend *fe, sa1_frontend_state *ou
     s.pose_frames = fe->pose_frames;
     s.kind = fe->kind;
     s.faults = fe->faults;
+    s.ring = fe->ring;      /* round 1.0.0-beta1 */
     sa1_copy_out(out, &s, sizeof s);
     if (fe->faults) {
         return sa1_fail(fe->ctx, SA1_ERR_GAME_FAULT, "the front end faulted: %s", fe->fault);
@@ -499,7 +508,7 @@ static sa1_status fe_render_build(sa1_frontend *fe)
         o.clip_center[2] = -30.0f;
         o.clip_radius = 100.0f;
         o.only_exec = sa1fw_slot_exec(fe->w, fe->slot);
-        o.skin = fe->slot == 0 ? fe->skin : NULL;     /* round 0.9.9f: nothing else moves, the game does not know */
+        o.skin = fe->slot >= 0 && fe->slot < (int32_t)SA1_FRONTEND_SLOTS ? fe->skins[fe->slot] : NULL;  /* round 0.9.9f: nothing else moves, the game does not know */
         st = sa1_capture_emit_into(ctx, fe->cap, &o, b, &g);
         if (st != SA1_OK) {
             return st;
@@ -556,29 +565,73 @@ static sa1_status fe_render_build(sa1_frontend *fe)
 
 sa1_status sa1_frontend_set_skin(sa1_frontend *fe, const sa1_skin_desc *skin)
 {
+    return sa1_frontend_set_slot_skin(fe, 0, skin);
+}
+
+/* round 1.0.0-beta1 (gsa1_100_select.md 4.3.1): a skin per slot; one already loaded loads nothing, a switch makes a new wearer */
+sa1_status sa1_frontend_set_slot_skin(sa1_frontend *fe, int32_t slot, const sa1_skin_desc *skin)
+{
 #if !defined(SA1_NO_WORLD)
     sa1_status st;
     sa1k_char *sc = NULL;
-    if (fe == NULL) {
+    struct sa1k_state *q = NULL;
+    if (fe == NULL || slot < 0 || slot >= (int32_t)SA1_FRONTEND_SLOTS) {
         return SA1_ERR_INVALID_ARGUMENT;
     }
     if (skin != NULL) {
-        st = sa1k_load(fe->ctx, skin);
+        int32_t base = skin->struct_size >= offsetof(sa1_skin_desc, base_kind) + sizeof skin->base_kind ? skin->base_kind : SA1_CHAR_SONIC;
+        int32_t kind = sa1fw_slot_kind(fe->w, slot);
+        if (kind != base) {
+            return sa1_refuse(fe->ctx, SA1_ERR_UNSUPPORTED, SA1_LOG_DEBUG, "sa1_frontend_set_slot_skin: slot %d is character %d, the skin is worn over %d",
+                              (int)slot, (int)kind, (int)base);
+        }
+        st = sa1k_load(fe->ctx, skin, &q);
         if (st != SA1_OK) {
             return st;
         }
-        st = sa1k_char_new(fe->ctx, 0u, &sc);
+        st = sa1k_char_new(fe->ctx, q, 0u, &sc);
         if (st != SA1_OK) {
             return st;
         }
     }
-    sa1k_char_free(fe->ctx, fe->skin);
-    fe->skin = sc;
+    sa1k_char_free(fe->ctx, fe->skins[slot]);
+    fe->skins[slot] = sc;
     fe->render_frame = -1;  /* the next sa1_frontend_render builds again */
     return SA1_OK;
 #else
     (void)fe;
+    (void)slot;
     (void)skin;
+    return SA1_ERR_UNSUPPORTED;
+#endif
+}
+
+/* round 1.0.0-beta1 (gsa1_100_select.md 4.3.3): the upgrade models in the menu's world, the TUs of one kind */
+sa1_status sa1_frontend_set_upgrade_models(sa1_frontend *fe, int32_t kind, uint32_t value)
+{
+#if !defined(SA1_NO_WORLD)
+    uint32_t tags;
+    sa1_status st;
+    if (fe == NULL) {
+        return SA1_ERR_INVALID_ARGUMENT;
+    }
+    tags = sa1w_upgdisp_tags_of_kind(kind);
+    if (tags == 0u) {
+        return sa1_fail(fe->ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_frontend_set_upgrade_models: character %d has no upgrade models", (int)kind);
+    }
+    if (value != 0u && (!(value & SA1_UPGRADE_MODELS_ON) || (value & ~(SA1_UPGRADE_MODELS_ON | SA1_UPGRADE_MODELS_ALL)) != 0u)) {
+        return sa1_fail(fe->ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_frontend_set_upgrade_models: value 0x%08X (0, or SA1_UPGRADE_MODELS_ON | SA1_UPGRADE_* bits)", (unsigned)value);
+    }
+    if (fe->faults) {
+        return sa1_fail(fe->ctx, SA1_ERR_GAME_FAULT, "the front end faulted: %s", fe->fault);
+    }
+    st = sa1w_world_upgdisp(fe->ctx, fe->w, tags, value);
+    fe->render_frame = -1;
+    return st;
+#else
+    (void)fe;
+    (void)kind;
+    (void)value;
     return SA1_ERR_UNSUPPORTED;
 #endif
 }
@@ -586,7 +639,7 @@ sa1_status sa1_frontend_set_skin(sa1_frontend *fe, const sa1_skin_desc *skin)
 sa1k_char *sa1fe_test_skin(const sa1_frontend *fe)
 {
 #if !defined(SA1_NO_WORLD)
-    return fe != NULL ? fe->skin : NULL;
+    return fe != NULL ? fe->skins[0] : NULL;
 #else
     (void)fe;
     return NULL;

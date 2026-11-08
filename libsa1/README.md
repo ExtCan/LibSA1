@@ -12,7 +12,11 @@ globals visible to the host (everything lives in an `sa1_context`), a flat versi
 `sadc/tools/pclower.py` and run in a Dreamcast-layout arena per character (design:
 `sadc/docs/libsa1_integration.md`).
 
-## Status (0.5.4, 2026-11-06)
+## Status (0.6.0, 2026-11-08)
+
+0.6.0 (G-SA1 1.0.0 beta 1): up to 16 skins at once, each with its own archives, Light Speed trails and Character Select slot; which upgrade models show, apart from the abilities, decided through the game's own draw code (`SA1_GOPT_UPGRADE_MODELS`); the playable characters' cutscene animations as emotes, read from the disc on demand (`SA1_EMOTE_EVENT`), with an optional lift that moves only the drawing (`SA1_COPT_EMOTE_LIFT`). The strict replays stay bit-exact (78 traces, V7).
+
+### 0.5.4 (2026-11-06)
 
 0.5.4 (round 0.9.9g): a follower can wear a skin (`SA1_FOLLOW_SKIN`); its world is a plain follower's, byte for byte. The strict replays stay bit-exact (78 traces, V7).
 

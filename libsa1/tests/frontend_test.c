@@ -1770,6 +1770,245 @@ static void case_cost(void)
 }
 
 /* the gate (optimised archives before the final gate) */
+/* ---- round 1.0.0-beta1 (sadc docs/research/gsa1_100_select.md 7.1 F1, F2): the slots' skins, the upgrade models, the pulse; Down at idle ------------- */
+static const uint16_t k_fk_metal_keep[9] = { 76, 77, 97, 98, 99, 100, 101, 102, 103 };
+static const sa1_skin_part k_fk_metal_parts[25] = {
+    {1, 10, -1, -1}, {12, 22, -1, -1}, {12, 22, -1, -1},
+    {25, 34, -1, -1}, {25, 34, 5, 27}, {27, 29, 6, 30}, {30, 30, -1, -1}, {30, 30, -1, -1}, {30, 30, -1, -1},
+    {36, 45, -1, -1}, {36, 45, 11, 38}, {38, 40, 12, 41}, {41, 41, -1, -1}, {41, 41, -1, -1}, {41, 41, -1, -1},
+    {47, 55, 16, 49}, {49, 51, 18, 52}, {49, 51, -1, -1}, {52, 52, -1, -1}, {52, 52, -1, -1},
+    {57, 65, 21, 59}, {59, 61, 23, 62}, {59, 61, -1, -1}, {62, 62, -1, -1}, {62, 62, -1, -1},
+};
+static const uint16_t k_fk_mecha_keep[22] = { 7, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96 };
+static const sa1_skin_part k_fk_mecha_parts[20] = {
+    {1, 10, -1, -1}, {12, 22, -1, -1}, {12, 22, -1, -1}, {1, 10, -1, -1},
+    {47, 55, 5, 49}, {49, 51, 6, 52}, {52, 52, -1, -1}, {52, 52, -1, -1}, {52, 52, -1, -1},
+    {25, 34, 10, 27}, {27, 29, 11, 30}, {30, 30, -1, -1},
+    {57, 65, 13, 59}, {59, 61, 14, 62}, {62, 62, -1, -1}, {62, 62, -1, -1}, {62, 62, -1, -1},
+    {36, 45, 18, 38}, {38, 40, 19, 41}, {41, 41, -1, -1},
+};
+
+static void fk_skin(sa1_skin_desc *d, int mecha)
+{
+    memset(d, 0, sizeof *d);
+    d->struct_size = sizeof *d;
+    d->model_file = "ADV02.PRS";
+    d->model_sha1 = "ab5f600e707681f538794520c296c4fefe84659c";
+    d->model_load = 0x0C900000u;
+    d->tex_file = "ADV_MR03.PRS";
+    d->tex_sha1 = "cca1620491391e3d6e44d83be478d0687d5fa14f";
+    d->turn = SA1_SKIN_TURN_MINUS_Z;
+    d->lift = 1.0f;
+    if (mecha) {
+        d->model_first = 0x0CA824C0u;
+        d->model_end = 0x0CA88AF8u;
+        d->model_root = 0x0CA88AC4u;
+        d->tex_keep = k_fk_mecha_keep;
+        d->num_tex_keep = 22;
+        d->scale = 0.52f;
+        d->ball_texture = 86;
+        d->parts = k_fk_mecha_parts;
+        d->num_parts = 20;
+        d->id = "mechasonic";
+    } else {
+        d->model_first = 0x0CA8B9CCu;
+        d->model_end = 0x0CA92EB8u;
+        d->model_root = 0x0CA92E84u;
+        d->tex_keep = k_fk_metal_keep;
+        d->num_tex_keep = 9;
+        d->scale = 0.70f;
+        d->ball_texture = 101;
+        d->parts = k_fk_metal_parts;
+        d->num_parts = 25;
+        d->id = "metalsonic";
+    }
+}
+
+/* one frame's screen, render and events, hashed */
+typedef struct fk_frame {
+    uint32_t screen, render, ntris, nev;
+    int32_t ring, game_ring, slot, phase;
+} fk_frame;
+
+static uint32_t fk_hash_screen(const sa1_screen *s)
+{
+    uint32_t keep = g_det, h;
+    g_det = 2166136261u;
+    det_screen(s);
+    h = g_det;
+    g_det = keep;
+    return h;
+}
+
+static uint32_t fk_hash_render(const sa1_render *r)
+{
+    uint32_t keep = g_det, h, i;
+    g_det = 2166136261u;
+    det_render(r);
+    for (i = 0; i < r->num_draws; i++) {
+        det_add(r->draws[i].flags);
+        det_add((uint32_t)r->draws[i].archive);
+    }
+    h = g_det;
+    g_det = keep;
+    return h;
+}
+
+/* the game's ADV_SELWK.ring: *D_8C9613A4 -> awp (+0x2C) -> +0x18 */
+static int32_t fk_game_ring(const sa1g_world *w)
+{
+    uint32_t tp = wrd(w, 0x8C9613A4u), awp = tp ? wrd(w, tp + 0x2Cu) : 0u;
+    return awp ? (int32_t)wrd(w, awp + 0x18u) : -1;
+}
+
+/* mode 0: no change; 1: F1's skins and display sets; 2: Down at frame 230 (idle); 3: Up at frame 230 */
+static int fk_run(int mode, int32_t frames, fk_frame *out, ev_log *log)
+{
+    sa1_frontend *fe = fe_open(0u, 1, 0, 0xFFFFFFFFu);
+    sa1_frontend_input in;
+    sa1_skin_desc metal, mecha;
+    sa1fe_test_info ti;
+    int32_t f;
+    int ok = 1;
+    fk_skin(&metal, 0);
+    fk_skin(&mecha, 1);
+    if (fe == NULL) {
+        return 0;
+    }
+    memset(&in, 0, sizeof in);
+    in.struct_size = sizeof in;
+    log->n = 0;
+    for (f = 131; f < 131 + frames; f++) {
+        const sa1_screen *scr = NULL;
+        const sa1_render *r = NULL;
+        sa1_frontend_state st;
+        int32_t kind = 0;
+        uint32_t n0 = log->n;
+        in.buttons = 0u;
+        if (mode == 1) {
+            sa1_status s = SA1_OK;
+            if (f == 140) {
+                uint32_t k;
+                static const int32_t kinds[6] = { SA1_CHAR_SONIC, SA1_CHAR_TAILS, SA1_CHAR_KNUCKLES, SA1_CHAR_AMY, SA1_CHAR_GAMMA, SA1_CHAR_BIG };
+                for (k = 0; k < 6u; k++) {
+                    s = sa1_frontend_set_upgrade_models(fe, kinds[k], SA1_UPGRADE_MODELS_ON | SA1_UPGRADE_MODELS_ALL);
+                    if (s != SA1_OK) {
+                        printf("  set_upgrade_models(%d): %s\n", (int)kinds[k], sa1_last_error(g_ctx));
+                        ok = 0;
+                    }
+                }
+            }
+            if (f == 150) s = sa1_frontend_set_skin(fe, &metal);
+            if (f == 170) s = sa1_frontend_set_slot_skin(fe, 0, &mecha);
+            if (f == 190) s = sa1_frontend_set_slot_skin(fe, 0, NULL);
+            if (f == 200) s = sa1_frontend_set_upgrade_models(fe, SA1_CHAR_SONIC, SA1_UPGRADE_MODELS_ON | SA1_UPGRADE_LIGHT_SPEED_SHOES | SA1_UPGRADE_CRYSTAL_RING);
+            if (f == 230) s = sa1_frontend_set_upgrade_models(fe, SA1_CHAR_SONIC, 0u);
+            if (s != SA1_OK) {
+                printf("  frame %d: %s\n", (int)f, sa1_last_error(g_ctx));
+                ok = 0;
+            }
+        } else if ((mode == 2 && f == 230) || (mode == 3 && f == 230)) {
+            in.buttons = mode == 2 ? SA1_FRONTEND_B_DOWN : SA1_FRONTEND_B_UP;
+        }
+        if (!fe_tick1(fe, &in, f)) {
+            ok = 0;
+            break;
+        }
+        ev_collect(fe, log);
+        memset(&out[f - 131], 0, sizeof out[0]);
+        out[f - 131].nev = log->n - n0;
+        if (sa1_frontend_screen(fe, &scr) == SA1_OK && scr != NULL) {
+            out[f - 131].screen = fk_hash_screen(scr);
+        }
+        if (sa1_frontend_render(fe, &r, &kind) == SA1_OK && r != NULL) {
+            out[f - 131].render = fk_hash_render(r);
+            out[f - 131].ntris = r->num_triangles;
+        }
+        memset(&st, 0, sizeof st);
+        st.struct_size = sizeof st;
+        sa1_frontend_state_get(fe, &st);
+        out[f - 131].ring = st.ring;
+        out[f - 131].slot = st.slot;
+        out[f - 131].phase = st.phase;
+        sa1fe_test_get(fe, &ti);
+        out[f - 131].game_ring = fk_game_ring(ti.world);
+    }
+    if (mode == 1) {
+        CHECK(sa1_frontend_set_slot_skin(fe, 1, &metal) == SA1_ERR_UNSUPPORTED && sa1_frontend_set_slot_skin(fe, 7, NULL) == SA1_ERR_INVALID_ARGUMENT &&
+              sa1_frontend_set_upgrade_models(fe, SA1_CHAR_EGGMAN, 0u) == SA1_ERR_INVALID_ARGUMENT &&
+              sa1_frontend_set_upgrade_models(fe, SA1_CHAR_SONIC, SA1_UPGRADE_LIGHT_SPEED_SHOES) == SA1_ERR_INVALID_ARGUMENT,
+              "F1 a skin on another character's slot: SA1_ERR_UNSUPPORTED; slot 7, Eggman's upgrades, bits without SA1_UPGRADE_MODELS_ON: SA1_ERR_INVALID_ARGUMENT");
+    }
+    sa1_frontend_close(fe);
+    return ok;
+}
+
+static int fk_events_same(const ev_log *a, const ev_log *b)
+{
+    uint32_t i;
+    if (a->n != b->n) {
+        return 0;
+    }
+    for (i = 0; i < a->n; i++) {
+        if (a->ev[i].type != b->ev[i].type || a->ev[i].id != b->ev[i].id || a->ev[i].arg != b->ev[i].arg || a->ev[i].step != b->ev[i].step) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void case_skins(void)
+{
+    enum { N = 140 };
+    static fk_frame a[N], b[N];
+    static ev_log la, lb;
+    int32_t f, scr_diff = 0, ring_bad = 0, ring_moves = 0, shown_diff = 0, back_same = 0, skin_diff = 0, nev = 0;
+    if (!fk_run(0, N, a, &la) || !fk_run(1, N, b, &lb)) {
+        CHECK(0, "F1 the two runs");
+        return;
+    }
+    for (f = 0; f < N; f++) {
+        scr_diff += a[f].screen != b[f].screen || a[f].nev != b[f].nev;
+        ring_bad += a[f].ring != a[f].game_ring || b[f].ring != b[f].game_ring;
+        ring_moves += f > 0 && a[f].ring != a[f - 1].ring;
+        nev += (int32_t)a[f].nev;
+    }
+    for (f = 150 - 131 + 2; f < 190 - 131; f++) {
+        skin_diff += a[f].render != b[f].render;
+    }
+    for (f = 200 - 131 + 2; f < 230 - 131; f++) {
+        shown_diff += a[f].render != b[f].render || a[f].ntris != b[f].ntris;
+    }
+    for (f = 230 - 131 + 2; f < N; f++) {
+        back_same += a[f].render == b[f].render;
+    }
+    CHECK(scr_diff == 0 && fk_events_same(&la, &lb) && nev > 0, "F1 Sonic > Metal > Mecha > Sonic on slot 0 and every kind's display set: the 2D draws of all %d frames and the %u events the same as without (%d frames differ)",
+          N, (unsigned)la.n, (int)scr_diff);
+    CHECK(skin_diff >= 36, "F1 the skins drew in the circle: %d of 38 frames' 3D differ from Sonic's", (int)skin_diff);
+    CHECK(shown_diff >= 26, "F1 slot 0 with the Light Speed Shoes and the Crystal Ring shown: %d of 28 frames' 3D differ (their models)", (int)shown_diff);
+    CHECK(back_same >= N - (230 - 131 + 2) - 1, "F1 the display set back to 0: the game's 3D again (%d of %d frames the same)", (int)back_same, (int)(N - (230 - 131 + 2)));
+    CHECK(ring_bad == 0 && ring_moves > 20, "F1 sa1_frontend_state.ring is the game's ADV_SELWK.ring (+0x18) in every frame (%d off), and it moves (%d)", (int)ring_bad, (int)ring_moves);
+}
+
+static void case_idle_down(void)
+{
+    enum { N = 200 };
+    static fk_frame a[N], b[N], c[N];
+    static ev_log la, lb, lc;
+    int32_t f, diff_down = 0, diff_up = 0;
+    if (!fk_run(0, N, a, &la) || !fk_run(2, N, b, &lb) || !fk_run(3, N, c, &lc)) {
+        CHECK(0, "F2 the three runs");
+        return;
+    }
+    for (f = 0; f < N; f++) {
+        diff_down += a[f].screen != b[f].screen || a[f].render != b[f].render || a[f].ring != b[f].ring || a[f].slot != b[f].slot || a[f].phase != b[f].phase;
+        diff_up += a[f].screen != c[f].screen || a[f].render != c[f].render || a[f].ring != c[f].ring || a[f].slot != c[f].slot || a[f].phase != c[f].phase;
+    }
+    CHECK(diff_down == 0 && fk_events_same(&la, &lb), "F2 Down at idle (frame 230, phase %d) does nothing in the game (RM.5's method: what it draws): the 2D, the 3D, the slot, the phase and the ring of %d frames and every event the same as without (%d differ)",
+          (int)a[230 - 131].phase, N, (int)diff_down);
+    CHECK(diff_up == 0 && fk_events_same(&la, &lc), "F2 Up at idle the same: %d frames differ", (int)diff_up);
+}
+
 static int gate_closed(void)
 {
     double t0;
@@ -1802,6 +2041,8 @@ static const struct { const char *name; void (*fn)(void); } k_tests[] = {
     { "japanese", case_japanese },
     { "cost", case_cost },
     { "isolation", case_isolation },
+    { "skins", case_skins },            /* round 1.0.0-beta1, select F1 */
+    { "idle_down", case_idle_down },    /* round 1.0.0-beta1, select F2 */
 };
 
 static int selected(const char *only, const char *name)

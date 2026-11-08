@@ -1,6 +1,10 @@
 #include "common.h"
 #include "ninja.h"
 #include "sa1/sa1.h"
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_C4C2);
+#endif
 
 /*
  * 1ST_READ 8C0C4C2E-8C0C5220 (chunk 8C0C0640-8C0C5220, functions 6-9 of 9):
@@ -86,7 +90,7 @@ void func_8C0C4C2E(taskwk *twp, motionwk *mwp, playerwk *pwp)
     /* welds 10/11 and 22/23 (the original computes &[11] as &[10] + 1) */
     jvl = &KnucklesWeldList[10];
     jvr = &KnucklesWeldList[22];
-    switch (pwp->equipment & 0x60) {
+    switch (SA1_UPG_SHOWN(pwp->equipment) & 0x60) {
     case 0:
         D_8C356DD8->model = D_8C356DB0;
         D_8C3569DC->model = D_8C3569B4;

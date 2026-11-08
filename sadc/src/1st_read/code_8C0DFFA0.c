@@ -40,6 +40,10 @@
 #if !defined(TARGET_PC)
 #undef func_8C055EFE
 #endif
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_DFFA);
+#endif
 
 /* Big data (extern only) */
 extern CCL_INFO D_8C525BB4[];           /* Big's collision info (2 entries) */
@@ -567,7 +571,13 @@ void BigMain(task *tp)
     } else {
         D_8C529588->sibling = &D_8C526E8C;
     }
-    if (pwp->equipment & 0x800) {
+#if defined(SA1_GA)
+    if (sa1_upgdisp.on) {
+        /* the shown belt; the inflate morph above stays on the real bit (a belt shown without it never inflates) */
+        D_8C529588->sibling = (sa1_upgdisp.shown & 0x1000) ? Big_Life_Belt_Worn : &D_8C526E8C;
+    }
+#endif
+    if (SA1_UPG_SHOWN(pwp->equipment) & 0x800) {
         D_8C52AD1C->model = &D_8C532FD8;
         D_8C52AD1C->child = &D_8C5328CC;
     } else {

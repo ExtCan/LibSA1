@@ -29,6 +29,10 @@
 #include "common.h"
 #include "sa1/sa1.h"
 #include "sa1/protos.h"     /* func_8C0B27EE (Bool, Sint8 pno, NJS_OBJECT **), func_8C0AF012 */
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_A77B);
+#endif
 
 /* Super Sonic's object in the B_CHAOS7 overlay (config/symbols.b_chaos7.txt);
  * 1ST_READ refers to it by its absolute address. */
@@ -944,14 +948,14 @@ void SonicMain(task *tp)
     }
     PSetMotion(&pwp->mj);
     if (!(twp->flag & 0x100)) {
-        if ((Sint16)pwp->equipment & 2) {
+        if ((Sint16)SA1_UPG_SHOWN(pwp->equipment) & 2) {
             D_8C1C7D70->sibling = &Sonic_Left_Light_Speed_Shoe_Worn;
             D_8C1C8CA4->sibling = &Sonic_Right_Light_Speed_Shoe_Worn;
         } else {
             D_8C1C7D70->sibling = &D_8C1C7938;
             D_8C1C8CA4->sibling = &D_8C1C8888;
         }
-        if ((Sint16)pwp->equipment & 1) {
+        if ((Sint16)SA1_UPG_SHOWN(pwp->equipment) & 1) {
             D_8C1CAD20->sibling = &Sonic_Crystal_Ring_Worn;
         } else {
             D_8C1CAD20->sibling = &D_8C1CACEC;

@@ -20,6 +20,7 @@
 #include "sa1_internal.h"
 #include "sa1_api_world.h"
 #include "sa1_emote.h"
+#include "sa1_emote_ev.h"           /* round 100-EV: the cutscene animations (SA1_EMOTE_EVENT) */
 
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +28,12 @@
 /* the generated table uses the header's numbers */
 typedef char sa1em_class_check[(SA1_EMOTE_CLASS_SUPER == 14u && SA1_EMOTE_F_EXTRA == 0x20u &&
                                  SA1_EMOTE_F_OTHER_OBJECT == 0x10u && SA1_EMOTE_ROW == 0u && SA1_EMOTE_EXTRA == 1u)
+                                    ? 1
+                                    : -1];
+/* round 100-EV: the cutscene animations' numbers (sadc docs/research/gsa1_100_master.md 5.2) */
+typedef char sa1em_event_check[(SA1_EMOTE_EVENT == 2u && SA1_EMOTE_CLASS_EVENT == 15u && SA1_EMOTE_F_EVENT == 0x100u &&
+                                 SA1_EMOTE_F_ROOT_MOVES == 0x200u && SA1_EMOTE_F_LIFTED == 0x400u &&
+                                 SA1_EMOTE_F_RESTS_ON == 0x800u && SA1EM_F_LOOP < SA1_EMOTE_F_EVENT)
                                     ? 1
                                     : -1];
 
@@ -70,14 +77,46 @@ static int sa1em_loaded(const sa1_context *ctx, int32_t kind)
     return ctx != NULL && ctx->disc_loaded && kind >= 0 && kind < SA1_CHAR_COUNT && ctx->chars[kind].loaded;
 }
 
+/* round 100-EV: the cutscene animations of a (kind, form): after the rows and extras of the normal form only (kind 8 and
+   the General form have none: emotes_ev.md 2.3) */
+static const sa1ev_list *sa1em_events_of(int32_t kind, uint32_t form)
+{
+    return (form == SA1_EMOTE_FORM_NORMAL && kind != SA1_CHAR_SUPER_SONIC) ? sa1ev_list_of(kind) : NULL;
+}
+
 uint32_t sa1_emote_count(const sa1_context *ctx, int32_t kind, uint32_t form)
 {
     const sa1em_list *l;
+    const sa1ev_list *v;
     if (!sa1em_loaded(ctx, kind)) {
         return 0;
     }
     l = sa1em_list_of(kind, form);
-    return l != NULL ? l->count : 0u;
+    v = l != NULL ? sa1em_events_of(kind, form) : NULL;
+    return (l != NULL ? l->count : 0u) + (v != NULL ? v->count : 0u);
+}
+
+/* round 100-EV: an EVENT entry's catalogue fields (sadc docs/research/emotes_ev.md 3.2, 7.1) */
+static void sa1em_event_info(int32_t kind, uint32_t index, const sa1ev_entry *ev, sa1_emote_info *info)
+{
+    const sa1ev_file *f = ev->file < sa1ev_num_files ? &sa1ev_files[ev->file] : NULL;
+    (void)kind;
+    info->source = SA1_EMOTE_EVENT;
+    info->index = index;
+    info->internal_name = ev->name;
+    info->label = "";                   /* review RX.10: no SA Tools label ships */
+    info->emote_class = SA1_EMOTE_CLASS_EVENT;
+    info->flags = ev->flags;
+    info->frames = ev->frames;
+    info->play = ev->loop ? SA1_EMOTE_PLAY_LOOP : SA1_EMOTE_PLAY_ONCE;
+    info->dup_of = -1;
+    info->event = ev->event;
+    info->event_order = ev->order;
+    info->cast = f != NULL ? f->cast : 0u;
+    info->pace = ev->pace;
+    info->lift = ev->lift;
+    info->num_events = ev->num_events;
+    info->events = ev->events;
 }
 
 sa1_status sa1_emote_get(const sa1_context *ctx, int32_t kind, uint32_t form, uint32_t i, sa1_emote_info *out)
@@ -92,12 +131,22 @@ sa1_status sa1_emote_get(const sa1_context *ctx, int32_t kind, uint32_t form, ui
         return SA1_ERR_NOT_LOADED;
     }
     l = sa1em_list_of(kind, form);
-    if (l == NULL || i >= l->count) {
+    if (l == NULL) {
         return SA1_ERR_NOT_FOUND;
     }
-    e = &l->e[i];
     memset(&info, 0, sizeof info);
     info.struct_size = sizeof info;
+    if (i >= l->count) {
+        /* round 100-EV: the cutscene animations after the rows and extras */
+        const sa1ev_list *v = sa1em_events_of(kind, form);
+        if (v == NULL || i - l->count >= v->count) {
+            return SA1_ERR_NOT_FOUND;
+        }
+        sa1em_event_info(kind, i - l->count, &v->e[i - l->count], &info);
+        sa1_copy_out(out, &info, sizeof info);
+        return SA1_OK;
+    }
+    e = &l->e[i];
     info.source = e->source;
     info.index = e->index;
     info.internal_name = e->name;
@@ -146,7 +195,18 @@ static const char *sa1em_who(int32_t kind, uint32_t form)
 /* the name of an entry for a refusal: the (kind, form) list, else the kind's other list, else "row N" / "extra N" */
 static void sa1em_name(int32_t kind, uint32_t form, const sa1_emote_item *it, char *buf, size_t n)
 {
-    const sa1em_entry *e = sa1em_find(sa1em_list_of(kind, form), it->source, it->index, NULL);
+    const sa1em_entry *e;
+    if (it->source == SA1_EMOTE_EVENT) {
+        /* round 100-EV: the cutscene animations have the same names in every form ("ev0003_2") */
+        const sa1ev_entry *v = sa1ev_entry_of(kind == SA1_CHAR_SUPER_SONIC ? SA1_CHAR_SONIC : kind, it->index);
+        if (v != NULL) {
+            snprintf(buf, n, "%s", v->name);
+        } else {
+            snprintf(buf, n, "cutscene animation %u", (unsigned)it->index);
+        }
+        return;
+    }
+    e = sa1em_find(sa1em_list_of(kind, form), it->source, it->index, NULL);
     if (e == NULL && kind == SA1_CHAR_SONIC) {
         e = sa1em_find(sa1em_list_of(kind, form == SA1_EMOTE_FORM_SUPER ? SA1_EMOTE_FORM_NORMAL : SA1_EMOTE_FORM_SUPER),
                        it->source, it->index, NULL);
@@ -179,7 +239,7 @@ static sa1_status sa1em_syntax(sa1_context *ctx, const sa1_emote *e)
     }
     for (i = 0; i < e->count; i++) {
         const sa1_emote_item *it = &e->items[i];
-        if (it->source != SA1_EMOTE_ROW && it->source != SA1_EMOTE_EXTRA) {
+        if (it->source != SA1_EMOTE_ROW && it->source != SA1_EMOTE_EXTRA && it->source != SA1_EMOTE_EVENT) {
             return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "sa1_character_emote: item %u: source %u", (unsigned)i,
                             (unsigned)it->source);
         }
@@ -238,6 +298,14 @@ sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_
     }
 #if defined(SA1_NO_WORLD)
     for (i = 0; i < emote->count; i++) {
+        if (emote->items[i].source == SA1_EMOTE_EVENT) {
+            if (sa1ev_entry_of(kind, emote->items[i].index) == NULL) {
+                char nm[64];
+                sa1em_name(kind, SA1_EMOTE_FORM_NORMAL, &emote->items[i], nm, sizeof nm);
+                return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "%s is not available for %s", nm, sa1em_who(kind, 0));
+            }
+            continue;
+        }
         if (sa1em_find(sa1em_list_of(kind, SA1_EMOTE_FORM_NORMAL), emote->items[i].source, emote->items[i].index, NULL) ==
                 NULL &&
             sa1em_find(sa1em_list_of(kind, SA1_EMOTE_FORM_SUPER), emote->items[i].source, emote->items[i].index, NULL) ==
@@ -251,8 +319,9 @@ sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_
 #else
     {
         struct sa1g_world *w = NULL;
-        uint32_t form = SA1_EMOTE_FORM_NORMAL;
+        uint32_t form = SA1_EMOTE_FORM_NORMAL, nev = 0, bytes = 0;
         const sa1em_list *l;
+        const sa1em_motion_block *blocks[SA1_EMOTE_MAX_ITEMS];
         char why[SA1EM_WHY_MAX];
         st = sa1w_character_world_ensure(ctx, id, &w);
         if (SA1_FAILED(st) || w == NULL) {
@@ -261,12 +330,48 @@ sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_
         sa1em_flush_note(ctx, w);
         sa1em_world_form(w, &kind, &form);
         l = sa1em_list_of(kind, form);
+        memset((void *)blocks, 0, sizeof blocks);
         for (i = 0; i < emote->count; i++) {
-            if (sa1em_find(l, emote->items[i].source, emote->items[i].index, NULL) == NULL) {
+            const sa1_emote_item *it = &emote->items[i];
+            if (it->source == SA1_EMOTE_EVENT) {
+                /* round 100-EV: a cutscene animation, loaded first (sa1_emote_event_load); the normal form only */
+                const sa1ev_list *v = l != NULL ? sa1em_events_of(kind, form) : NULL;
+                const sa1em_motion_block *b;
+                sa1_status bs;
+                uint32_t j, dup = 0;
+                if (v == NULL || it->index >= v->count) {
+                    char nm[64];
+                    sa1em_name(kind, form, it, nm, sizeof nm);
+                    return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "%s is not available for %s", nm, sa1em_who(kind, form));
+                }
+                b = sa1ev_block(ctx, kind, it->index, &bs, why, sizeof why);
+                if (b == NULL) {
+                    if (bs == SA1_ERR_NOT_LOADED) {
+                        /* the host loads it and asks again (G-SA1 does this without a visible wait): a normal answer */
+                        return sa1_refuse(ctx, SA1_ERR_NOT_LOADED, SA1_LOG_DEBUG, "the cutscene animation %s is not loaded yet",
+                                          v->e[it->index].name);
+                    }
+                    /* review RX.6: the loader kept the reason on its thread; it is reported here, on the game thread */
+                    return sa1_fail(ctx, bs, "%s", why[0] ? why : "the cutscene animation cannot be read");
+                }
+                for (j = 0; j < i; j++) {
+                    dup |= blocks[j] == b;
+                }
+                if (!dup) {
+                    bytes += (b->size + 15u) & ~15u;
+                }
+                blocks[i] = b;
+                nev++;
+                continue;
+            }
+            if (sa1em_find(l, it->source, it->index, NULL) == NULL) {
                 char nm[64];
-                sa1em_name(kind, form, &emote->items[i], nm, sizeof nm);
+                sa1em_name(kind, form, it, nm, sizeof nm);
                 return sa1_fail(ctx, SA1_ERR_INVALID_ARGUMENT, "%s is not available for %s", nm, sa1em_who(kind, form));
             }
+        }
+        if (bytes > SA1EM_SLAB_SIZE) {
+            return sa1_refuse(ctx, SA1_ERR_LIMIT, SA1_LOG_WARN, "the emote is too long");
         }
         st = sa1em_world_check(w, emote, 0, why, sizeof why);
         if (SA1_FAILED(st)) {
@@ -283,7 +388,10 @@ sa1_status sa1_character_emote(sa1_context *ctx, sa1_character_id id, const sa1_
             return sa1_fail(ctx, st, "%s", why[0] ? why : "busy");
         }
         /* SA1_PARTIAL: the world has not run its first pair (no player, or jvmode not 1 yet): checked at the pair start */
-        st = sa1em_world_latch(ctx, w, emote, st == SA1_PARTIAL);
+        st = nev ? sa1em_world_latch_ev(ctx, w, emote, st == SA1_PARTIAL, blocks) : sa1em_world_latch(ctx, w, emote, st == SA1_PARTIAL);
+        if (st == SA1_ERR_LIMIT) {
+            return sa1_refuse(ctx, st, SA1_LOG_WARN, "the emote is too long");
+        }
         if (st != SA1_OK) {
             return sa1_fail(ctx, st, "sa1_character_emote: no room for the emote's state in the world");
         }

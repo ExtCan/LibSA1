@@ -1,0 +1,5 @@
+# args: --level 1 --act 0 --chr 3 --no-objects --create-task 8C062640:2:3@0,-24.35,0+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): O RELEASE under the
+# character's start, its button at the feet (prep100/capsule chain_level1.txt): the press on landing, the chain and
+# the character's own clear pose.
+600 0 0

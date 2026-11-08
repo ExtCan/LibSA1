@@ -4228,6 +4228,23 @@ static void test_fem3(void)
 }
 
 /* --long: every catalogue entry of each kind on a follower */
+/* round 100-EV: the rows and extras of a list - sa1_emote_count less the cutscene animations at its end (SA1_EMOTE_EVENT:
+   loaded from the disc before they play; libsa1's emote_test T3 / T7 play them) */
+static uint32_t emote_base_count(const sa1_context *c, int32_t kind, uint32_t form)
+{
+    uint32_t n = sa1_emote_count(c, kind, form);
+    while (n > 0) {
+        sa1_emote_info info;
+        memset(&info, 0, sizeof info);
+        info.struct_size = sizeof info;
+        if (sa1_emote_get(c, kind, form, n - 1u, &info) != SA1_OK || info.source != SA1_EMOTE_EVENT) {
+            break;
+        }
+        n--;
+    }
+    return n;
+}
+
 static void test_fem4(void)
 {
     int ki;
@@ -4237,7 +4254,7 @@ static void test_fem4(void)
     set_ground();
     for (ki = 0; ki < 6; ki++) {
         sa1_character_id L = leader_new(SA1_CHAR_SONIC, 0.0f, 12.0f, 0.0f), F = follower_new(k_kinds[ki], L, SA1_FOLLOW_NO_SET);
-        uint32_t n = sa1_emote_count(g_ctx, k_kinds[ki], 0u), i, took = 0, refused = 0;
+        uint32_t n = emote_base_count(g_ctx, k_kinds[ki], 0u), i, took = 0, refused = 0;
         stats st;
         memset(&st, 0, sizeof st);
         pairs_of(L, F, 240u, 0.0f, &st);

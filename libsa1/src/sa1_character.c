@@ -22,6 +22,7 @@
 #include "sa1_preview.h"    /* round 0.9.4b: sa1pv_destroy_all (the object showcases) */
 #include "sa1_question.h"   /* round 0.9.9: SA1_CREATE_QUESTION */
 #include "sa1_skin.h"       /* round 0.9.9f: SA1_CREATE_SKIN */
+#include "sa1_emote_ev.h"   /* round 100-EV: the cutscene poses' lift (SA1_COPT_EMOTE_LIFT) */
 
 #include <stddef.h>
 #include <stdio.h>
@@ -314,6 +315,8 @@ typedef struct sa1_char {
     int32_t rdrawn[2];              /* rpos / ryaw are the drawn step's root (else the state after the pair) */
     uint32_t rgen;                  /* sa1_render.generation */
     sa1_rinfo rinfo[2];             /* per rb */
+    float rlift[2];                 /* round 100-EV: per rb, the cutscene lift drawn in that pair (SA1 units; 0 in every
+                                       reference world: SA1_COPT_EMOTE_LIFT is a host option) */
     double acc;                     /* seconds of dt that did not make a whole pair yet (alpha < 0) */
     sa1_meshbuf rpose;              /* draws of the CPU pose geometry */
     sa1_meshbuf rshadow;            /* the blob shadow of a hidden pair, drawn with the CPU pose (rshadow_on) */
@@ -526,6 +529,7 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
     uint32_t slot, k;
     sa1_character_id id;
     sa1_status st;
+    struct sa1k_state *skin_q = NULL;   /* round 1.0.0-beta1: the skin this character wears */
     if (!ctx || !out_id || !desc_in || desc_in->struct_size < offsetof(sa1_character_desc, position))
         return SA1_ERR_INVALID_ARGUMENT;
     *out_id = 0;
@@ -606,8 +610,8 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
             return st;
     }
     if (d.flags & SA1_CREATE_SKIN) {
-        /* the same for a skin: its model and its textures */
-        st = sa1k_load(ctx, d.skin);
+        /* the same for a skin: its model and its textures (round 1.0.0-beta1: one of up to SA1_SKINS_MAX, by its identity) */
+        st = sa1k_load(ctx, d.skin, &skin_q);
         if (st != SA1_OK)
             return st;
     }
@@ -629,7 +633,7 @@ static sa1_status char_create(sa1_context *ctx, const sa1_character_desc *desc_i
     ch->inst.kind = d.kind;
     ch->create_flags = d.flags;
     if (d.flags & SA1_CREATE_SKIN) {
-        st = sa1k_char_new(ctx, SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_GLOW, &ch->skin);
+        st = sa1k_char_new(ctx, skin_q, SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_GLOW | SA1_SKIN_ANIM_TRAIL, &ch->skin);
         if (st != SA1_OK) {
             sa1_mem_free(ctx, ch);
             return st;
@@ -1007,6 +1011,9 @@ static void state_of(const sa1_context *ctx, const sa1_char *ch, sa1_state_ex *x
             x->water_level = hp[0] * hu[0] + hp[1] * hu[1] + hp[2] * hu[2];
         }
     }
+    /* round 100-EV: the cutscene lift being added to the body's draws (SA1 units) */
+    if (!faulted && ch->world)
+        x->emote_lift = sa1ev_lift_of(ctx, &ch->inst, ch->world);
 #endif
 }
 
@@ -1829,6 +1836,11 @@ static sa1_status render_capture(sa1_context *ctx, sa1_char *ch)
         sa1_meshbuf_geometry(&ch->rb[nxt], g);
     }
     pair_info(cs, ch, nxt);
+#if !defined(SA1_NO_WORLD)
+    ch->rlift[nxt] = sa1ev_lift_of(ctx, &ch->inst, ch->world);     /* round 100-EV (host deviation D-EV1) */
+#else
+    ch->rlift[nxt] = 0.0f;
+#endif
     if (o.skin) {
         ch->rinfo[nxt].skin = ch->skin;
         ch->rinfo[nxt].skin_fly = sa1k_flying(ch->skin);
@@ -3550,6 +3562,35 @@ static sa1_status render_build(sa1_context *ctx, sa1_char *ch, float alpha, cons
     }
     if (nd)
         memcpy(o->draws, src.draws, nd * sizeof(sa1_draw));
+    if (cur != NULL) {
+        /* round 100-EV (sadc docs/research/emotes_ev.md 3.7, host deviation D-EV1, render only): a lifted cutscene pose -
+           the body's triangles (not the blob shadow, effects, game objects, the board; not sprites or lines) up by the
+           pair's lift, interpolated like the pose; 0 in every reference world */
+        float lift = lerp_ok ? ch->rlift[ch->rcur ^ 1] + (ch->rlift[ch->rcur] - ch->rlift[ch->rcur ^ 1]) * alpha
+                             : ch->rlift[ch->rcur];
+        if (lift != 0.0f) {
+            float a0[3] = { 0.0f, 0.0f, 0.0f }, a1[3] = { 0.0f, 0.0f, 0.0f }, h0[3], h1[3], d[3];
+            a1[1] = lift;
+            sa1_to_host_point(ctx, a0, h0);
+            sa1_to_host_point(ctx, a1, h1);
+            for (k = 0; k < 3; k++)
+                d[k] = h1[k] - h0[k];
+            for (i = 0; i < nd; i++) {
+                const sa1_draw *dr = &o->draws[i];
+                if (dr->prim != SA1_PRIM_TRIANGLES ||
+                    (dr->flags & (SA1_DRAW_EFFECT | SA1_DRAW_SHADOW | SA1_DRAW_OBJECT | SA1_DRAW_BOARD)))
+                    continue;
+                for (t = dr->first; t < dr->first + dr->count && t < nt; t++) {
+                    uint32_t q;
+                    for (q = 0; q < 3u; q++) {
+                        o->pos[9u * t + 3u * q + 0u] += d[0];
+                        o->pos[9u * t + 3u * q + 1u] += d[1];
+                        o->pos[9u * t + 3u * q + 2u] += d[2];
+                    }
+                }
+            }
+        }
+    }
     if (xs) {
         /* a hidden pair: the CPU pose, then the blob shadow the game drew (render_capture), in that order */
         uint32_t ord = 0;

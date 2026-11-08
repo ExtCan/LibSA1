@@ -80,6 +80,22 @@
  * README line: "Emote wheel: an animation that ends in a pose (the victory pose and others) now holds its last frame until
  *   you move, jump, press the action button or pick another animation (option 'Hold the last pose', per slot)."
  * ------------------------------------------------------------------------------------------------------------------------
+ *
+ * ---- API NOTES (round 100-EV, G-SA1 1.0.0-beta1; sadc docs/research/emotes_ev.md 7.1, 10.1): the cutscene animations ----
+ * Header: libsa1.h "cutscene animations" (SA1_API_EMOTE_EVENT 1): SA1_EMOTE_EVENT 2 (3 reserved: SA1_EMOTE_MOTION),
+ *   SA1_EMOTE_CLASS_EVENT 15, SA1_EMOTE_F_EVENT / ROOT_MOVES / LIFTED / RESTS_ON 0x100 / 0x200 / 0x400 / 0x800,
+ *   sa1_emote_info.event / event_order / cast / pace / lift / num_events / events (after dup_of), sa1_emote_event_load
+ *   (any thread), sa1_emote_event_ready, SA1_COPT_EMOTE_LIFT 10 (routed in src/sa1_hostobj.c), sa1_state_ex.emote_lift.
+ * The normal lists of the six end with their cutscene animations (Sonic 107 + 80, Tails 140 + 65, Knuckles 122 + 35, Amy
+ *   105 + 88, E-102 89 + 31, Big 96 + 35; kind 8 and the General form: none); index = the place among them. E2, E12 and
+ *   E22 test the rows and extras (base_count); T1-T7 and T9 (ev_*) the cutscene animations; T8 is the LIB gate.
+ * Tests: T1 ev_catalogue, T2 ev_loader, T3 ev_play_all, T4 ev_identity, T5 ev_copy (the world's copy of the motion equals
+ *   the disc's, key by key: in place of the plan's pose comparison), T6 ev_bridges, T7 ev_follower, T9 ev_lift.
+ * Round r1-fix-ev (the verifier r1-verify-ev's findings): Knuckles 35 (his six EV016A / EV016B animations are his wheel's
+ *   extras k_item_c0..2 / k_item_fg0..2 key for key: 334 in all); T2 also checks in a world of each kind that no cutscene
+ *   animation is a copy of a row or extra of its wheel, and that a failed read leaves sa1_last_error as it was; T9 checks the
+ *   lift refined at load with the welded CPU pose (the block's lift) and the drawn body's lowest point against the stand's.
+ * ------------------------------------------------------------------------------------------------------------------------
  */
 #include <math.h>
 #include <stddef.h>
@@ -93,6 +109,7 @@
 #include "sa1_world.h"
 #include "sa1_api_world.h"
 #include "sa1_emote.h"
+#include "sa1_emote_ev.h"  /* round 100-EV: the cutscene animations' catalogue (T1-T9) */
 #include "sa1_hostobj.h"    /* sa1ho_world_heap: the game heap */
 #include "test_util.h"
 #include "guard_alloc.c"    /* SA1_GUARD_ALLOC=1 or --guard-alloc: every library heap block against a guard page */
@@ -109,6 +126,7 @@
 static int g_fail, g_ok, g_verbose, g_faults;
 static const char *g_gdi;
 static const char *g_tsv;
+static const char *g_lift_out;      /* round r1-fix-ev: --measure-lift FILE */
 
 #define CHECK(cond, ...)                                                                                                \
     do {                                                                                                                \
@@ -385,6 +403,22 @@ static sa1_status emote_row(sa1_context *ctx, sa1_character_id id, uint32_t row,
     return emote_ex(ctx, id, 1, &s, &row, play, flags, -1);
 }
 
+/* round 100-EV: the rows and extras of a list - sa1_emote_count less the cutscene animations after them (E2, E12, E22 are
+   the rows' and extras' tests; T1-T9 below the cutscene animations') */
+static uint32_t base_count(sa1_context *ctx, int32_t kind, uint32_t form)
+{
+    uint32_t n = sa1_emote_count(ctx, kind, form), i;
+    for (i = 0; i < n; i++) {
+        sa1_emote_info info;
+        memset(&info, 0, sizeof info);
+        info.struct_size = sizeof info;
+        if (sa1_emote_get(ctx, kind, form, i, &info) == SA1_OK && info.source == SA1_EMOTE_EVENT) {
+            return i;
+        }
+    }
+    return n;
+}
+
 static void winfo(sa1_context *ctx, sa1_character_id id, sa1em_world_info *i)
 {
     sa1em_world_info_get(sa1_character_world(ctx, id), i);
@@ -628,7 +662,7 @@ static void t_catalogue(sa1_context *ctx)
     printf("== E2 catalogue: every entry of every list plays without a fault (one item, NO_TRAIL)\n");
     for (li = 0; li < sizeof k_cat / sizeof k_cat[0]; li++) {
         const cat_list *L = &k_cat[li];
-        uint32_t n = sa1_emote_count(ctx, L->kind, L->form), i, ok = 0, bad = 0, late = 0, arch_bad = 0, mode_bad = 0;
+        uint32_t n = base_count(ctx, L->kind, L->form), i, ok = 0, bad = 0, late = 0, arch_bad = 0, mode_bad = 0;
         uint32_t stand_mode = L->kind == SA1_CHAR_SUPER_SONIC ? 71u : 1u;
         uint32_t want_arch = L->kind == SA1_CHAR_SUPER_SONIC ? 1u : (L->how & MK_GENERAL) ? (1u << 5) : 0u;
         sa1_character_id id = mk(ctx, L->kind, 0.5f, L->how);
@@ -1514,7 +1548,7 @@ static void t_list(sa1_context *ctx)
         const cat_list *L = &k_cat[li];
         static tsv_e T[256];
         int nt = tsv_list(L->kind, L->form, T, 256);
-        uint32_t n = sa1_emote_count(ctx, L->kind, L->form), i, j, name_bad = 0, frames_bad = 0, dup_bad = 0, extras = 0;
+        uint32_t n = base_count(ctx, L->kind, L->form), i, j, name_bad = 0, frames_bad = 0, dup_bad = 0, extras = 0;
         uint32_t (*dk)[2] = (uint32_t(*)[2])calloc(n ? n : 1u, sizeof *dk);
         sa1_character_id id = mk(ctx, L->kind, 0.5f, L->how);
         sa1g_world *w;
@@ -2712,7 +2746,7 @@ static void t_hold_catalogue(sa1_context *ctx)
     printf("== E22 hold_catalogue: every once entry of every list with HOLD: held on its motion's last frame, no fault\n");
     for (li = 0; li < sizeof k_cat / sizeof k_cat[0]; li++) {
         const cat_list *L = &k_cat[li];
-        uint32_t n = sa1_emote_count(ctx, L->kind, L->form), i, once = 0, ok = 0, bad = 0, nb_diff = 0;
+        uint32_t n = base_count(ctx, L->kind, L->form), i, once = 0, ok = 0, bad = 0, nb_diff = 0;
         sa1_character_id id = mk(ctx, L->kind, 0.5f, L->how);
         sa1g_world *w;
         char first_bad[160] = "";
@@ -2795,6 +2829,1159 @@ static void t_hold_catalogue(sa1_context *ctx)
     }
 }
 
+/* ==== round 100-EV (G-SA1 1.0.0-beta1; sadc docs/research/emotes_ev.md 10.1): the cutscene animations ================== */
+static const struct {
+    int32_t kind;
+    uint32_t want;
+} k_ev_want[6] = { { SA1_CHAR_SONIC, 80 }, { SA1_CHAR_TAILS, 65 }, { SA1_CHAR_KNUCKLES, 35 },
+                   { SA1_CHAR_AMY, 88 },   { SA1_CHAR_GAMMA, 31 }, { SA1_CHAR_BIG, 35 } };
+
+static int ev_find(int32_t kind, const char *name)
+{
+    const sa1ev_list *l = sa1ev_list_of(kind);
+    uint32_t i;
+    for (i = 0; l != NULL && i < l->count; i++) {
+        if (strcmp(l->e[i].name, name) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static sa1_status emote_ev(sa1_context *ctx, sa1_character_id id, uint32_t idx, int32_t play, uint32_t flags, float speed)
+{
+    sa1_emote e;
+    memset(&e, 0, sizeof e);
+    e.struct_size = sizeof e;
+    e.count = 1;
+    e.items[0].source = SA1_EMOTE_EVENT;
+    e.items[0].index = idx;
+    e.items[0].play = play;
+    e.items[0].speed = speed;
+    e.link = -1;
+    e.flags = flags;
+    return sa1_character_emote(ctx, id, &e);
+}
+
+/* asked again each pair for up to 60 pairs while the character is not ready ("busy", "moving") */
+static sa1_status emote_ev_ready(sa1_context *ctx, sa1_character_id id, uint32_t idx, int32_t play, uint32_t flags, float speed)
+{
+    sa1_status st = SA1_ERR_UNSUPPORTED;
+    int t;
+    for (t = 0; t < 60; t++) {
+        st = emote_ev(ctx, id, idx, play, flags, speed);
+        if (st != SA1_ERR_UNSUPPORTED) {
+            break;
+        }
+        tick(ctx, id, 0, 0, 0);
+    }
+    return st;
+}
+
+/* the queue head's motion (guest), 0: none */
+static uint32_t qhead_motion(const sa1g_world *w)
+{
+    uint32_t e = ewp0(w), node;
+    if (!arena(e)) {
+        return 0;
+    }
+    node = rd32(w, e + E_LIST40);
+    return arena(node) ? rd32(w, node + N_MOTION) : 0u;
+}
+
+/* ---- T1 ev_catalogue ------------------------------------------------------------------------------------------------------- */
+static void t_ev_catalogue(sa1_context *ctx)
+{
+    uint32_t k, total = 0, names_bad = 0, events_bad = 0, api_bad = 0, count_bad = 0, files_bad = 0, i, j;
+    char counts[160] = "";
+    printf("== T1 ev_catalogue: the cutscene animations' catalogue (per kind counts, unique names, events, files, the API)\n");
+    for (k = 0; k < 6u; k++) {
+        const sa1ev_list *l = sa1ev_list_of(k_ev_want[k].kind);
+        uint32_t n = l != NULL ? l->count : 0u, base = base_count(ctx, k_ev_want[k].kind, SA1_EMOTE_FORM_NORMAL);
+        uint32_t all = sa1_emote_count(ctx, k_ev_want[k].kind, SA1_EMOTE_FORM_NORMAL);
+        size_t cl = strlen(counts);
+        snprintf(counts + cl, sizeof counts - cl, "%s%s %u", k ? ", " : "", k_kinds[k_ev_want[k].kind], (unsigned)n);
+        total += n;
+        count_bad += n != k_ev_want[k].want || all != base + n;
+        for (i = 0; i < n; i++) {
+            const sa1ev_entry *e = &l->e[i];
+            sa1_emote_info info;
+            int has = 0;
+            for (j = 0; j < i; j++) {
+                names_bad += strcmp(l->e[j].name, e->name) == 0;
+            }
+            for (j = 0; j < e->num_events; j++) {
+                has |= e->events[j] == e->event;
+                events_bad += j > 0 && e->events[j] <= e->events[j - 1];
+            }
+            events_bad += !has || e->file >= sa1ev_num_files || sa1ev_files[e->file].event != e->event ||
+                          sa1ev_file_of(e->event) != &sa1ev_files[e->file] || !(e->flags & SA1_EMOTE_F_EVENT);
+            memset(&info, 0, sizeof info);
+            info.struct_size = sizeof info;
+            if (sa1_emote_get(ctx, k_ev_want[k].kind, SA1_EMOTE_FORM_NORMAL, base + i, &info) != SA1_OK ||
+                info.source != SA1_EMOTE_EVENT || info.index != i || strcmp(info.internal_name, e->name) != 0 ||
+                info.label == NULL || info.label[0] != 0 || info.emote_class != SA1_EMOTE_CLASS_EVENT ||
+                info.flags != e->flags || info.frames != e->frames || info.event != e->event ||
+                info.event_order != e->order || info.pace != e->pace || info.lift != e->lift ||
+                info.num_events != e->num_events || info.events != e->events || info.dup_of != -1 ||
+                info.play != (e->loop ? SA1_EMOTE_PLAY_LOOP : SA1_EMOTE_PLAY_ONCE) ||
+                (info.cast & (1u << (uint32_t)k_ev_want[k].kind)) == 0u) {
+                api_bad++;
+            }
+        }
+    }
+    for (i = 0; i < sa1ev_num_files; i++) {
+        const sa1ev_file *f = &sa1ev_files[i];
+        files_bad += strlen(f->sha1) != 40u || strspn(f->sha1, "0123456789abcdef") != 40u || f->image_size == 0u ||
+                     f->image_size > (1u << 20) || f->prs_size == 0u || (i > 0 && f->event <= sa1ev_files[i - 1].event);
+    }
+    CHECK(total == 334u && count_bad == 0, "334 cutscene animations (%s), each list = its rows and extras + them", counts);
+    CHECK(names_bad == 0 && events_bad == 0 && files_bad == 0,
+          "names unique per kind (%u clashes); every event a file row, every events list ascending with its event (%u bad); "
+          "%u file rows of 40-hex SHA-1, sizes, ascending (%u bad)", (unsigned)names_bad, (unsigned)events_bad,
+          (unsigned)sa1ev_num_files, (unsigned)files_bad);
+    CHECK(api_bad == 0, "sa1_emote_get gives them after the rows and extras: source 2, class 15, the table's fields, no "
+          "label (%u bad)", (unsigned)api_bad);
+    {
+        int ix = ev_find(SA1_CHAR_SONIC, "ev0003_2");
+        const sa1ev_entry *e = ix >= 0 ? &sa1ev_list_of(SA1_CHAR_SONIC)->e[ix] : NULL;
+        CHECK(e != NULL && e->event == 3u && e->order == 2u && e->action == 0x0CB84D54u && e->motion == 0x0CB84D48u &&
+                  e->frames == 30u && e->bytes == 6636u && fabsf(e->pace - 0.7f) < 1e-6f && e->lift > 1.5f && e->lift < 1.8f &&
+                  e->loop && (e->flags & SA1_EMOTE_F_LIFTED) && !(e->flags & SA1_EMOTE_F_ROOT_MOVES),
+              "the owner's example ev0003_2 (Sonic %d): EV0003 #2, NJS_ACTION 0CB84D54, motion 0CB84D48, 30 frames, 6,636 "
+              "bytes, pace 0.7, lift %.2f, looped", ix, e ? (double)e->lift : 0.0);
+    }
+    CHECK(sa1_emote_count(ctx, SA1_CHAR_SUPER_SONIC, 0) == base_count(ctx, SA1_CHAR_SUPER_SONIC, 0) &&
+              sa1_emote_count(ctx, SA1_CHAR_SONIC, SA1_EMOTE_FORM_SUPER) == base_count(ctx, SA1_CHAR_SONIC, SA1_EMOTE_FORM_SUPER) &&
+              sa1ev_list_of(SA1_CHAR_EGGMAN) == NULL && sa1ev_list_of(SA1_CHAR_TIKAL) == NULL,
+          "none for kind 8, the General form, Eggman and Tikal");
+}
+
+/* ---- round r1-fix-ev: no cutscene animation is a copy of its wheel's rows and extras --------------------------------------- */
+/* FNV-1a of a motion's content as the generator's hash takes it (nbFrame, type and inp_fn, then per node and channel with
+   keys: the node, the channel, the count and every key word); `rd` reads a word of the motion at an offset or address */
+typedef uint32_t (*mot_rd_fn)(const void *src, uint32_t a);
+
+static uint32_t mot_rd_world(const void *src, uint32_t a)
+{
+    return rdx32((const sa1g_world *)src, a);
+}
+
+static uint32_t mot_rd_block(const void *src, uint32_t a)
+{
+    const sa1em_motion_block *b = (const sa1em_motion_block *)src;
+    return (uint64_t)a + 4u <= b->size ? sa1_rd32(b->data + a) : 0u;
+}
+
+static uint64_t mot_fnv(mot_rd_fn rd, const void *src, uint32_t mot, uint32_t nodes)
+{
+    uint64_t h = 1469598103934665603ull;
+    uint32_t md = rd(src, mot), nf = (rd(src, mot + 8u) >> 16) & 0xFu, i, k, j, v[3];
+    int b;
+#define MOT_FNV(x) do { uint32_t x_ = (x); for (b = 0; b < 4; b++) { h ^= (x_ >> (8 * b)) & 0xFFu; h *= 1099511628211ull; } } while (0)
+    MOT_FNV(rd(src, mot + 4u));
+    MOT_FNV(rd(src, mot + 8u));
+    if (nf < 1u || nf > 3u) {
+        return 0;
+    }
+    for (i = 0; i < nodes; i++) {
+        for (k = 0; k < nf; k++) {
+            v[0] = rd(src, md + 8u * nf * i + 4u * k);
+            v[1] = rd(src, md + 8u * nf * i + 4u * (nf + k));
+            if (v[0] == 0u || v[1] == 0u) {
+                continue;
+            }
+            MOT_FNV(i);
+            MOT_FNV(k);
+            MOT_FNV(v[1]);
+            for (j = 0; j < 4u * v[1]; j++) {
+                MOT_FNV(rd(src, v[0] + 4u * j));
+            }
+        }
+    }
+#undef MOT_FNV
+    return h;
+}
+
+/* after every entry is loaded: per kind, in a world of it, the content of every loaded cutscene animation against the
+   motions of the rows and extras its wheel offers on the main body; none equal (the verifier's finding: Knuckles had six) */
+static void ev_no_copies(sa1_context *ctx)
+{
+    uint32_t k, i, j, compared = 0, entries = 0, copies = 0;
+    char first[160] = "";
+    for (k = 0; k < 6u; k++) {
+        int32_t kind = k_ev_want[k].kind;
+        const sa1ev_list *l = sa1ev_list_of(kind);
+        uint32_t base = base_count(ctx, kind, SA1_EMOTE_FORM_NORMAL), nodes = l->e[0].nodes, ng = 0;
+        uint32_t body0 = sa1ev_body(kind, 0) & 0x1FFFFFFFu;
+        uint64_t *gh = (uint64_t *)calloc(base + 1u, sizeof(uint64_t));
+        sa1_character_id id = mk(ctx, kind, 0.5f, 0);
+        sa1g_world *w;
+        run(ctx, id, 8);
+        w = sa1_character_world(ctx, id);
+        for (i = 0; gh != NULL && w != NULL && i < base; i++) {
+            sa1_emote_info in;
+            uint32_t obj = 0, mot = 0;
+            memset(&in, 0, sizeof in);
+            in.struct_size = sizeof in;
+            if (sa1_emote_get(ctx, kind, SA1_EMOTE_FORM_NORMAL, i, &in) != SA1_OK) {
+                continue;
+            }
+            drawn_of(w, kind, &in, &obj, &mot);
+            if (obj != body0 || mot == 0u) {
+                continue;
+            }
+            gh[ng++] = mot_fnv(mot_rd_world, w, mot | 0x0C000000u, nodes);
+        }
+        compared += ng;
+        for (i = 0; gh != NULL && i < l->count; i++) {
+            sa1_status bs = SA1_OK;
+            const sa1em_motion_block *b = sa1ev_block(ctx, kind, i, &bs, NULL, 0);
+            uint64_t eh;
+            if (b == NULL) {
+                continue;
+            }
+            entries++;
+            eh = mot_fnv(mot_rd_block, b, 0u, b->nodes);
+            for (j = 0; j < ng; j++) {
+                if (gh[j] != 0u && gh[j] == eh) {
+                    copies++;
+                    if (!first[0]) {
+                        snprintf(first, sizeof first, "%s %s", k_kinds[kind], l->e[i].name);
+                    }
+                    break;
+                }
+            }
+        }
+        free(gh);
+        sa1_character_destroy(ctx, id);
+    }
+    CHECK(entries == 334u && compared > 0u && copies == 0u,
+          "in a world of each kind, none of the %u loaded cutscene animations is a copy of the %u rows and extras its wheel "
+          "offers on the main body (%u copies%s%s)", (unsigned)entries, (unsigned)compared, (unsigned)copies,
+          first[0] ? "; first: " : "", first);
+}
+/* ---- T2 ev_loader ---------------------------------------------------------------------------------------------------------- */
+/* a second context's file callback: 0 passes, 1 flips the byte after the signature (one cutscene file's first 32 bytes, read
+   from the disc at test time, kept in memory only), 2 fails the read that holds it */
+static struct {
+    uint8_t sig[32];
+    int mode;
+    uint32_t hits;
+} g_evcb;
+
+static int32_t ev_cb_read(void *user, void *file, uint64_t off, void *buf, size_t size)
+{
+    int32_t r = sa1_stdio_read(user, file, off, buf, size);
+    if (r == 0 && g_evcb.mode != 0 && size >= sizeof g_evcb.sig + 1u) {
+        const uint8_t *b = (const uint8_t *)buf;
+        size_t i;
+        for (i = 0; i + sizeof g_evcb.sig < size; i++) {
+            if (b[i] == g_evcb.sig[0] && memcmp(b + i, g_evcb.sig, sizeof g_evcb.sig) == 0) {
+                g_evcb.hits++;
+                if (g_evcb.mode == 2) {
+                    return -1;
+                }
+                ((uint8_t *)buf)[i + sizeof g_evcb.sig] ^= 0x5Au;
+                break;
+            }
+        }
+    }
+    return r;
+}
+
+static int ev_ctx(sa1_context **out, int callbacks)
+{
+    sa1_host h;
+    sa1_coords co;
+    sa1_load_options lo;
+    sa1_context *c = NULL;
+    sa1_host_defaults(&h);
+    h.log = log_cb;
+    h.log_level = SA1_LOG_DEBUG;
+    if (callbacks) {
+        h.file_open = sa1_stdio_open;
+        h.file_size = sa1_stdio_size;
+        h.file_read = ev_cb_read;
+        h.file_close = sa1_stdio_close;
+    }
+    if (sa1_init(&h, &c) != SA1_OK) {
+        return -1;
+    }
+    memset(&co, 0, sizeof co);
+    co.struct_size = sizeof co;
+    sa1_coords_preset(SA1_COORDS_PRESET_NATIVE, &co);
+    sa1_set_coords(c, &co);
+    memset(&lo, 0, sizeof lo);
+    lo.struct_size = sizeof lo;
+    lo.characters = (1u << SA1_CHAR_SONIC) | (1u << SA1_CHAR_TAILS) | (1u << SA1_CHAR_BIG);
+    lo.flags = SA1_LOAD_DEFAULT;
+    if (SA1_FAILED(sa1_load_disc(c, g_gdi, &lo)) || scene(c) != 0) {
+        sa1_shutdown(c);
+        return -1;
+    }
+    *out = c;
+    return 0;
+}
+
+typedef struct ev_job {
+    sa1_context *ctx;
+    int reverse;
+    int32_t kinds[2];
+    uint32_t fails;
+} ev_job;
+
+#if defined(_WIN32)
+static DWORD WINAPI ev_thread(LPVOID arg)
+#else
+static void *ev_thread(void *arg)
+#endif
+{
+    ev_job *j = (ev_job *)arg;
+    uint32_t k, i;
+    for (k = 0; k < 2u; k++) {
+        const sa1ev_list *l = sa1ev_list_of(j->kinds[k]);
+        for (i = 0; l != NULL && i < l->count; i++) {
+            uint32_t ix = j->reverse ? l->count - 1u - i : i;
+            j->fails += sa1_emote_event_load(j->ctx, j->kinds[k], ix) != SA1_OK;
+        }
+    }
+#if defined(_WIN32)
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+static void t_ev_loader(sa1_context *ctx)
+{
+    uint32_t k, i, fails = 0, notready = 0, loaded = 0, bytes = 0;
+    double t0;
+    printf("== T2 ev_loader: every cutscene animation loads (SHA-1, bounds); an altered or unreadable file; two threads\n");
+    t0 = tu_now_ms();
+    for (k = 0; k < 6u; k++) {
+        const sa1ev_list *l = sa1ev_list_of(k_ev_want[k].kind);
+        for (i = 0; i < l->count; i++) {
+            fails += sa1_emote_event_load(ctx, k_ev_want[k].kind, i) != SA1_OK;
+        }
+    }
+    for (k = 0; k < 6u; k++) {
+        const sa1ev_list *l = sa1ev_list_of(k_ev_want[k].kind);
+        for (i = 0; i < l->count; i++) {
+            notready += sa1_emote_event_ready(ctx, k_ev_want[k].kind, i) != 1;
+        }
+    }
+    sa1ev_stats(ctx, &loaded, &bytes);
+    CHECK(fails == 0 && notready == 0 && loaded == 334u,
+          "all 334 load from the GDI in %.0f ms (%u failed, %u not ready; the cache holds %u, %u bytes)", tu_now_ms() - t0,
+          (unsigned)fails, (unsigned)notready, (unsigned)loaded, (unsigned)bytes);
+    ev_no_copies(ctx);     /* round r1-fix-ev */
+    CHECK(sa1_emote_event_load(ctx, SA1_CHAR_EGGMAN, 0) == SA1_ERR_INVALID_ARGUMENT &&
+              sa1_emote_event_load(ctx, SA1_CHAR_SONIC, 80) == SA1_ERR_INVALID_ARGUMENT &&
+              sa1_emote_event_ready(ctx, SA1_CHAR_TIKAL, 0) == SA1_ERR_INVALID_ARGUMENT,
+          "Eggman, an index past the list, Tikal: SA1_ERR_INVALID_ARGUMENT");
+    {
+        /* an altered file and an unreadable one, through a second context's file callback */
+        sa1_context *c2 = NULL;
+        sa1_disc disc;
+        uint8_t *raw = NULL;
+        uint32_t rawn = 0, logs0;
+        int ix = ev_find(SA1_CHAR_SONIC, "ev0003_2"), iy = ev_find(SA1_CHAR_SONIC, "ev0001_1");
+        sa1_status s1 = SA1_OK, s1b = SA1_OK, s2 = SA1_OK, s3 = SA1_OK, s4 = SA1_OK;
+        int32_t r1 = 0, r2 = 0;
+        char before[512], after[512];
+        int same_err = 0;
+        memset(&g_evcb, 0, sizeof g_evcb);
+        memset(&disc, 0, sizeof disc);
+        if (sa1_disc_open(ctx, g_gdi, &disc) == SA1_OK) {
+            if (sa1_disc_read_file(&disc, "SONICADV/EV0003.PRS", &raw, &rawn) == SA1_OK && rawn > 64u) {
+                memcpy(g_evcb.sig, raw, sizeof g_evcb.sig);
+            }
+            sa1_disc_close(&disc);
+        }
+        sa1_mem_free(ctx, raw);
+        if (ev_ctx(&c2, 1) != 0 || ix < 0 || iy < 0) {
+            CHECK(0, "a second context with a file callback");
+        } else {
+            sa1_emote dummy;
+            memset(&dummy, 0, sizeof dummy);
+            dummy.struct_size = sizeof dummy;
+            dummy.count = 1;
+            sa1_character_emote(c2, 0x7FFF, &dummy);       /* a known last error ("no character ...") */
+            snprintf(before, sizeof before, "%s", sa1_last_error(c2));
+            g_logcap = 1;
+            logs0 = g_log_error + g_log_warn + g_log_other;
+            g_evcb.mode = 1;
+            s1 = sa1_emote_event_load(c2, SA1_CHAR_SONIC, (uint32_t)ix);
+            g_evcb.mode = 0;
+            s1b = sa1_emote_event_load(c2, SA1_CHAR_SONIC, (uint32_t)ix);  /* kept: a clean read does not undo it */
+            r1 = sa1_emote_event_ready(c2, SA1_CHAR_SONIC, (uint32_t)ix);
+            snprintf(after, sizeof after, "%s", sa1_last_error(c2));
+            same_err = strcmp(before, after) == 0;
+            CHECK(s1 == SA1_ERR_BAD_HASH && s1b == SA1_ERR_BAD_HASH && r1 == SA1_ERR_BAD_HASH && g_evcb.hits >= 1u &&
+                      g_log_error + g_log_warn + g_log_other == logs0 && same_err,
+                  "one byte of EV0003.PRS changed (the file callback, %u reads hit): %s, kept (%s, ready %d); nothing logged, "
+                  "sa1_last_error as it was (\"%s\")", (unsigned)g_evcb.hits, sa1_status_string(s1), sa1_status_string(s1b),
+                  (int)r1, after);
+            /* an unreadable file: SA1_ERR_IO, not kept; the next clean read loads it */
+            {
+                const sa1ev_entry *ey = &sa1ev_list_of(SA1_CHAR_SONIC)->e[iy];
+                uint8_t *raw2 = NULL;
+                uint32_t raw2n = 0;
+                char path[40];
+                snprintf(path, sizeof path, "SONICADV/EV%04X.PRS", (unsigned)ey->event);
+                memset(&disc, 0, sizeof disc);
+                if (sa1_disc_open(ctx, g_gdi, &disc) == SA1_OK) {
+                    if (sa1_disc_read_file(&disc, path, &raw2, &raw2n) == SA1_OK && raw2n > 64u) {
+                        memcpy(g_evcb.sig, raw2, sizeof g_evcb.sig);
+                    }
+                    sa1_disc_close(&disc);
+                }
+                sa1_mem_free(ctx, raw2);
+                g_evcb.hits = 0;
+                g_evcb.mode = 2;
+                s2 = sa1_emote_event_load(c2, SA1_CHAR_SONIC, (uint32_t)iy);
+                r2 = sa1_emote_event_ready(c2, SA1_CHAR_SONIC, (uint32_t)iy);
+                g_evcb.mode = 0;
+                s3 = sa1_emote_event_load(c2, SA1_CHAR_SONIC, (uint32_t)iy);
+                /* round r1-fix-ev (the verifier's finding): the failed read leaves sa1_last_error as it was too */
+                snprintf(after, sizeof after, "%s", sa1_last_error(c2));
+                CHECK(s2 == SA1_ERR_IO && r2 == 0 && s3 == SA1_OK && g_evcb.hits >= 1u &&
+                          g_log_error + g_log_warn + g_log_other == logs0 && strcmp(before, after) == 0,
+                      "%s unreadable: %s, not kept (ready %d), then read: %s; nothing logged, sa1_last_error as it was "
+                      "(\"%s\")", path, sa1_status_string(s2), (int)r2, sa1_status_string(s3), after);
+            }
+            g_logcap = 0;
+            {
+                /* the game thread's call reports the kept reason */
+                sa1_character_id id = mk(c2, SA1_CHAR_SONIC, 0.5f, 0);
+                run(c2, id, 8);
+                s4 = emote_ev(c2, id, (uint32_t)ix, SA1_EMOTE_PLAY_DEFAULT, 0, 0.0f);
+                CHECK(s4 == SA1_ERR_BAD_HASH && strstr(sa1_last_error(c2), "does not match the US 1.005 disc") != NULL,
+                      "sa1_character_emote of it: %s \"%s\" (on the calling thread)", sa1_status_string(s4),
+                      sa1_last_error(c2));
+                sa1_character_destroy(c2, id);
+            }
+            sa1_unload_disc(c2);
+            CHECK(c2->emote_ev == NULL && sa1_emote_event_ready(c2, SA1_CHAR_SONIC, (uint32_t)iy) == 0 &&
+                      sa1_emote_event_load(c2, SA1_CHAR_SONIC, (uint32_t)iy) == SA1_ERR_NOT_LOADED,
+                  "sa1_unload_disc frees the cache; without a disc: not loaded");
+            sa1_shutdown(c2);
+        }
+    }
+    {
+        /* two threads loading the same and different entries at once: no race, one copy each */
+        sa1_context *c3 = NULL;
+        ev_job j[2];
+        int t;
+        uint8_t used[256];
+        uint32_t want = 0, wbytes = 0, kk;
+#if defined(_WIN32)
+        HANDLE th[2];
+#else
+        pthread_t th[2];
+#endif
+        if (ev_ctx(&c3, 0) != 0) {
+            CHECK(0, "a third context");
+            return;
+        }
+        memset(j, 0, sizeof j);
+        j[0].ctx = j[1].ctx = c3;
+        j[0].kinds[0] = SA1_CHAR_SONIC;
+        j[0].kinds[1] = SA1_CHAR_TAILS;
+        j[1].kinds[0] = SA1_CHAR_SONIC;
+        j[1].kinds[1] = SA1_CHAR_BIG;
+        j[1].reverse = 1;
+        for (t = 0; t < 2; t++) {
+#if defined(_WIN32)
+            th[t] = CreateThread(NULL, 0, ev_thread, &j[t], 0, NULL);
+#else
+            pthread_create(&th[t], NULL, ev_thread, &j[t]);
+#endif
+        }
+        for (t = 0; t < 2; t++) {
+#if defined(_WIN32)
+            WaitForSingleObject(th[t], INFINITE);
+            CloseHandle(th[t]);
+#else
+            pthread_join(th[t], NULL);
+#endif
+        }
+        memset(used, 0, sizeof used);
+        for (kk = 0; kk < 3u; kk++) {
+            int32_t kind = kk == 0 ? SA1_CHAR_SONIC : kk == 1 ? SA1_CHAR_TAILS : SA1_CHAR_BIG;
+            const sa1ev_list *l = sa1ev_list_of(kind);
+            for (i = 0; i < l->count; i++) {
+                used[l->e[i].file] = 1;
+            }
+        }
+        for (k = 0; k < 6u; k++) {
+            const sa1ev_list *l = sa1ev_list_of(k_ev_want[k].kind);
+            for (i = 0; i < l->count; i++) {
+                if (used[l->e[i].file]) {
+                    want++;
+                    wbytes += l->e[i].bytes;
+                }
+            }
+        }
+        sa1ev_stats(c3, &loaded, &bytes);
+        CHECK(j[0].fails == 0 && j[1].fails == 0 && loaded == want && bytes == wbytes,
+              "two threads (Sonic and Tails / Sonic backwards and Big) at once: %u + %u failed; %u entries kept (want %u: "
+              "every entry of the files they read, once), %u bytes (want %u)", (unsigned)j[0].fails, (unsigned)j[1].fails,
+              (unsigned)loaded, (unsigned)want, (unsigned)bytes, (unsigned)wbytes);
+        sa1_shutdown(c3);
+    }
+}
+
+/* ---- T3 ev_play_all -------------------------------------------------------------------------------------------------------- */
+/* the item speed that plays an entry in at most about 60 pairs (the advance per pair is pace x speed: emotes_ev.md 2.5) */
+static float ev_speed_for(const sa1ev_entry *e)
+{
+    float s = (float)e->frames / ((e->pace > 0.0f ? e->pace : 1.0f) * 60.0f);
+    return s <= 1.0f ? 0.0f : (s > 16.0f ? 16.0f : s);
+}
+
+static void t_ev_play_all(sa1_context *ctx)
+{
+    uint32_t k;
+    printf("== T3 ev_play_all: every cutscene animation plays in a world of its kind to its end (looped: 40 pairs)\n");
+    for (k = 0; k < 6u; k++) {
+        int32_t kind = k_ev_want[k].kind;
+        const sa1ev_list *l = sa1ev_list_of(kind);
+        sa1_character_id id = mk(ctx, kind, 0.5f, 0);
+        sa1g_world *w;
+        uint32_t i, ok = 0, bad = 0, late = 0, notslab = 0, pace_bad = 0, grow_bad = 0, heap0, heap1, leaks = 0;
+        size_t ext0 = 0, ext1 = 0;
+        char first_bad[200] = "";
+        if (!id || run(ctx, id, 60) != 0) {
+            CHECK(0, "%s: world", k_kinds[kind]);
+            continue;
+        }
+        w = sa1_character_world(ctx, id);
+        {
+            /* a row first: the emote layer's own state and the bridge's block exist before the first cutscene animation, so
+               what that one adds to segment 0x18 is its two slabs alone */
+            sa1_emote_info r0;
+            memset(&r0, 0, sizeof r0);
+            r0.struct_size = sizeof r0;
+            sa1_emote_get(ctx, kind, SA1_EMOTE_FORM_NORMAL, 0, &r0);
+            emote_row_ready(ctx, 0, id, r0.index, SA1_EMOTE_PLAY_ONCE, SA1_EMOTE_NO_TRAIL, NULL);
+            run(ctx, id, 12);
+            sa1_character_emote_stop(ctx, id, SA1_EMOTE_STOP_NOW);
+            run(ctx, id, 30);
+        }
+        heap0 = heap_total(w);
+        ext0 = w->ext_used;
+        for (i = 0; i < l->count; i++) {
+            const sa1ev_entry *e = &l->e[i];
+            float sp = ev_speed_for(e), per = e->pace * (sp > 0.0f ? sp : 1.0f), last = -1.0f;
+            uint32_t pairs, maxp, checked = 0, hb = heap_total(w);
+            int faulted = 0, ended = 0;
+            sa1_status st;
+            sa1_emote_event_load(ctx, kind, i);
+            st = emote_ev_ready(ctx, id, i, SA1_EMOTE_PLAY_DEFAULT, SA1_EMOTE_NO_TRAIL, sp);
+            if (st != SA1_OK) {
+                bad++;
+                if (!first_bad[0]) {
+                    snprintf(first_bad, sizeof first_bad, "%s: %s (%s)", e->name, sa1_status_string(st), sa1_last_error(ctx));
+                }
+                continue;
+            }
+            maxp = e->loop ? 40u : (uint32_t)ceilf((float)e->frames / per) + 8u + 12u;
+            for (pairs = 0; pairs < maxp + 30u; pairs++) {
+                sa1_state_ex x;
+                if (tick(ctx, id, 0, 0, 0) != 0) {
+                    faulted = 1;
+                    break;
+                }
+                if (ext1 == 0 && w->ext_used != ext0) {
+                    ext1 = w->ext_used;   /* the first EVENT emote's slabs */
+                }
+                xstate(ctx, id, &x);
+                if (pairs >= 12u && x.emote_state == SA1_EMOTE_STATE_PLAYING && checked < 3u) {
+                    uint32_t m = qhead_motion(w);
+                    qhead_t q;
+                    qhead(w, &q);
+                    if (m == 0 || ((m >> 24) & 31u) != SA1G_SEG_EXT || rdx32(w, m + 4u) != e->frames) {
+                        notslab++;
+                    } else if (last >= 0.0f && q.frame > last && fabsf((q.frame - last) - per) > 1e-3f * (1.0f + per)) {
+                        pace_bad++;
+                        if (!first_bad[0]) {
+                            snprintf(first_bad, sizeof first_bad, "%s: %.4f frames a pair (planned %.4f)", e->name,
+                                     (double)(q.frame - last), (double)per);
+                        }
+                    }
+                    last = q.frame;
+                    checked++;
+                }
+                if (x.emote_state == SA1_EMOTE_STATE_NONE && pairs > 0) {
+                    ended = 1;
+                    break;
+                }
+                if (e->loop && pairs + 1u >= maxp) {
+                    break;
+                }
+            }
+            if (faulted) {
+                bad++;
+                if (!first_bad[0]) {
+                    snprintf(first_bad, sizeof first_bad, "%s: world fault", e->name);
+                }
+                sa1_character_destroy(ctx, id);
+                id = mk(ctx, kind, 0.5f, 0);
+                run(ctx, id, 8);
+                w = sa1_character_world(ctx, id);
+                heap0 = heap_total(w);
+                ext0 = w->ext_used;
+                ext1 = 0;
+                continue;
+            }
+            if (e->loop) {
+                sa1_character_emote_stop(ctx, id, SA1_EMOTE_STOP_NOW);
+                run(ctx, id, 2);
+            } else if (!ended) {
+                late++;
+                if (!first_bad[0]) {
+                    snprintf(first_bad, sizeof first_bad, "%s: still playing after %u pairs", e->name, (unsigned)pairs);
+                }
+                sa1_character_emote_stop(ctx, id, SA1_EMOTE_STOP_NOW);
+                run(ctx, id, 2);
+            }
+            if (heap_total(w) < hb) {
+                leaks++;
+                if (g_verbose || leaks <= 3u) {
+                    qhead_t q;
+                    qhead(w, &q);
+                    printf("  note  %s: the game heap's free total %u -> %u (%s, %u frames, pace %.3f, speed %.3f; queue node %08X)\n",
+                           e->name, (unsigned)hb, (unsigned)heap_total(w), e->loop ? "loop" : "once", (unsigned)e->frames,
+                           (double)e->pace, (double)sp, (unsigned)q.node);
+                }
+            }
+            ok++;
+        }
+        run(ctx, id, 4);
+        heap1 = heap_total(w);
+        grow_bad = ext1 == 0 || ext1 - ext0 < 2u * SA1EM_SLAB_SIZE || ext1 - ext0 > 2u * SA1EM_SLAB_SIZE + 64u ||
+                   w->ext_used != ext1;
+        CHECK(bad == 0 && late == 0 && notslab == 0 && pace_bad == 0 && !grow_bad && leaks == 0,
+              "%s: %u of %u played (%u failed, %u late); the queue head's motion in segment 0x18 (%u not), frames a pair = "
+              "pace x speed (%u off); segment 0x18 grew once by %u bytes: two slabs (then %s); the game heap's free total "
+              "after each end as before its start (%u lower; over the whole run %u -> %u, the world's own tasks included)%s%s",
+              k_kinds[kind], (unsigned)ok, (unsigned)l->count, (unsigned)bad, (unsigned)late, (unsigned)notslab,
+              (unsigned)pace_bad, (unsigned)(ext1 - ext0), w->ext_used == ext1 ? "no more" : "more", (unsigned)leaks,
+              (unsigned)heap0, (unsigned)heap1, first_bad[0] ? "; first: " : "", first_bad);
+        sa1_character_destroy(ctx, id);
+    }
+}
+
+/* ---- T4 ev_identity -------------------------------------------------------------------------------------------------------- */
+static void t_ev_identity(sa1_context *ctx)
+{
+    sa1_character_id ia = mk(ctx, SA1_CHAR_SONIC, 0.5f, 0), ib = mk(ctx, SA1_CHAR_SONIC, 0.5f, 0);
+    const sa1ev_list *l = sa1ev_list_of(SA1_CHAR_SONIC);
+    uint32_t p, k = 0, accepted = 0, emoting = 0;
+    int first = -1;
+    sa1em_world_info wi;
+    printf("== T4 ev_identity: two Sonic worlds, 1,300 pairs of the same input, B plays 20 cutscene animations (input "
+           "cancels)\n");
+    if (!ia || !ib) {
+        CHECK(0, "worlds");
+        return;
+    }
+    for (p = 0; p < 1300; p++) {
+        float sy = 0.0f;
+        uint32_t bt = 0;
+        snap_t sa, sb;
+        sa1_state_ex xb;
+        uint32_t phase = p % 60u;
+        if (p >= 20u && k < 20u && phase == 20u % 60u + 0u) {
+            uint32_t ix = (k * 7u) % l->count;
+            sa1_emote_event_load(ctx, SA1_CHAR_SONIC, ix);
+            if (emote_ev(ctx, ib, ix, SA1_EMOTE_PLAY_LOOP, 0, 0.0f) == SA1_OK) {
+                accepted++;
+            }
+            k++;
+        }
+        if ((k & 1u) && phase >= 50u && phase < 54u) {
+            sy = 1.0f;          /* a short run: the input cancels B's animation */
+        }
+        if (p == 700u) {
+            bt = SA1_BUTTON_JUMP;
+        }
+        if (tick(ctx, ia, 0, sy, bt) != 0 || tick(ctx, ib, 0, sy, bt) != 0) {
+            break;
+        }
+        xstate(ctx, ib, &xb);
+        emoting += xb.emote_state != SA1_EMOTE_STATE_NONE;
+        snap(ctx, ia, &sa);
+        snap(ctx, ib, &sb);
+        if (first < 0 && !snap_eq(&sa, &sb)) {
+            first = (int)p;
+            printf("  first difference at pair %u: A mode %d act %d | B mode %d act %d\n", (unsigned)p, (int)sa.mode,
+                   (int)sa.action, (int)sb.mode, (int)sb.action);
+        }
+    }
+    winfo(ctx, ib, &wi);
+    CHECK(first < 0, "position, speed, mode, action, flags, rings and rand identical in all 1,300 pairs");
+    CHECK(accepted >= 18u && emoting >= 600u && wi.cancels_input >= 5u,
+          "B: %u cutscene animations accepted (of %u asked), %u pairs emoting, %u cancels by input", (unsigned)accepted,
+          (unsigned)k, (unsigned)emoting, (unsigned)wi.cancels_input);
+    sa1_character_destroy(ctx, ia);
+    sa1_character_destroy(ctx, ib);
+}
+
+/* ---- T5 ev_copy ------------------------------------------------------------------------------------------------------------ */
+/* the drawn motion is the disc's: for 30 sampled entries the queue head's motion in the world (its header and every node's
+   channels, key by key) equals the cutscene image's NJS_MOTION, read and unpacked here from the disc */
+static void t_ev_copy(sa1_context *ctx)
+{
+    uint32_t n = 0, same = 0, k, i, step = 0;
+    char first_bad[160] = "";
+    printf("== T5 ev_copy: 30 sampled entries - the world's copy of the motion equals the disc's image, key by key\n");
+    for (k = 0; k < 6u && n < 30u; k++) {
+        int32_t kind = k_ev_want[k].kind;
+        const sa1ev_list *l = sa1ev_list_of(kind);
+        sa1_character_id id = mk(ctx, kind, 0.5f, 0);
+        sa1g_world *w;
+        run(ctx, id, 8);
+        w = sa1_character_world(ctx, id);
+        for (i = step % 11u; i < l->count && n < 30u; i += 11u) {
+            const sa1ev_entry *e = &l->e[i];
+            const sa1ev_file *f = &sa1ev_files[e->file];
+            sa1_disc disc;
+            uint8_t *raw = NULL, *img = NULL;
+            uint32_t rawn = 0, imgn = 0, m, md_img, nf, node, c, ok = 1;
+            char path[40];
+            n++;
+            sa1_emote_event_load(ctx, kind, i);
+            if (emote_ev_ready(ctx, id, i, SA1_EMOTE_PLAY_LOOP, 0, 0.0f) != SA1_OK) {
+                continue;
+            }
+            run(ctx, id, 12);          /* past the bridge */
+            m = qhead_motion(w);
+            snprintf(path, sizeof path, "SONICADV/EV%04X.PRS", (unsigned)f->event);
+            memset(&disc, 0, sizeof disc);
+            if (m == 0 || sa1_disc_open(ctx, g_gdi, &disc) != SA1_OK) {
+                continue;
+            }
+            if (sa1_disc_read_file(&disc, path, &raw, &rawn) == SA1_OK) {
+                sa1_prs_decompress(ctx, raw, rawn, 1u << 20, &img, &imgn);
+            }
+            sa1_disc_close(&disc);
+            sa1_mem_free(ctx, raw);
+            if (img == NULL) {
+                continue;
+            }
+#define IMG32(a) sa1_rd32(img + (((a) & 0x1FFFFFFFu) - 0x0CB80000u))
+            md_img = IMG32(e->motion);
+            nf = IMG32(e->motion + 8u) >> 16 & 0xFu;
+            ok = rdx32(w, m + 4u) == IMG32(e->motion + 4u) && rdx32(w, m + 8u) == IMG32(e->motion + 8u);
+            for (node = 0; node < e->nodes && ok; node++) {
+                for (c = 0; c < nf && ok; c++) {
+                    uint32_t pi = IMG32(md_img + 8u * nf * node + 4u * c), ni = IMG32(md_img + 8u * nf * node + 4u * (nf + c));
+                    uint32_t mdw = rdx32(w, m), pw = rdx32(w, mdw + 8u * nf * node + 4u * c), nw = rdx32(w, mdw + 8u * nf * node + 4u * (nf + c));
+                    uint32_t q;
+                    if (ni != nw || ((pi == 0) != (pw == 0))) {
+                        ok = 0;
+                        break;
+                    }
+                    for (q = 0; pi != 0 && q < 4u * ni && ok; q++) {
+                        ok = rdx32(w, pw + 4u * q) == IMG32(pi + 4u * q);
+                    }
+                }
+            }
+#undef IMG32
+            sa1_mem_free(ctx, img);
+            same += ok;
+            if (!ok && !first_bad[0]) {
+                snprintf(first_bad, sizeof first_bad, "%s differs", e->name);
+            }
+            sa1_character_emote_stop(ctx, id, SA1_EMOTE_STOP_NOW);
+            run(ctx, id, 2);
+        }
+        step++;
+        sa1_character_destroy(ctx, id);
+    }
+    CHECK(n == 30u && same == 30u, "%u of %u sampled copies equal the disc's motion (header, per-node table, keys)%s%s",
+          (unsigned)same, (unsigned)n, first_bad[0] ? "; " : "", first_bad);
+}
+
+#define LIM_BRIDGE 2.0f        /* tests/anim_test.c LIM_EX_EDGE: the body's extents between two pairs */
+
+/* ---- T6 ev_bridges --------------------------------------------------------------------------------------------------------- */
+static void t_ev_bridges(sa1_context *ctx)
+{
+    int ia = ev_find(SA1_CHAR_SONIC, "ev0003_2"), ib = ev_find(SA1_CHAR_SONIC, "ev0001_1"), ic = ev_find(SA1_CHAR_SONIC, "ev0003_4");
+    int ih = ev_find(SA1_CHAR_SONIC, "ev0003_3");
+    const sa1ev_list *l = sa1ev_list_of(SA1_CHAR_SONIC);
+    sa1_character_id id = mk(ctx, SA1_CHAR_SONIC, 0.5f, 0);
+    sa1g_world *w;
+    body_t prev, cur;
+    float jump_in = 0.0f, jump_out = 0.0f, jump_ab = 0.0f, jump_abc = 0.0f;
+    uint32_t p, faults0 = (uint32_t)g_faults;
+    sa1_state_ex x;
+    int ok_b = 0, ok_c = 0, held = 0;
+    printf("== T6 ev_bridges: stand -> EV0003 #2 -> stand by bridges; A then B mid-bridge; A, B, C before a pair; HOLD\n");
+    if (!id || ia < 0 || ib < 0 || ic < 0 || ih < 0) {
+        CHECK(0, "the world and the entries");
+        return;
+    }
+    sa1_emote_event_load(ctx, SA1_CHAR_SONIC, (uint32_t)ia);
+    sa1_emote_event_load(ctx, SA1_CHAR_SONIC, (uint32_t)ib);
+    sa1_emote_event_load(ctx, SA1_CHAR_SONIC, (uint32_t)ic);
+    sa1_emote_event_load(ctx, SA1_CHAR_SONIC, (uint32_t)ih);
+    run(ctx, id, 8);
+    w = sa1_character_world(ctx, id);
+    body(ctx, id, 1.0f, &prev);
+    emote_ev_ready(ctx, id, (uint32_t)ia, SA1_EMOTE_PLAY_DEFAULT, 0, 0.0f);
+    for (p = 0; p < 40u; p++) {
+        tick(ctx, id, 0, 0, 0);
+        body(ctx, id, 1.0f, &cur);
+        jump_in = fmaxf(jump_in, body_diff(&prev, &cur));
+        prev = cur;
+    }
+    sa1_character_emote_stop(ctx, id, SA1_EMOTE_STOP_BLEND);
+    for (p = 0; p < 30u; p++) {
+        tick(ctx, id, 0, 0, 0);
+        body(ctx, id, 1.0f, &cur);
+        jump_out = fmaxf(jump_out, body_diff(&prev, &cur));
+        prev = cur;
+        xstate(ctx, id, &x);
+        if (x.emote_state == SA1_EMOTE_STATE_NONE) {
+            break;
+        }
+    }
+    CHECK(jump_in <= LIM_BRIDGE && jump_out <= LIM_BRIDGE && x.emote_state == SA1_EMOTE_STATE_NONE,
+          "stand -> EV0003 #2 -> stand: the largest change of the body between two pairs %.3f in, %.3f out (bound %.2f)",
+          (double)jump_in, (double)jump_out, (double)LIM_BRIDGE);
+    /* A, then B in the middle of A's bridge: B's copy goes into the other slab, A's motion stays while B's bridge samples it */
+    run(ctx, id, 4);
+    emote_ev_ready(ctx, id, (uint32_t)ia, SA1_EMOTE_PLAY_LOOP, 0, 0.0f);
+    run(ctx, id, 3);
+    body(ctx, id, 1.0f, &prev);
+    emote_ev(ctx, id, (uint32_t)ib, SA1_EMOTE_PLAY_LOOP, 0, 0.0f);
+    for (p = 0; p < 14u; p++) {
+        tick(ctx, id, 0, 0, 0);
+        body(ctx, id, 1.0f, &cur);
+        jump_ab = fmaxf(jump_ab, body_diff(&prev, &cur));
+        prev = cur;
+    }
+    ok_b = rdx32(w, qhead_motion(w) + 4u) == l->e[ib].frames;
+    /* A, B and C before one pair: C plays (the latch's last call wins), no fault */
+    emote_ev(ctx, id, (uint32_t)ia, SA1_EMOTE_PLAY_LOOP, 0, 0.0f);
+    emote_ev(ctx, id, (uint32_t)ib, SA1_EMOTE_PLAY_LOOP, 0, 0.0f);
+    emote_ev(ctx, id, (uint32_t)ic, SA1_EMOTE_PLAY_LOOP, 0, 0.0f);
+    for (p = 0; p < 14u; p++) {
+        tick(ctx, id, 0, 0, 0);
+        body(ctx, id, 1.0f, &cur);
+        jump_abc = fmaxf(jump_abc, body_diff(&prev, &cur));
+        prev = cur;
+    }
+    {
+        uint32_t m = qhead_motion(w);
+        ok_c = ((m >> 24) & 31u) == SA1G_SEG_EXT && rdx32(w, m + 4u) == l->e[ic].frames;
+    }
+    CHECK(ok_b && ok_c && (uint32_t)g_faults == faults0 && jump_ab <= LIM_BRIDGE && jump_abc <= LIM_BRIDGE,
+          "A then B mid-bridge: B plays (%d), largest change %.3f; A, B, C before a pair: C plays (%d), largest change %.3f; "
+          "no fault", ok_b, (double)jump_ab, ok_c, (double)jump_abc);
+    sa1_character_emote_stop(ctx, id, SA1_EMOTE_STOP_NOW);
+    run(ctx, id, 4);
+    /* HOLD of a once entry: its last frame until a cancel */
+    emote_ev_ready(ctx, id, (uint32_t)ih, SA1_EMOTE_PLAY_ONCE, SA1_EMOTE_HOLD, 0.0f);
+    held = until_state(ctx, 0, id, SA1_EMOTE_STATE_HOLDING, 120, NULL);
+    run(ctx, id, 10);
+    xstate(ctx, id, &x);
+    CHECK(held > 0 && x.emote_state == SA1_EMOTE_STATE_HOLDING && fabsf(x.emote_frame - ((float)l->e[ih].frames - 1.0f)) < 1e-3f,
+          "HOLD of %s (once, %u frames): HOLDING after %d pairs, frame %.3f", l->e[ih].name, (unsigned)l->e[ih].frames, held,
+          (double)x.emote_frame);
+    sa1_character_destroy(ctx, id);
+}
+
+/* ---- T7 ev_follower -------------------------------------------------------------------------------------------------------- */
+static void t_ev_follower(sa1_context *ctx)
+{
+    sa1_character_id lead = mk(ctx, SA1_CHAR_SONIC, 0.5f, 0), fol = 0;
+    sa1_follower_desc d;
+    sa1_status st = SA1_ERR_UNSUPPORTED;
+    sa1_state_ex x;
+    uint32_t p, playing = 0, ix = 0;
+    const sa1ev_list *l = sa1ev_list_of(SA1_CHAR_TAILS);
+    float start[3], moved = 0.0f;
+    int ended = 0;
+    printf("== T7 ev_follower: a cutscene animation on a follower plays and ends; it follows afterwards\n");
+    for (ix = 0; ix < l->count && !l->e[ix].loop; ix++) {
+    }
+    memset(&d, 0, sizeof d);
+    d.struct_size = sizeof d;
+    d.kind = SA1_CHAR_TAILS;
+    d.leader = lead;
+    if (!lead || run(ctx, lead, 8) != 0 || sa1_follower_create(ctx, &d, &fol) != SA1_OK) {
+        CHECK(0, "a Tails follower of Sonic: %s", sa1_last_error(ctx));
+        if (lead) {
+            sa1_character_destroy(ctx, lead);
+        }
+        return;
+    }
+    for (p = 0; p < 60u; p++) {
+        tick(ctx, lead, 0, 0, 0);
+        tick(ctx, fol, 0, 0, 0);
+    }
+    sa1_emote_event_load(ctx, SA1_CHAR_TAILS, ix);
+    for (p = 0; p < 60u && st != SA1_OK; p++) {
+        st = emote_ev(ctx, fol, ix, SA1_EMOTE_PLAY_LOOP, 0, 0.0f);
+        tick(ctx, lead, 0, 0, 0);
+        tick(ctx, fol, 0, 0, 0);
+    }
+    for (p = 0; p < 90u; p++) {
+        tick(ctx, lead, 0, 0, 0);
+        tick(ctx, fol, 0, 0, 0);
+        xstate(ctx, fol, &x);
+        playing += x.emote_state == SA1_EMOTE_STATE_PLAYING;
+    }
+    sa1_character_emote_stop(ctx, fol, SA1_EMOTE_STOP_BLEND);
+    for (p = 0; p < 40u && !ended; p++) {
+        tick(ctx, lead, 0, 0, 0);
+        tick(ctx, fol, 0, 0, 0);
+        xstate(ctx, fol, &x);
+        ended = x.emote_state == SA1_EMOTE_STATE_NONE;
+    }
+    xstate(ctx, fol, &x);
+    memcpy(start, x.sa1_position, sizeof start);
+    for (p = 0; p < 120u; p++) {
+        tick(ctx, lead, 0, 1.0f, 0);
+        tick(ctx, fol, 0, 0, 0);
+    }
+    xstate(ctx, fol, &x);
+    moved = sqrtf((x.sa1_position[0] - start[0]) * (x.sa1_position[0] - start[0]) +
+                  (x.sa1_position[2] - start[2]) * (x.sa1_position[2] - start[2]));
+    CHECK(st == SA1_OK && playing >= 60u && ended && moved > 20.0f,
+          "Tails follower, %s: %s, played %u of 90 pairs, ended by STOP_BLEND (%d), then followed the running leader %.0f "
+          "units", l->e[ix].name, sa1_status_string(st), (unsigned)playing, ended, (double)moved);
+    sa1_character_destroy(ctx, fol);
+    sa1_character_destroy(ctx, lead);
+}
+
+/* round r1-fix-ev: the lowest drawn point of a settled standing body (the least of 8 pairs' body().lo; it stands still) */
+static void stand_low(sa1_context *ctx, sa1_character_id id, body_t *out)
+{
+    int p;
+    body_t b;
+    body(ctx, id, 1.0f, out);
+    for (p = 0; p < 8; p++) {
+        tick(ctx, id, 0, 0, 0);
+        body(ctx, id, 1.0f, &b);
+        if (b.draws > 0u && b.lo < out->lo) {
+            *out = b;
+        }
+    }
+}
+/* ---- T9 ev_lift ------------------------------------------------------------------------------------------------------------ */
+/* the blob shadow's triangles relative to the drawn root (count, lowest y, centre) */
+static void shadow_of(sa1_context *ctx, sa1_character_id id, float o[4])
+{
+    const sa1_render *rd = NULL;
+    uint32_t i, t, k, n = 0;
+    o[0] = 0.0f;
+    o[1] = 1e9f;
+    o[2] = o[3] = 0.0f;
+    if (sa1_character_render(ctx, id, 1.0f, &rd) != SA1_OK || rd == NULL) {
+        return;
+    }
+    for (i = 0; i < rd->num_draws; i++) {
+        const sa1_draw *d = &rd->draws[i];
+        if (d->prim != SA1_PRIM_TRIANGLES || !(d->flags & SA1_DRAW_SHADOW)) {
+            continue;
+        }
+        for (t = d->first; t < d->first + d->count; t++) {
+            for (k = 0; k < 3u; k++) {
+                const float *v = &rd->positions[9u * t + 3u * k];
+                o[1] = fminf(o[1], v[1] - rd->position[1]);
+                o[2] += v[0] - rd->position[0];
+                o[3] += v[2] - rd->position[2];
+                n++;
+            }
+        }
+        o[0] += (float)d->count;
+    }
+    if (n) {
+        o[2] /= (float)n;
+        o[3] /= (float)n;
+    }
+}
+
+static void t_ev_lift(sa1_context *ctx)
+{
+    sa1_character_id ia = mk(ctx, SA1_CHAR_SONIC, 0.5f, 0), ib = mk(ctx, SA1_CHAR_SONIC, 0.5f, 0);
+    int ix = ev_find(SA1_CHAR_SONIC, "ev0003_2");
+    const sa1ev_entry *e = ix >= 0 ? &sa1ev_list_of(SA1_CHAR_SONIC)->e[ix] : NULL;
+    sa1_state_ex xa, xb;
+    body_t ba, bb, stand;
+    float sa[4], sb[4], mid = -1.0f, full = 0.0f, offb = 0.0f, after = -1.0f, bodyd = 0.0f, bl = 0.0f;
+    float gap_lo = 1e9f, gap_hi = -1e9f, sink = 0.0f;
+    uint32_t p;
+    int ident = 1;
+    printf("== T9 ev_lift: SA1_COPT_EMOTE_LIFT lifts the body's draws by the table's lift x the bridge weight, not the shadow; "
+           "the lifted pose lies on the floor\n");
+    if (!ia || !ib || e == NULL) {
+        CHECK(0, "worlds");
+        return;
+    }
+    CHECK(sa1_character_set_option(ctx, ia, SA1_COPT_EMOTE_LIFT, 1) == SA1_OK &&
+              sa1_character_set_option(ctx, ib, SA1_COPT_EMOTE_LIFT, 0) == SA1_OK &&
+              sa1_character_set_option(ctx, ia, SA1_COPT_EMOTE_LIFT, 2) == SA1_ERR_INVALID_ARGUMENT,
+          "SA1_COPT_EMOTE_LIFT 10 is routed (0 / 1; 2 refused)");
+    sa1_emote_event_load(ctx, SA1_CHAR_SONIC, (uint32_t)ix);
+    bl = e->lift;
+    run(ctx, ia, 40);
+    run(ctx, ib, 40);
+    stand_low(ctx, ia, &stand);        /* round r1-fix-ev: the settled stand's lowest drawn point */
+    stand_low(ctx, ib, &bb);           /* the same pairs in the twin world (the gameplay compared below) */
+    if (emote_ev(ctx, ia, (uint32_t)ix, SA1_EMOTE_PLAY_DEFAULT, 0, 0.0f) != SA1_OK ||
+        emote_ev(ctx, ib, (uint32_t)ix, SA1_EMOTE_PLAY_DEFAULT, 0, 0.0f) != SA1_OK) {
+        CHECK(0, "the emote: %s", sa1_last_error(ctx));
+    }
+    for (p = 0; p < 30u; p++) {
+        ident &= tick2(ctx, ia, ib, 0, 0, 0);
+        xstate(ctx, ia, &xa);
+        xstate(ctx, ib, &xb);
+        if (p == 3u) {
+            mid = xa.emote_lift;
+        }
+        offb = fmaxf(offb, fabsf(xb.emote_lift));
+        if (p >= 10u) {
+            /* round r1-fix-ev: past the bridge, the lifted body's lowest point against the stand's, every pair */
+            body_t bp, bq;
+            body(ctx, ia, 1.0f, &bp);
+            body(ctx, ib, 1.0f, &bq);
+            gap_lo = fminf(gap_lo, bp.lo - stand.lo);
+            gap_hi = fmaxf(gap_hi, bp.lo - stand.lo);
+            sink = fminf(sink, bq.lo - stand.lo);
+        }
+    }
+    full = xa.emote_lift;
+    body(ctx, ia, 1.0f, &ba);
+    body(ctx, ib, 1.0f, &bb);
+    bodyd = ba.lo - bb.lo;
+    shadow_of(ctx, ia, sa);
+    shadow_of(ctx, ib, sb);
+    CHECK(fabsf(full - bl) < 1e-4f && mid > 0.0f && mid < bl && offb == 0.0f,
+          "emote_lift = the table's %.4f after the bridge (%.4f), %.4f in it; 0 with the option off (%.4f)", (double)bl,
+          (double)full, (double)mid, (double)offb);
+    CHECK(gap_lo > -0.03f && gap_hi < 0.10f && sink < -1.5f,
+          "on the floor: past the bridge the lifted body's lowest point is %.3f to %.3f from the stand's over 20 pairs (the "
+          "sway); without the lift it sinks %.3f", (double)gap_lo, (double)gap_hi, (double)-sink);
+    CHECK(fabsf(bodyd - bl) < 0.01f && sa[0] > 0.0f && sa[0] == sb[0] && sa[1] == sb[1] && sa[2] == sb[2] &&
+              sa[3] == sb[3] && ident,
+          "the body drawn %.3f higher (native coordinates), the blob shadow's %u triangles unmoved, the gameplay identical",
+          (double)bodyd, (unsigned)sa[0]);
+    sa1_character_set_option(ctx, ia, SA1_COPT_EMOTE_LIFT, 0);
+    tick2(ctx, ia, ib, 0, 0, 0);
+    xstate(ctx, ia, &xa);
+    after = xa.emote_lift;
+    CHECK(after == 0.0f, "the option off again: 0 at once (%.4f)", (double)after);
+    sa1_character_destroy(ctx, ia);
+    sa1_character_destroy(ctx, ib);
+}
+
+/* ---- round r1-fix-ev: --measure-lift FILE (not a test): the lift of the body the game draws -------------------------------
+   The catalogue's lift came from rigid model points (the research's floor.py); the body the game draws is welded and wears
+   the display's own models, and its lowest point lies higher (the verifier r1-verify-ev MEASURED EV0003 #2 floating 0.18-0.25
+   above the stand with the rigid 1.87; LIB's CPU pose evaluator, welds included, gives 1.8656, so it cannot stand in for the
+   draw). This mode measures, in a world of each kind with SA1_COPT_EMOTE_LIFT off, the settled stand's lowest drawn point and
+   each cutscene animation's at its first pairs (no bridge: link 0, the slowest speed, so frame 0 to about 0.2 is drawn), and
+   writes tools/emote_lift.tsv (numbers and the catalogue's names only), which tools/gen_emote_events.py takes as the lift of
+   every entry the research lifts: lift = max(0, stand - first). Run by a developer with the disc:
+       build/emote_test/<target>/emote_test.exe --measure-lift tools/emote_lift.tsv <GDI> */
+static sa1_status emote_ev_link0(sa1_context *ctx, sa1_character_id id, uint32_t idx)
+{
+    sa1_emote e;
+    sa1_status st = SA1_ERR_UNSUPPORTED;
+    int t;
+    memset(&e, 0, sizeof e);
+    e.struct_size = sizeof e;
+    e.count = 1;
+    e.items[0].source = SA1_EMOTE_EVENT;
+    e.items[0].index = idx;
+    e.items[0].play = SA1_EMOTE_PLAY_LOOP;
+    e.items[0].speed = 1.0f / 64.0f;     /* the slowest (sa1_character_emote: 1/64..16) */
+    e.link = 0;
+    for (t = 0; t < 60; t++) {
+        st = sa1_character_emote(ctx, id, &e);
+        if (st != SA1_ERR_UNSUPPORTED) {
+            break;
+        }
+        tick(ctx, id, 0, 0, 0);
+    }
+    return st;
+}
+
+static int measure_lift(sa1_context *ctx, const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    uint32_t k, i, n = 0, bad = 0;
+    if (f == NULL) {
+        printf("measure-lift: cannot write %s\n", path);
+        return 1;
+    }
+    fprintf(f, "# emote_lift.tsv - the drawn lift of the cutscene animations (round r1-fix-ev; tests/emote_test.c --measure-lift,\n");
+    fprintf(f, "# libsa1 %s, the disc's game code in a LIB world of each kind, SA1_COPT_EMOTE_LIFT off). Numbers and the catalogue's\n",
+            sa1_version_string());
+    fprintf(f, "# names only. drawn: kind, name, the settled stand's lowest drawn point and the animation's at frame 0 to about 0.2\n");
+    fprintf(f, "# (SA1 units, below the drawn root), lift = max(0, stand - first) (tools/gen_emote_events.py uses it where the\n");
+    fprintf(f, "# research lifts the entry: travel and rise <= 2, a rigid lift > 0).\n");
+    fprintf(f, "@header\tdrawn\tkind\tname\tstand\tfirst\tlift\n");
+    for (k = 0; k < 6u; k++) {
+        int32_t kind = k_ev_want[k].kind;
+        const sa1ev_list *l = sa1ev_list_of(kind);
+        sa1_character_id id = mk(ctx, kind, 0.5f, 0);
+        body_t st;
+        run(ctx, id, 40);
+        stand_low(ctx, id, &st);
+        for (i = 0; i < l->count; i++) {
+            float lo = 1e9f;
+            int p, got;
+            sa1_emote_event_load(ctx, kind, i);
+            if (st.draws == 0u || emote_ev_link0(ctx, id, i) != SA1_OK) {
+                bad++;
+                fprintf(f, "# %s %s: not played (%s)\n", k_kinds[kind], l->e[i].name, sa1_last_error(ctx));
+                continue;
+            }
+            /* the first 3 pairs that draw the animation itself: the queue head is the slab's copy of it (segment 0x18, its
+               nbFrame), at frame 0 to about 0.03 (1/64 of the cutscene's pace a pair) */
+            for (p = 0, got = 0; p < 30 && got < 3; p++) {
+                body_t b;
+                sa1g_world *w;
+                uint32_t m;
+                tick(ctx, id, 0, 0, 0);
+                w = sa1_character_world(ctx, id);
+                m = w != NULL ? qhead_motion(w) : 0u;
+                if (m == 0u || ((m >> 24) & 31u) != SA1G_SEG_EXT || rdx32(w, m + 4u) != l->e[i].frames) {
+                    continue;
+                }
+                body(ctx, id, 1.0f, &b);
+                if (b.draws > 0u && b.lo < lo) {
+                    lo = b.lo;
+                }
+                got++;
+            }
+            if (got == 0) {
+                bad++;
+                fprintf(f, "# %s %s: never drawn at the queue head\n", k_kinds[kind], l->e[i].name);
+            } else {
+                fprintf(f, "drawn\t%d\t%s\t%.4f\t%.4f\t%.3f\n", (int)kind, l->e[i].name, (double)st.lo, (double)lo,
+                        (double)(st.lo - lo > 0.0f ? st.lo - lo : 0.0f));
+                n++;
+            }
+            sa1_character_emote_stop(ctx, id, SA1_EMOTE_STOP_NOW);
+            until_none(ctx, id, 30);
+            run(ctx, id, 6);
+        }
+        sa1_character_destroy(ctx, id);
+    }
+    fclose(f);
+    printf("measure-lift: %u entries measured, %u not played -> %s\n", (unsigned)n, (unsigned)bad, path);
+    return bad != 0u;
+}
 /* ---- main ------------------------------------------------------------------------------------------------------------------- */
 typedef struct test_case {
     const char *name;
@@ -2810,6 +3997,10 @@ static const test_case k_tests[] = {
     { "no_call", t_no_call },     { "heap_low", t_heap_low },   { "jvmode_guard", t_jvmode_guard },
     { "groups", t_groups },       { "hold", t_hold },           { "hold_memcheck", t_hold_memcheck },
     { "hold_catalogue", t_hold_catalogue },
+    /* round 100-EV (emotes_ev.md 10.1: T8 is the LIB gate's strict replays) */
+    { "ev_catalogue", t_ev_catalogue }, { "ev_loader", t_ev_loader }, { "ev_play_all", t_ev_play_all },
+    { "ev_identity", t_ev_identity },   { "ev_copy", t_ev_copy },     { "ev_bridges", t_ev_bridges },
+    { "ev_follower", t_ev_follower },   { "ev_lift", t_ev_lift },
 };
 
 static int selected(const char *only, const char *name)
@@ -2849,6 +4040,8 @@ int main(int argc, char **argv)
             only = argv[++a];
         } else if (!strcmp(argv[a], "--tsv") && a + 1 < argc) {
             g_tsv = argv[++a];
+        } else if (!strcmp(argv[a], "--measure-lift") && a + 1 < argc) {
+            g_lift_out = argv[++a];     /* round r1-fix-ev */
         } else if (!strcmp(argv[a], "--list")) {
             for (i = 0; i < sizeof k_tests / sizeof k_tests[0]; i++) {
                 printf("%s\n", k_tests[i].name);
@@ -2893,6 +4086,11 @@ int main(int argc, char **argv)
     }
     printf("libsa1 %s (SA1_API_EMOTE %d; faces %s)\n", sa1_version_string(), SA1_API_EMOTE,
            EMOTE_TEST_FACES ? "landed: E13 runs" : "not landed: E13 not run");
+    if (g_lift_out != NULL) {
+        int r = measure_lift(ctx, g_lift_out);     /* round r1-fix-ev: the drawn lift, not a test */
+        sa1_shutdown(ctx);
+        return r;
+    }
     for (i = 0; i < sizeof k_tests / sizeof k_tests[0]; i++) {
         if (!selected(only, k_tests[i].name)) {
             continue;

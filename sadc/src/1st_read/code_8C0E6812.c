@@ -30,6 +30,10 @@
  */
 #include "common.h"
 #include "sa1/sa1.h"
+#include "sa1/upgdisp.h"     /* SA1_GA only: the upgrades' display set (docs/research/gsa1_100_select.md 4.3.3) */
+#if defined(SA1_GA)
+SA1_UPGDISP_DEFINE(SA1_UPGDISP_TAG_E681);
+#endif
 
 /*
  * Any work of the cursor task (task.awp, 0x10 bytes from
@@ -255,7 +259,7 @@ void func_8C0E6CC0(task *tp)
     twp = tp->twp;
     cwp = (BIGCASTWK *)tp->awp;
     ptwp = playertwp[0];
-    obj = D_8C565FC4[func_8C0E6E80()]->child;
+    obj = D_8C565FC4[SA1_UPG_LURES()]->child;
     switch (twp->mode) {
     case 0:
         twp->mode = 1;

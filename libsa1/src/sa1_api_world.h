@@ -35,7 +35,7 @@ struct sa1s_ctx;
 #define SA1W_SET_COMPANIONS 0x2u
 #define SA1W_SET_GOPTS      0x4u
 #define SA1W_SET_SUPOPTS    0x8u    /* round 0.9.3a: sa1_character_set_super_option */
-#define SA1W_GOPT_MAX       5u      /* SA1_GOPT_* ids 1..4 (round 0.9.4: SA1_GOPT_ITEM_ICON_LIMIT) */
+#define SA1W_GOPT_MAX       6u      /* SA1_GOPT_* ids 1..5 (round 0.9.4: SA1_GOPT_ITEM_ICON_LIMIT; 1.0.0-beta1: SA1_GOPT_UPGRADE_MODELS) */
 #define SA1W_SUPOPT_MAX     7u      /* SA1_SUPOPT_* ids 1..6 (round 0.9.4a: SUPER_ANIMS 5, LSD_GOLD 6) */
 typedef struct sa1w_charopt {
     int32_t id;                 /* sa1_character_id (0: unused; a record of another id is stale: a destroyed character) */
@@ -50,6 +50,15 @@ typedef struct sa1w_charopt {
     uint32_t supopts;           /* 1 << SA1_SUPOPT_* the host set */
     int32_t supopt_value[SA1W_SUPOPT_MAX];
 } sa1w_charopt;
+
+/* round 1.0.0-beta1 (SA1_GOPT_UPGRADE_MODELS; src/world/sa1_world_charopt.c): the nine SA1_UPGDISP blocks of the lowered game code (sadc
+ * include/sa1/upgdisp.h), by tag bit: 1 << n for n = 0 "A77B", 1 "B614", 2 "C4C2", 3 "DA10", 4 "CFAC", 5 "DFFA", 6 "E772", 7 "E681", 8 "EA04" */
+#define SA1W_UPGDISP_ALL    0x1FFu
+/* the tags whose TUs draw `kind`'s parts (0: none, Eggman and Tikal) */
+uint32_t sa1w_upgdisp_tags_of_kind(int32_t kind);
+/* on, shown of those blocks in w: value 0 the game, SA1_UPGRADE_MODELS_ON | bits; SA1_ERR_NOT_IMPLEMENTED (named in sa1_last_error) for a value other than 0
+   when a block is missing (the others are written) */
+sa1_status sa1w_world_upgdisp(sa1_context *ctx, struct sa1g_world *w, uint32_t tags, uint32_t value);
 
 /* ---- per-context state of the API (sa1_core.c allocates it right behind the sa1_context) ---------- */
 typedef struct sa1_api_ext {

@@ -975,3 +975,17 @@ D_8C1B9C64 = 0x8C1B9C64; // data; NJS_TEXANIM of the item icon (texid = D_8C1B9C
 // SET-0 spawn path (round 0.9.4 landing 094-land, 2026-10-26; build/staging/set0/LANDING.md section 2): tail-BRA entries the analysis folds into 8C090FA0
 func_8C090FFE = 0x8C090FFE; // function; SET manager mode-1 tail (tail BRA from 8C090FA0 at 8C090FE8), dc-set0
 func_8C0915D2 = 0x8C0915D2; // function; SET manager mode 2, act change (tail BRA from 8C090FA0 at 8C090FF2), dc-set0
+// 1.0.0 batch, split-only landing (round R0 lane p-split, 2026-11-08; gsa1_100_plan.md 5.3 R100.8, gsa1_100_master.md D14): entries the analysis does not find, so tools/shcdiff.py can compare the staged functions
+func_8C045B20 = 0x8C045B20; // function; reached only through a pool word (8C045D18); was emitted as data inside func_8C045A70
+func_8C0656E4 = 0x8C0656E4; // function; tail BRA from 8C0650DE (folded into func_8C0655A0 before)
+func_8C0676AC = 0x8C0676AC; // function; tail BRA from 8C06751E (folded into func_8C0675E0 before)
+func_8C0683C0 = 0x8C0683C0; // function; reached only through a pool word (8C06841C); was emitted as data after func_8C0683B8
+func_8C068560 = 0x8C068560; // function; tail BRA from func_8C0683B8 at 8C0683BC (folded into func_8C06850A before)
+func_8C0643A0 = 0x8C0643A0; // function; tail BRA from 8C063BE6 (folded into func_8C06426A before)
+func_8C0646C0 = 0x8C0646C0; // function; tail BRA from 8C064618 (folded into func_8C064636 before)
+func_8C063BEA = 0x8C063BEA; // function; in the rockets' chunk, reached only through a pool word (8C063F30); was emitted as data inside func_8C063B92
+func_8C063C66 = 0x8C063C66; // function; in the rockets' chunk, reached only through a pool word (8C063F4C); was emitted as data inside func_8C063B92
+func_8C063CA0 = 0x8C063CA0; // function; 6-byte tail JMP stub, reached only through a pool word (8C063C54); was data inside func_8C063B92
+func_8C063CA6 = 0x8C063CA6; // function; in the rockets' chunk, reached only through a pool word (8C063D60); was emitted as data inside func_8C063B92
+func_8C062B5C = 0x8C062B5C; // function; tail BRA from 8C0627DE (folded into func_8C062B38 before)
+func_8C0627D6 = 0x8C0627D6; // function; reached from a data table in 8C151194 (lbl_8C0627D6 before; folded into func_8C0627B4)

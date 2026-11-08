@@ -14,6 +14,7 @@
 #include "sa1_frontend.h"   /* round 0.9.8: sa1_frontend_close, sa1_loader_frontend_set */
 #include "sa1_question.h"   /* round 0.9.9 */
 #include "sa1_skin.h"       /* round 0.9.9f */
+#include "sa1_emote_ev.h"   /* round 100-EV: sa1ev_free */
 
 #include <stdio.h>
 
@@ -818,6 +819,7 @@ void sa1_unload_disc(sa1_context *ctx)
     sa1_charset_free(ctx, &ctx->frontend_set);
     sa1q_free(ctx);
     sa1k_free(ctx);
+    sa1ev_free(ctx);        /* round 100-EV: the cutscene animations' cache (src/sa1_emote_ev.c) */
     ctx->files.count = 0;
     ctx->num_image_names = 0;
     ctx->disc_loaded = 0;

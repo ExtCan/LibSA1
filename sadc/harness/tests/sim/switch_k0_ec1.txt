@@ -1,0 +1,6 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C067480:6:3@-36.5,3.9,19/0,1,60+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): O SWITCH (8C067480,
+# 6:3) kind 0, ID 1, timer 60, on Sonic's line at step 80: he runs over it (the flags B_8C78C5B4).
+30 0 0
+200 0 -127
+200 0 0

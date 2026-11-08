@@ -1,0 +1,564 @@
+# emote_events.tsv - the evidence of tools/gen_emote_events.py (round 100-EV; sadc docs/research/emotes_ev.md 2, 3.2, 14).
+# Made by --evidence-from from sadc build/research/plan100/anim (census.py, bindings.py, scan_calls.py, poses.py, floor.py).
+# Numbers, hashes and names only. motion: kind, object (0 main body, 1 Tails' flight body), the research's motion hash
+# (content), pace (frames per 1/30 s, the most used speed of the tracked EV_SetAction calls; 1 without a call), play,
+# lift (SA1 units; 0 when the root travels or rises more than 2 or the lift is over 4), root travel, rise, the first
+# frame's lowest point minus the stand's, gameplay_dup (a copy of a gameplay row or extra), then for a reader: character,
+# home cutscene, motion address. cast: the characters with animations bound in a cutscene (bindings.py, event copies).
+@header	motion	kind	obj	hash	pace	play	lift	travel	rise	low0	gameplay_dup	char	home	motion_addr
+motion	0	0	1b2e4a37ac9b2a51	1	once	0.29	0.00	0.00	-0.29	no	sonic	EV0001	0CB883CC
+motion	0	0	968b992c11d40daf	0.5	once	0.29	0.00	0.00	-0.29	no	sonic	EV0001	0CB89AF0
+motion	0	0	ccefd108c1cbf559	1	loop	0.29	0.00	0.00	-0.29	no	sonic	EV0001	0CB8B0C4
+motion	0	0	43088d1398e622e9	0.25	once	0.00	448.20	182.48	218.32	no	sonic	EV0001	0CB8DC58
+motion	0	0	46cb27a67ac65bd7	0.5	once	0.00	0.00	0.19	0.18	no	sonic	EV0002	0CB847E4
+motion	0	0	4d730a536ff23c52	0.25	once	0.24	0.00	0.10	-0.24	no	sonic	EV0003	0CB83354
+motion	0	0	e744ddc85ec216cf	0.7	loop	1.87	0.00	0.00	-1.87	no	sonic	EV0003	0CB84D48
+motion	0	0	ee862d6cc9d535c3	0.75	once	1.97	0.00	0.16	-1.97	no	sonic	EV0003	0CB866AC
+motion	0	0	82d9357f68c4e464	0.4	loop	1.04	0.00	0.00	-1.04	no	sonic	EV0003	0CB883D0
+motion	0	0	7eaa5022b41d38c9	0.5	loop	0.25	0.00	0.17	-0.25	no	sonic	EV0006	0CB83898
+motion	0	0	21a5c2f2694ecfd6	0.5	loop	0.03	0.00	0.12	-0.03	no	sonic	EV0007	0CB8A790
+motion	0	0	a12bfaa9dfd81d01	0.5	loop	0.03	0.00	0.15	-0.03	no	sonic	EV0007	0CB8C4A4
+motion	0	0	9d30c635464b2892	0.5	loop	0.18	0.00	0.16	-0.18	no	sonic	EV0007	0CB8E458
+motion	0	0	7b85f934d1d167ee	0.5	loop	0.17	0.00	0.16	-0.17	no	sonic	EV0007	0CB9041C
+motion	0	0	00e097d9d79e53dd	0.425	once	0.18	0.00	0.16	-0.18	no	sonic	EV0007	0CB92300
+motion	0	0	95ef7247f77dd30b	0.4	once	0.18	0.00	0.16	-0.18	no	sonic	EV0007	0CB94464
+motion	0	0	c12d25b081afe77e	0.7	once	0.15	0.00	0.09	-0.15	no	sonic	EV0007	0CB965C8
+motion	0	0	cd3712836ff4056c	0.3	loop	0.17	0.01	0.10	-0.17	no	sonic	EV0009	0CB93688
+motion	0	0	901eb566097b92ab	0.5	loop	0.16	0.01	0.09	-0.16	no	sonic	EV0009	0CB94E1C
+motion	0	0	0f950994a26c8506	1	once	0.12	0.00	0.42	-0.12	no	sonic	EV0009	0CB98E80
+motion	0	0	9479448665be22ed	0.5	loop	0.19	0.00	0.10	-0.19	no	sonic	EV0009	0CB9D1A4
+motion	0	0	75e998fabf8c7e98	0.25	loop	0.19	1.15	0.33	-0.19	no	sonic	EV0009	0CBA03C8
+motion	0	0	c882696d5782feee	0.4	once	0.00	1.38	0.40	0.02	no	sonic	EV000B	0CB8A4FC
+motion	0	0	8727d3f0383f1151	1	once	0.00	0.00	4.86	-0.59	no	sonic	EV000B	0CB90134
+motion	0	0	eb24d5f3d91d9c14	1	once	0.51	0.00	0.00	-0.51	no	sonic	EV000B	0CB918F8
+motion	0	0	0c2a4b708d8c1800	1	loop	0.84	0.00	0.00	-0.84	no	sonic	EV000B	0CB92E5C
+motion	0	0	1101c328c8d0a314	0.4	loop	0.20	0.00	0.05	-0.20	no	sonic	EV000D	0CB86DBC
+motion	0	0	67c3cf1871b891f4	1	loop	0.00	0.00	0.16	-7.95	no	sonic	EV0011	0CB8582C
+motion	0	0	74db9a8eade66d14	1	once	0.00	0.00	0.00	-7.95	no	sonic	EV0011	0CB87330
+motion	0	0	581bceef7c20334e	0.7	once	0.00	0.00	9.92	-7.97	no	sonic	EV0011	0CB8AD34
+motion	0	0	0910246e5900f838	0.5	loop	0.18	0.00	0.16	-0.18	no	sonic	EV0011	0CB8CCF8
+motion	0	0	2253f20370c1ecc4	1	once	0.00	0.29	0.43	0.06	no	sonic	EV0012	0CB83CA4
+motion	0	0	bb921cf4b4a28035	0.25	once	0.10	0.08	0.14	-0.10	no	sonic	EV0012	0CB8C1D8
+motion	0	0	cd6f0f30f35a7e8d	0.4	loop	0.22	0.00	0.38	-0.22	no	sonic	EV0012	0CB9B0F4
+motion	0	0	7b5dca8d45ceeeca	0.2	loop	0.20	0.00	0.06	-0.20	no	sonic	EV0012	0CB9E548
+motion	0	0	219092ea65ff5794	1	once	0.01	1.01	0.37	-0.01	no	sonic	EV001B	0CB889D4
+motion	0	0	6d0b44975bdad4ce	1	loop	0.01	0.00	0.14	-0.01	no	sonic	EV001B	0CB8D45C
+motion	0	0	50234509faf9ef78	0.5	loop	0.12	0.00	0.10	-0.12	no	sonic	EV001B	0CB8F280
+motion	0	0	b7fb2efbecf964c5	1	once	0.18	0.00	0.16	-0.18	no	sonic	EV001C	0CB92428
+motion	0	0	65b98616649fd7d2	0.8	once	0.00	0.00	76.31	72.79	no	sonic	EV001E	0CB8E720
+motion	0	0	28a71ac1cc3c6965	1.5	once	0.00	0.00	3.10	0.02	no	sonic	EV001E	0CB935F4
+motion	0	0	1b6a48c6dbb66c86	0.4	loop	0.18	0.00	0.10	-0.18	no	sonic	EV001E	0CB94758
+motion	0	0	ebc2370e00037c7f	0.5	loop	0.00	0.00	0.07	0.16	no	sonic	EV001E	0CB99574
+motion	0	0	4769f0922fabb821	0.5	loop	0.08	0.00	0.10	-0.08	no	sonic	EV0021	0CB8266C
+motion	0	0	0e83b65d6d46579c	0.5	loop	0.28	0.00	0.15	-0.28	no	sonic	EV0023	0CB8E3AC
+motion	0	0	5ed289f286683fdf	0.5	loop	0.18	0.00	0.16	-0.18	no	sonic	EV0026	0CB8FDCC
+motion	0	0	3342cb3fe3179129	1	once	0.00	40.00	16.78	0.11	no	sonic	EV0026	0CB94580
+motion	0	0	66f9faf4e5992d4b	1	loop	0.00	0.00	0.00	-17.33	no	sonic	EV0026	0CB95364
+motion	0	0	d3a8df6a7f13b4e9	1	once	0.00	0.55	11.27	0.05	no	sonic	EV0028	0CB8797C
+motion	0	0	b0365c7a88c20cb4	1	loop	0.11	0.00	0.30	-0.11	no	sonic	EV0028	0CB89380
+motion	0	0	c4eba0728a0b46a4	0.8	loop	0.20	0.00	0.05	-0.20	no	sonic	EV002A	0CB85A68
+motion	0	0	1dd4b47c2e7fca8f	1	once	0.00	0.91	3.49	-0.20	no	sonic	EV002A	0CB8810C
+motion	0	0	c78cf2e479f52afb	0.4	once	0.25	0.00	0.06	-0.25	no	sonic	EV002A	0CB89ED0
+motion	0	0	d55b01e0222ae0a5	0.5	once	0.26	0.75	0.16	-0.26	no	sonic	EV0031	0CB896C4
+motion	0	0	64aa675cb2f99209	0.5	loop	0.27	0.00	0.09	-0.27	no	sonic	EV0031	0CB8B348
+motion	0	0	cf2466ea05e83bed	0.5	loop	0.18	0.00	0.16	-0.18	no	sonic	EV0052	0CBA19A0
+motion	0	0	48d3f27e1297b1b6	1	loop	0.00	0.00	0.45	0.01	no	sonic	EV0060	0CB9EC48
+motion	0	0	e0dfd164f4fc533d	1	loop	0.25	0.00	0.06	-0.25	no	sonic	EV008A	0CB8C340
+motion	0	0	089fb293c1bcb4fd	1	loop	1.68	0.00	0.00	-1.68	no	sonic	EV00F4	0CB86E14
+motion	0	0	7f8be77bb992aeb3	1	loop	1.68	0.00	0.00	-1.68	no	sonic	EV00F4	0CB88EA8
+motion	0	0	630754bee5eaaf2d	1	loop	1.81	0.00	0.00	-1.81	no	sonic	EV00F4	0CB8A89C
+motion	0	0	ad3cec874c7df890	1	once	0.43	0.00	0.00	-0.43	no	sonic	EV00F4	0CB8C2A0
+motion	0	0	dffe3f7ab6a0654c	0.5	loop	0.00	0.00	0.14	0.03	no	sonic	EV00F5	0CB8D650
+motion	0	0	28bdffc2c2c0f102	0.5	loop	0.18	0.00	0.12	-0.18	no	sonic	EV00F5	0CB90C18
+motion	0	0	6f693770e29ed7c3	0.5	loop	0.20	0.00	0.12	-0.20	no	sonic	EV00F5	0CB94CF0
+motion	0	0	0a02719bac0fb1bc	0.5	loop	0.00	0.00	0.07	0.16	no	sonic	EV00F8	0CB839D4
+motion	0	0	b8173b98a5546514	0.5	once	0.03	0.00	0.15	-0.03	no	sonic	EV00FD	0CB90444
+motion	0	0	cb023e6b420b4b43	0.5	loop	0.03	0.00	0.15	-0.03	no	sonic	EV00FD	0CB91FA8
+motion	0	0	5d22751d2bb8784a	1	once	0.25	0.00	0.06	-0.25	no	sonic	EV00FF	0CB8D578
+motion	0	0	6c83542020532058	1	once	0.25	0.00	0.06	-0.25	no	sonic	EV00FF	0CB8FFEC
+motion	0	0	6244756f6ffb0d2a	1	loop	0.25	0.00	0.06	-0.25	no	sonic	EV00FF	0CB92A20
+motion	0	0	1b67c90be3802249	0.2	once	0.16	1.10	0.53	-0.16	no	sonic	EV0165	0CB86354
+motion	0	0	4f0531c64c2af97f	0.3	loop	0.21	0.07	0.02	-0.21	no	sonic	EV0165	0CB88E78
+motion	0	0	5bdc32e024289827	0.3	once	0.30	0.93	0.50	-0.30	no	sonic	EV0165	0CB8AE5C
+motion	0	0	95bc5ef12b65e2b9	0.1	once	0.15	0.35	0.40	-0.15	no	sonic	EV0166	0CB875E4
+motion	0	0	715685c1d25e7958	0.6	loop	0.20	0.05	0.05	-0.20	no	sonic	EV0166	0CB8A478
+motion	0	0	4cf4ea75c1e5359b	0.2	once	0.19	0.25	0.30	-0.19	no	sonic	EV0166	0CB8C0FC
+motion	0	0	5c0200607433ee88	0.2	once	0.00	0.50	0.15	0.02	no	sonic	EV0167	0CB8723C
+motion	0	0	b4d3a69e80efbf4f	0.5	loop	0.00	0.02	0.02	0.00	no	sonic	EV0167	0CB8A2D0
+motion	0	0	bd8c861b386a2978	0.5	once	0.00	0.31	0.04	0.00	no	sonic	EV0167	0CB8E2B4
+motion	2	0	0d98f439d5ff65cf	1	once	0.02	0.11	0.02	-0.02	no	tails	EV0006	0CB8678C
+motion	2	0	07b693c961f05fb6	1	loop	0.03	0.00	0.30	-0.03	no	tails	EV0007	0CB9884C
+motion	2	0	c8a6068993fb0788	0.8	loop	0.04	0.00	0.58	-0.04	no	tails	EV0007	0CB9E174
+motion	2	0	be1d5afb637b3bfb	1.2	once	0.02	0.19	0.00	-0.02	no	tails	EV0007	0CBA0448
+motion	2	0	ff3e0f1c62246b4c	1.2	once	0.02	0.00	0.00	-0.02	no	tails	EV0007	0CBA0C7C
+motion	2	0	184e63a96bb4ce80	0.8	loop	0.07	0.96	0.10	-0.07	no	tails	EV0009	0CBA6CD0
+motion	2	0	f4eec9b9703c727d	1	once	0.00	0.80	0.00	0.01	no	tails	EV0009	0CBAAF24
+motion	2	0	ac20a4d75e4c3399	1	once	0.00	0.00	0.25	1.70	no	tails	EV0026	0CB9AC90
+motion	2	0	61813c8da480cd3f	1	loop	0.08	0.00	0.00	-0.08	no	tails	EV002A	0CB8A684
+motion	2	0	4ecee9fcbc0dc98e	1	once	0.00	3.93	3.63	-0.08	no	tails	EV002A	0CB8E6B8
+motion	2	0	ff01167aca953f0c	1	loop	0.02	0.00	0.24	-0.02	no	tails	EV002A	0CB90F2C
+motion	2	0	41fa1d350bc8b226	1	once	0.02	0.00	0.00	-0.02	no	tails	EV002A	0CB920C0
+motion	2	0	269a6ef0244f3894	1.3	loop	0.03	0.00	0.00	-0.03	no	tails	EV002A	0CB92874
+motion	2	0	647f6c87a47d06ba	1	once	0.00	0.00	0.00	-0.00	no	tails	EV002A	0CB946F8
+motion	2	0	e1d78d2c46c9282f	1	loop	0.00	0.00	0.00	-0.00	no	tails	EV002A	0CB94F2C
+motion	2	0	f03cd360ced9f4dd	1	loop	0.05	0.00	0.00	-0.05	no	tails	EV0031	0CB851F8
+motion	2	0	e0182e895c986a9a	0.2	once	0.07	0.00	0.00	-0.07	no	tails	EV0031	0CB870BC
+motion	2	0	8659fea19ad978b1	1	loop	0.10	0.00	0.00	-0.10	no	tails	EV0031	0CB878F0
+motion	2	0	63f0e3e9278583cf	1	loop	0.00	0.00	0.25	0.41	no	tails	EV0035	0CB8B0C0
+motion	2	0	f974b2a837c0304f	1	once	0.00	0.00	2.86	0.00	no	tails	EV0035	0CB944B8
+motion	2	0	baabd4d4de005522	1	loop	2.64	0.00	0.10	-2.64	no	tails	EV0035	0CB963EC
+motion	2	0	454e021f2d75fc29	1	once	0.00	0.00	4.87	-0.02	no	tails	EV0038	0CB87E90
+motion	2	0	22796d52021dbc38	1	once	0.00	0.00	4.44	1.45	no	tails	EV0039	0CB904D0
+motion	2	0	b94d82e4b440ea5a	1	once	3.18	0.00	0.11	-3.18	no	tails	EV0039	0CB91E64
+motion	2	0	6143f6114a4ea7b1	1	loop	1.75	0.00	0.00	-1.75	no	tails	EV0039	0CB92C28
+motion	2	0	2b1eb7d2fdf17b9a	1	loop	0.00	0.00	0.12	0.03	no	tails	EV003E	0CB920AC
+motion	2	0	d1b9b9c027f2a104	1	once	0.00	3.76	0.25	0.03	no	tails	EV003E	0CB94110
+motion	2	0	a7dc326f0de3c651	1	loop	0.00	0.00	0.00	-0.00	no	tails	EV003E	0CB94964
+motion	2	0	314f4bb33f05787a	1	once	0.00	0.00	0.00	-0.00	no	tails	EV003E	0CB963F8
+motion	2	0	c8d8b0581914a34e	1	loop	0.00	0.00	0.00	-0.00	no	tails	EV003E	0CB96C2C
+motion	2	0	7d1cda134e0408be	1	loop	0.18	0.00	0.00	-0.18	no	tails	EV0040	0CB81714
+motion	2	0	0efbfe85baae29d6	1	once	0.00	4.14	3.67	-0.18	no	tails	EV0040	0CB85E48
+motion	2	0	8693ff0d2050d9a1	1	loop	0.00	0.00	0.09	0.00	no	tails	EV0040	0CB8883C
+motion	2	0	7fdb129df6ca4ba7	0.2	loop	0.00	0.00	0.00	-0.00	no	tails	EV0040	0CB8B0D0
+motion	2	0	9eb02285e37c3a19	1	loop	0.00	0.00	0.11	0.00	no	tails	EV0046	0CB85634
+motion	2	0	518a55bd8368de85	1	once	0.00	0.00	0.00	0.00	no	tails	EV0046	0CB871E8
+motion	2	0	ccc9347f3ac76b7a	1	loop	0.00	0.00	0.12	0.00	no	tails	EV0046	0CB8965C
+motion	2	0	829f0b88598ec80d	1	once	0.00	0.00	0.00	0.00	no	tails	EV0046	0CB8A510
+motion	2	0	a1d539cb869f6f99	1	loop	0.00	0.00	0.11	0.00	no	tails	EV0046	0CB8C844
+motion	2	0	44d76c22385de5bf	1	loop	0.00	0.00	0.09	0.00	no	tails	EV0046	0CB8DE98
+motion	2	0	1ad11c96a1d522fa	1	loop	0.06	0.00	0.09	-0.06	no	tails	EV0046	0CB8F60C
+motion	2	0	f78c52f298bd7baf	1	loop	0.00	0.00	0.09	0.00	no	tails	EV0046	0CB915E0
+motion	2	0	cbeae292d294cc8a	1	loop	0.00	0.00	0.00	8.73	no	tails	EV004D	0CB92A68
+motion	2	0	412f7edc3a8ef061	0.8	once	0.02	0.10	0.18	-0.02	no	tails	EV004D	0CB98878
+motion	2	0	0cd21f6e53c3273b	1	once	0.03	0.10	0.18	-0.03	no	tails	EV004D	0CB9A4CC
+motion	2	0	ce5771d3f4705bfe	1	once	0.02	1.39	0.16	-0.02	no	tails	EV004D	0CB9CCC0
+motion	2	0	a1e5b3bdb8644bd3	1	once	0.00	0.16	1.64	0.00	no	tails	EV004D	0CB9FEE4
+motion	2	0	54cd21c3ffe7f18c	0.4	once	0.02	0.00	0.00	-0.02	no	tails	EV004D	0CBA7450
+motion	2	0	b656d077e943d410	1.5	once	0.02	0.00	0.00	-0.02	no	tails	EV0051	0CB8A1F0
+motion	2	0	83bb8f12ad4d55bc	1	once	0.00	0.00	0.00	2.41	no	tails	EV0052	0CB9278C
+motion	2	0	66dfc06769524009	1	loop	0.00	0.00	0.00	0.60	no	tails	EV0052	0CB93000
+motion	2	0	213139cc2e0fd535	1	once	0.00	0.00	1.01	1.61	no	tails	EV0052	0CB98888
+motion	2	0	429b2bbd780af5c6	1	once	0.00	0.00	0.25	1.54	no	tails	EV0052	0CB9ACD0
+motion	2	0	6505627f2196ecda	1	once	0.00	0.00	0.25	1.54	no	tails	EV0052	0CB9C284
+motion	2	0	b2849db02275fb39	1	once	0.57	0.00	0.14	-0.57	no	tails	EV00C1	0CB90FD4
+motion	2	0	47b07098b4f5db80	0.1	once	0.00	0.21	0.35	0.03	no	tails	EV0168	0CB84B8C
+motion	2	0	50607bafbbae72a2	1	loop	0.13	0.03	0.08	-0.13	no	tails	EV0168	0CB87040
+motion	2	0	ab9acfce76e9edaa	0.6	once	0.17	0.14	0.33	-0.17	no	tails	EV0168	0CB89EF4
+motion	2	0	0d13a73ac3863526	0.1	once	0.00	0.65	0.16	0.03	no	tails	EV0169	0CB84B50
+motion	2	0	7deb9d49eea32ed8	0.2	loop	0.81	0.09	0.03	-0.81	no	tails	EV0169	0CB86EB4
+motion	2	0	40b8c5fa93bad906	0.6	once	0.82	0.65	0.16	-0.82	no	tails	EV0169	0CB89BC8
+motion	2	1	dc217b531cddc3c2	1	once	0.00	0.00	0.00		no	tails	EV0026	0CB9933C
+motion	2	1	c0ef8f16e64ca965	1	loop	0.00	0.00	0.00		no	tails	EV004C	0CB9A000
+motion	2	1	1fee378b612bedd8	1	once	0.00	0.00	0.00		no	tails	EV0052	0CB8E0F4
+motion	2	1	01999282cc2c8bff	1	once	0.00	0.00	0.00		no	tails	EV0052	0CB9945C
+motion	3	0	016a6c8bf509c529	1	once	0.00	0.00	5.41	1.51	no	knuckles	EV000B	0CB97130
+motion	3	0	78ef3979b344d264	1	once	2.14	0.00	1.05	-2.14	no	knuckles	EV000B	0CB98AB4
+motion	3	0	f06c612300c501d3	1	loop	0.00	0.00	0.00	0.03	no	knuckles	EV000B	0CB999F8
+motion	3	0	13501291152aad80	1	once	0.00	0.45	1.37	0.00	no	knuckles	EV000B	0CB9DE5C
+motion	3	0	67362eb820c2e844	1	loop	0.08	0.00	0.12	-0.08	no	knuckles	EV000B	0CBA0170
+motion	3	0	74a1c08efdd43dc7	1	loop	0.00	0.00	0.28	0.09	no	knuckles	EV0028	0CB923B4
+motion	3	0	eda96eb88df1594d	1	once	0.00	0.30	0.33	0.00	no	knuckles	EV0028	0CB95318
+motion	3	0	510fab430df57464	1	loop	0.00	0.00	0.30	0.07	no	knuckles	EV0028	0CB973BC
+motion	3	0	053f303a7c7c6fbf	1	loop	0.00	0.00	0.21	0.30	no	knuckles	EV0080	0CB88C94
+motion	3	0	e9992b09ebb77600	1	loop	2.48	0.00	0.00	-2.48	no	knuckles	EV0080	0CB92374
+motion	3	0	e317aa88ecd94d33	0.8	once	0.00	0.00	19.36	15.93	no	knuckles	EV0080	0CB985F8
+motion	3	0	148794cd82455240	0.8	loop	0.00	0.00	0.26	-0.00	no	knuckles	EV0080	0CB9A9FC
+motion	3	0	0a78a003c3d78870	1.3	once	0.00	2.69	0.03	0.09	no	knuckles	EV0080	0CB9D680
+motion	3	0	2c9f6eb95afbbb6d	0.8	loop	0.00	0.00	0.20	0.09	no	knuckles	EV0080	0CB9F884
+motion	3	0	ccab67460873412c	0.5	once	0.00	0.00	0.27	-0.00	no	knuckles	EV0082	0CB8562C
+motion	3	0	32d46e274ea4a10d	1	loop	0.00	0.00	0.15	0.00	no	knuckles	EV0083	0CB8821C
+motion	3	0	7a540cb0384584c5	0.5	loop	0.00	0.06	0.11	0.03	no	knuckles	EV0086	0CB83510
+motion	3	0	dd71f4dd65b9ab29	0.5	once	0.00	0.31	0.34	0.00	no	knuckles	EV0087	0CB87D98
+motion	3	0	c4b24bda82fc2084	0.9	loop	0.00	0.11	0.51	0.18	no	knuckles	EV0087	0CB8E5B4
+motion	3	0	56e795e37ab4351c	1	loop	0.00	0.00	0.07	-0.00	no	knuckles	EV0087	0CB90198
+motion	3	0	eaed3761d2595972	1	loop	0.00	0.00	0.28	0.01	no	knuckles	EV0087	0CB980A4
+motion	3	0	185dc8c0281a1212	1	once	0.00	0.00	0.22	0.04	no	knuckles	EV0091	0CB9F950
+motion	3	0	9cad0f38d410adbd	1	loop	0.00	0.00	0.18	0.04	no	knuckles	EV0091	0CBA1954
+motion	3	0	1fa37a20f94db1b5	0.6	loop	0.00	0.52	0.48	0.11	no	knuckles	EV0091	0CBA8A1C
+motion	3	0	e300b873db6a8211	0.8	loop	0.05	0.00	0.10	-0.05	no	knuckles	EV0097	0CB86FC8
+motion	3	0	9282231761b41ce2	1	loop	0.00	0.00	0.10	0.37	no	knuckles	EV0097	0CB88F9C
+motion	3	0	77ea4da4e3dbab21	1	once	0.00	0.00	0.01	0.18	no	knuckles	EV00F3	0CB87804
+motion	3	0	8b64d8c123d21703	1	once	0.00	2.53	0.00	0.09	no	knuckles	EV00F3	0CB8F020
+motion	3	0	579cedccddfe5c97	1	once	0.00	0.00	0.17	0.06	no	knuckles	EV00F3	0CB914E4
+motion	3	0	5485dd84b31820cf	1	once	0.00	0.00	0.28	0.09	no	knuckles	EV00F3	0CB93878
+motion	3	0	f7d5fd16c26f2b7c	1	once	0.00	0.11	0.51	0.18	no	knuckles	EV00F3	0CB95CEC
+motion	3	0	a5a3aaeaf92f8099	0.9	loop	0.13	0.00	0.05	-0.13	no	knuckles	EV00F5	0CB98628
+motion	3	0	39fe0d8aa8456391	1	once	0.11	0.00	0.41	-0.11	no	knuckles	EV00F5	0CB9EE0C
+motion	3	0	a1c655c75096d0f1	1	loop	0.87	0.00	0.09	-0.87	no	knuckles	EV00F5	0CBA04D0
+motion	3	0	78bd3946db365df9	1	loop	1.67	0.00	0.09	-1.67	no	knuckles	EV00F5	0CBA1DC4
+motion	3	0	c95c4ea399b31cbe	0.1	once	0.00	0.67	0.41	0.05	yes	knuckles	EV016A	0CB89F04
+motion	3	0	639fa41b60887af1	0.2	loop	0.00	0.05	0.02	0.05	yes	knuckles	EV016A	0CB8C808
+motion	3	0	b64a733a5f3ef9a0	0.3	once	0.00	0.58	0.27	0.05	yes	knuckles	EV016A	0CB8EC4C
+motion	3	0	3a2d7528d185610a	0.1	once	0.00	0.67	0.41	0.05	yes	knuckles	EV016B	0CB8A024
+motion	3	0	7a129a72606c884a	0.2	loop	0.00	0.05	0.02	0.05	yes	knuckles	EV016B	0CB8CD88
+motion	3	0	6dfc36054ff58ff1	0.4	once	0.00	0.58	0.27	0.05	yes	knuckles	EV016B	0CB8F00C
+motion	5	0	55e984f6073cbc67	1.3	loop	0.00	0.00	0.17	-0.00	no	amy	EV0012	0CBA087C
+motion	5	0	8a2e73019cf7d4e5	1	loop	0.00	0.00	0.12	-0.00	no	amy	EV0012	0CBA20D0
+motion	5	0	39bd655383bd0152	1.2	loop	0.00	0.00	0.32	0.11	no	amy	EV0012	0CBA51B4
+motion	5	0	a66a63edd1116133	1	loop	0.03	0.00	0.17	-0.03	no	amy	EV0012	0CBA7478
+motion	5	0	2d83831220712b8f	1	once	0.05	0.00	1.72	-0.05	no	amy	EV001A	0CB8D158
+motion	5	0	8b951ea8b5280919	1	once	0.01	0.00	0.00	-0.01	no	amy	EV001A	0CB900EC
+motion	5	0	b2fd01f6b7120ce5	1	once	0.00	0.86	0.07	0.03	no	amy	EV001A	0CB91720
+motion	5	0	45c76e869ec63c53	1	once	0.08	0.00	0.27	-0.08	no	amy	EV001A	0CB94A64
+motion	5	0	b55a8901c913448a	1.2	loop	0.01	0.00	0.00	-0.01	no	amy	EV001A	0CB959F8
+motion	5	0	f4ddee2a1081411b	1	loop	0.01	0.00	0.00	-0.01	no	amy	EV001A	0CB9628C
+motion	5	0	1638c3ed95e7dabb	1	loop	0.04	0.12	0.11	-0.04	no	amy	EV001A	0CB99790
+motion	5	0	3e9af29e3b2fe0be	1	loop	0.06	0.00	0.00	-0.06	no	amy	EV001B	0CB93268
+motion	5	0	475e9818e34226fc	1	loop	0.06	0.00	0.00	-0.06	no	amy	EV001B	0CB95D4C
+motion	5	0	f16cfd2fca2c8fee	1.5	loop	0.00	0.00	0.12	-0.00	no	amy	EV001B	0CB977C0
+motion	5	0	fbb997c1c38189e3	1	loop	0.01	0.00	0.00	-0.01	no	amy	EV004B	0CB92ACC
+motion	5	0	cd6c4ce514855eff	1	loop	0.00	0.26	0.00	0.78	no	amy	EV004C	0CBA28F0
+motion	5	0	6e496c89e1ffba43	1	loop	1.91	0.00	0.45	-1.91	no	amy	EV0060	0CB88BEC
+motion	5	0	19f9120c24a8a745	1	loop	0.00	0.06	0.10	0.04	no	amy	EV0060	0CB8A7E0
+motion	5	0	fbe926ef5305b2ce	1	once	0.00	0.06	0.09	0.04	no	amy	EV0060	0CB8B714
+motion	5	0	0aa1d23839e623d2	1	loop	0.08	0.00	0.00	-0.08	no	amy	EV0060	0CB8BF68
+motion	5	0	e57cb766fab85749	0.7	once	0.08	0.00	0.03	-0.08	no	amy	EV0060	0CB90BFC
+motion	5	0	bf219a8ed458e634	0.6	loop	0.08	0.00	0.00	-0.08	no	amy	EV0060	0CB91510
+motion	5	0	b1bcfd1f3e2bacdc	0.3	once	0.08	0.00	0.00	-0.08	no	amy	EV0060	0CB92944
+motion	5	0	1825ec76ca477be9	1	loop	0.07	0.00	0.00	-0.07	no	amy	EV0060	0CB93278
+motion	5	0	eb4c9016cf873b38	1	once	0.07	0.00	0.00	-0.07	no	amy	EV0060	0CB9694C
+motion	5	0	0062b88398bc9b17	0.3	loop	0.07	0.00	0.11	-0.07	no	amy	EV0060	0CB994E0
+motion	5	0	91b99c7a7c3cb2b5	1.3	once	0.08	0.74	0.23	-0.08	no	amy	EV0060	0CB9B704
+motion	5	0	f06aeb99dcd00d7a	0.3	loop	0.05	0.00	0.07	-0.05	no	amy	EV0061	0CB9F6FC
+motion	5	0	f0c3ad4d073fe646	0.7	once	1.12	0.00	0.00	-1.12	no	amy	EV0061	0CBA0AB0
+motion	5	0	8365adfcd57a54e9	0.8	once	1.12	0.00	0.00	-1.12	no	amy	EV0061	0CBA27D4
+motion	5	0	e9f2f436cda4af7b	0.8	loop	1.08	0.00	0.00	-1.08	no	amy	EV0061	0CBA3188
+motion	5	0	9d6d20c5a917ae94	1	once	1.08	0.00	0.00	-1.08	no	amy	EV0061	0CBA8894
+motion	5	0	08ed16c95983213b	0.7	once	0.00	14.56	2.54	-0.01	no	amy	EV0061	0CBAD74C
+motion	5	0	6bc7f68e29c2c2af	1.8	loop	0.00	0.00	0.70	0.68	no	amy	EV0061	0CBB3124
+motion	5	0	b2721b30551c508f	1	loop	0.06	0.00	0.00	-0.06	no	amy	EV0061	0CBB3958
+motion	5	0	37e0af971c4c475e	1	once	0.06	0.00	0.00	-0.06	no	amy	EV0061	0CBB4EDC
+motion	5	0	9c3773a6082459db	1	loop	0.06	0.00	0.00	-0.06	no	amy	EV0061	0CBB5710
+motion	5	0	fc18a7f2008d6b6f	1	loop	0.02	0.00	0.20	-0.02	no	amy	EV0062	0CB8C588
+motion	5	0	929e75c42d10de6a	1.1	loop	0.04	0.20	0.15	-0.04	no	amy	EV0064	0CB8CB18
+motion	5	0	ffc24cbe81eedb5d	1.1	once	0.04	0.19	0.07	-0.04	no	amy	EV0064	0CB8F34C
+motion	5	0	211aa48c26aa9000	1.1	loop	0.04	0.00	0.00	-0.04	no	amy	EV0064	0CB8FC80
+motion	5	0	f8dd3ba62791fab3	1.1	once	0.04	0.00	0.00	-0.04	no	amy	EV0064	0CB91624
+motion	5	0	bb5176d7778aedf9	1.1	loop	0.05	0.00	0.00	-0.05	no	amy	EV0064	0CB91FB8
+motion	5	0	969a5058ea8a4328	1	once	0.24	0.00	0.00	-0.24	no	amy	EV0065	0CB856EC
+motion	5	0	79a7c1783446657d	1	once	0.24	0.00	0.00	-0.24	no	amy	EV0065	0CB86000
+motion	5	0	c5ed49ee85dbde50	1	once	0.24	0.00	0.00	-0.24	no	amy	EV0065	0CB88344
+motion	5	0	1f673c379bfecbc9	1	loop	0.30	0.00	0.00	-0.30	no	amy	EV0065	0CB88C98
+motion	5	0	c4a8640af139babb	1	once	0.00	0.79	3.28	-0.30	no	amy	EV0065	0CB8C12C
+motion	5	0	786ee2519039bce6	0.5	loop	0.04	0.81	0.00	-0.04	yes	amy	EV0066	0CB83E38
+motion	5	0	36d377d85dc1e670	1	loop	0.02	0.00	0.20	-0.02	no	amy	EV0069	0CB96F28
+motion	5	0	dcc1ff4332144912	1	loop	0.00	0.00	0.14	0.16	no	amy	EV0069	0CB98A3C
+motion	5	0	cee982b756541aa9	1	once	0.00	0.09	0.09	0.17	no	amy	EV006D	0CB92AB8
+motion	5	0	ef8e9d7f1521f1da	1	once	0.00	0.86	0.00	0.15	no	amy	EV006D	0CB959FC
+motion	5	0	e9b8314a435cf506	1	loop	0.00	0.00	0.17	0.16	no	amy	EV006D	0CB98540
+motion	5	0	55427fa0587f9627	1	loop	0.00	0.00	0.17	0.16	no	amy	EV006D	0CB9B084
+motion	5	0	73c2232535f9c4b6	0.5	loop	0.00	0.00	0.17	0.16	no	amy	EV006D	0CB9DA48
+motion	5	0	2f87c572fe4dde6e	1	loop	0.00	0.00	0.26	0.16	no	amy	EV006D	0CBA04AC
+motion	5	0	d711d6554ca5b6b6	1	loop	0.00	0.00	0.26	0.13	no	amy	EV006D	0CBA2E40
+motion	5	0	078985f051388e38	1	loop	0.00	0.00	0.14	0.16	no	amy	EV006D	0CBA64C8
+motion	5	0	2cb8dd612ac1fa2a	1	loop	0.00	0.00	0.15	0.16	no	amy	EV006D	0CBA8A3C
+motion	5	0	f133935f3f138e46	1	once	0.00	0.25	0.13	0.16	no	amy	EV006E	0CB85A08
+motion	5	0	4f7031e993ab7bc1	0.9	loop	0.00	0.00	0.09	0.16	no	amy	EV006E	0CB886DC
+motion	5	0	433a545898487771	1	once	0.00	0.86	0.00	0.15	no	amy	EV006F	0CB879B8
+motion	5	0	ea4697736c0068e4	1	loop	0.00	0.00	0.08	0.16	no	amy	EV006F	0CB89C6C
+motion	5	0	154a901c029ca20b	1	once	0.00	0.39	1.06	0.16	no	amy	EV006F	0CB8C900
+motion	5	0	12564fe2ee56aaa9	1	once	0.00	0.00	0.00	0.14	no	amy	EV0070	0CB84BFC
+motion	5	0	adeb392e3bf9593d	1	once	0.00	0.00	0.26	0.16	no	amy	EV0071	0CB926F8
+motion	5	0	73670f3afc0a0cb8	1	once	0.00	0.26	0.23	0.19	no	amy	EV0071	0CB980A0
+motion	5	0	94cbeadb70b97363	1	once	0.00	0.00	0.10	0.16	no	amy	EV0071	0CB9A1B4
+motion	5	0	e8ddfad73d490291	0.9	loop	0.00	0.00	0.09	0.16	no	amy	EV0071	0CB9C638
+motion	5	0	5726a273b6c121d1	0.6	loop	0.00	0.00	0.09	0.38	no	amy	EV0071	0CB9F09C
+motion	5	0	105a15e72918ab6c	0.6	loop	1.61	0.00	0.06	-1.61	no	amy	EV0071	0CBA1220
+motion	5	0	dc80752bd8ca71f4	0.9	once	0.00	2.99	0.83	0.18	no	amy	EV0071	0CBA8054
+motion	5	0	ea026d32f2f952c0	1	loop	0.00	0.00	0.17	0.17	no	amy	EV0071	0CBAA8B8
+motion	5	0	fc02c7ccb9708f0e	0.6	once	0.00	0.90	0.15	0.19	no	amy	EV0071	0CBB0E2C
+motion	5	0	980643e82ba7c6b4	0.6	loop	0.00	0.00	0.09	0.18	no	amy	EV0071	0CBB3550
+motion	5	0	a22e70df9f1140a3	0.9	loop	0.00	0.00	0.09	0.16	no	amy	EV0072	0CB94DB8
+motion	5	0	50165c7253330c10	1	loop	0.00	0.00	0.09	0.16	no	amy	EV0072	0CB9682C
+motion	5	0	775338ce43b07b00	1.3	loop	0.00	0.00	0.13	0.17	no	amy	EV0072	0CB99460
+motion	5	0	551d0a4852301cb3	1.18	once	0.00	1.25	0.00	0.17	no	amy	EV0072	0CB9F574
+motion	5	0	38b40ddb102812d6	1.18	loop	0.00	0.00	0.13	0.19	no	amy	EV0072	0CBA2258
+motion	5	0	8f79f3f7c538582a	1.3	once	0.00	0.00	0.21	0.16	no	amy	EV0072	0CBA522C
+motion	5	0	792c8d67c7aaa3ec	1.3	loop	0.00	0.00	0.13	0.16	no	amy	EV0072	0CBA7D90
+motion	5	0	e89e20d831a6839c	0.2	once	0.00	0.30	0.40	0.05	no	amy	EV016C	0CB89578
+motion	5	0	b42400ef08cea4ef	0.2	loop	0.00	0.09	0.08	0.01	no	amy	EV016C	0CB8B7DC
+motion	5	0	b8453223036415ca	0.4	once	0.00	0.09	0.23	0.03	no	amy	EV016C	0CB8E450
+motion	5	0	3fad937df13de19e	0.2	once	0.00	0.25	0.25	0.06	no	amy	EV016D	0CB89210
+motion	5	0	1efcd15f8767dc1d	0.2	loop	0.00	0.05	0.04	0.03	no	amy	EV016D	0CB8B764
+motion	5	0	2ef10d4a408757ea	0.4	once	0.00	0.25	0.24	0.03	no	amy	EV016D	0CB8E6F8
+motion	6	0	93a30daf3238ca3a	1	loop	0.05	1.41	0.50	-0.05	no	gamma	EV001B	0CB9C734
+motion	6	0	8a75f4416eeee527	1	once	0.00	2.74	4.23	0.01	no	gamma	EV001B	0CBA1D38
+motion	6	0	3bdf77b1f37dd564	1	loop	0.26	0.00	0.18	-0.26	no	gamma	EV001B	0CBA3BDC
+motion	6	0	303f473299c1d69a	1	loop	0.26	0.00	0.43	-0.26	no	gamma	EV001B	0CBA5BA0
+motion	6	0	5913e33675ba687c	1	once	0.00	0.00	0.53	0.02	no	gamma	EV004C	0CB879B8
+motion	6	0	4093bec0c6305a90	1	once	0.00	1.40	0.30	-0.00	no	gamma	EV0065	0CBA38F8
+motion	6	0	5ce35e60cb51d8e1	0.5	once	0.00	0.89	0.89	0.00	no	gamma	EV0065	0CBA72CC
+motion	6	0	72f5e09acf881a00	1	loop	0.03	0.00	0.35	-0.03	no	gamma	EV0065	0CBA9500
+motion	6	0	73820d13b7cd1b4c	1	loop	0.00	0.00	0.64	0.00	no	gamma	EV00B0	0CB8679C
+motion	6	0	29ce36fa736bb997	1	once	0.00	1.53	0.30	-0.00	no	gamma	EV00B2	0CB836B4
+motion	6	0	456d4ba592ecd951	1	once	0.05	0.00	0.35	-0.05	no	gamma	EV00B3	0CB86CE8
+motion	6	0	bd1c5df68a9e1dac	1	loop	0.11	0.00	0.20	-0.11	no	gamma	EV00B3	0CB8815C
+motion	6	0	1b0b73177fbe70a9	1.5	loop	0.00	0.00	0.68	0.02	no	gamma	EV00B4	0CB874F4
+motion	6	0	038b8a33d4a087bb	0.7	loop	0.00	0.00	0.68	0.02	no	gamma	EV00B4	0CB88C18
+motion	6	0	a6332dfdc4f5b9fd	1	once	0.00	3.52	0.59	-0.00	no	gamma	EV00B4	0CB8F770
+motion	6	0	9b10dfab9797dc90	1	once	0.42	0.00	0.50	-0.42	no	gamma	EV00BB	0CB8E88C
+motion	6	0	8d686b3f9a70a2fe	1	once	0.06	0.13	0.44	-0.06	no	gamma	EV00BB	0CB90120
+motion	6	0	251ae900bc2b378e	1	once	0.00	0.05	0.47	0.48	no	gamma	EV00BB	0CB917F4
+motion	6	0	94449b9f6adb96be	1.1	loop	0.00	0.00	0.00	0.78	no	gamma	EV00BD	0CB88824
+motion	6	0	29a1434544ec1ff4	0.65	loop	0.04	0.00	1.37	-0.04	no	gamma	EV00C7	0CB891D0
+motion	6	0	84e2678672adc128	0.8	once	0.00	2.15	8.17	5.42	no	gamma	EV00C7	0CB95574
+motion	6	0	374d622cd49d8de3	1	loop	0.00	0.00	0.33	0.61	no	gamma	EV00C7	0CB982D8
+motion	6	0	e7d6b26f32eae7ad	0.3	once	0.00	1.90	0.78	0.62	no	gamma	EV00C7	0CB9AF7C
+motion	6	0	d1d7682734c6a787	0.1	loop	0.00	0.00	0.33	0.48	no	gamma	EV00C7	0CB9DF00
+motion	6	0	898224c4d400c2a1	1	once	0.00	7.44	7.58	0.62	no	gamma	EV00C7	0CBA69B4
+motion	6	0	c5c92743fffd2805	1	loop	0.00	0.00	0.00	0.03	no	gamma	EV00C7	0CBA7858
+motion	6	0	9a666872b5bf84ef	0.5	loop	0.00	0.00	0.39	0.72	no	gamma	EV00C7	0CBAA6DC
+motion	6	0	5c7d16c7754a9a23	1	once	0.00	7.48	7.61	0.62	no	gamma	EV00C7	0CBB6250
+motion	6	0	de02daf6ddb0e375	0.6	loop	0.02	0.00	0.41	-0.02	no	gamma	EV0142	0CB86090
+motion	6	0	bd42a619ec0676a3	1	loop	0.00	0.00	0.41	0.01	no	gamma	EV0142	0CB883A4
+motion	6	0	d035a2c27c455d85	1	loop	0.00	0.00	0.41	0.01	no	gamma	EV0142	0CB8A9C8
+motion	6	0	3e616f2deeea05a3	0.3	once	0.00	0.80	2.03	0.57	yes	gamma	EV016E	0CB89B70
+motion	6	0	7561650444ca80d9	0.5	loop	0.00	0.06	0.10	0.62	yes	gamma	EV016E	0CB8C3F4
+motion	6	0	81a986a2de20a161	0.4	once	0.00	0.37	1.25	0.62	yes	gamma	EV016E	0CB8F1B8
+motion	6	0	a197b67b274ca99d	0.2	once	0.00	1.27	1.25	0.75	yes	gamma	EV016F	0CB89A28
+motion	6	0	6d3223a19f1ad995	0.4	loop	0.00	0.19	0.16	0.68	yes	gamma	EV016F	0CB8BECC
+motion	6	0	3e581d65f2222ad9	0.4	once	0.00	1.35	0.89	0.70	yes	gamma	EV016F	0CB8EAF0
+motion	7	0	614fbd36be110026	0.1	loop	0.05	0.00	0.30	-0.05	no	big	EV001C	0CB946BC
+motion	7	0	007e66c79bb300cd	0.8	once	0.00	3.89	0.27	-0.05	no	big	EV001C	0CB970E0
+motion	7	0	75ae9b3e5416a678	0.8	loop	0.05	0.00	0.37	-0.05	no	big	EV001C	0CB99594
+motion	7	0	14c9009b28d3ff06	1	once	0.00	0.91	5.60	-0.04	no	big	EV0046	0CB9B05C
+motion	7	0	71e071bbf1799836	1	loop	1.21	0.00	0.25	-1.21	no	big	EV0046	0CB9CD40
+motion	7	0	b439bf34cee3907a	1	loop	0.06	0.00	0.05	-0.06	no	big	EV0046	0CB9F194
+motion	7	0	92b5b468ac885152	1	once	3.73	0.00	0.64	-3.73	no	big	EV00D0	0CB9C408
+motion	7	0	ff118cd87718fd9b	0.8	loop	0.05	0.00	0.21	-0.05	no	big	EV00D0	0CB9E76C
+motion	7	0	2e00f5d8cc33b5b8	0.8	once	0.05	0.00	0.56	-0.05	no	big	EV00D0	0CBA2EE0
+motion	7	0	f9c2e88aab52b3cc	1	loop	0.00	0.00	0.16	0.01	no	big	EV00D0	0CBA5204
+motion	7	0	5ac8819d6a3c830c	1	loop	0.00	0.00	0.16	0.00	no	big	EV00D0	0CBA7A98
+motion	7	0	99eae7a35b730c9e	0.8	once	0.00	4.57	0.07	0.00	no	big	EV00D0	0CBADF9C
+motion	7	0	0521d6324127f14f	0.5	loop	3.73	0.00	0.20	-3.73	no	big	EV00D0	0CBAFF90
+motion	7	0	0fd9382cd6a64bfd	1	once	3.73	0.00	0.40	-3.73	no	big	EV00D0	0CBB1914
+motion	7	0	63949f4d929628ca	0.8	loop	0.00	0.00	0.59	0.06	no	big	EV00D4	0CB83FCC
+motion	7	0	1f3682a10a2fe5c0	0.8	loop	0.00	0.00	0.75	0.10	no	big	EV00D4	0CB85C30
+motion	7	0	8554435b6f2698fa	1.2	loop	0.18	0.00	0.96	-0.18	no	big	EV00D4	0CB8B518
+motion	7	0	0476419a57188c63	0.2	loop	0.00	0.00	0.32	0.00	no	big	EV00DA	0CB859DC
+motion	7	0	fb348c1309c9ae02	0.2	once	0.00	0.66	0.43	0.00	no	big	EV00DA	0CB89640
+motion	7	0	78a52277ad0a59df	0.6	loop	0.00	0.00	0.27	0.00	no	big	EV00DA	0CB8AEC4
+motion	7	0	db154782ed9a9eec	1	loop	0.00	0.00	0.55	0.12	no	big	EV00DD	0CB829D4
+motion	7	0	3264a38b5972ee26	1	loop	0.07	0.54	0.32	-0.07	no	big	EV00DF	0CB839E0
+motion	7	0	55ad55f24fac69f1	1	loop	0.00	0.00	0.32	0.00	no	big	EV00DF	0CB853A4
+motion	7	0	0c4640ca9329acdf	1	loop	0.15	0.00	0.07	-0.15	no	big	EV00E2	0CB8BD14
+motion	7	0	91fc0ca3bc231c56	1	loop	0.52	0.00	0.07	-0.52	no	big	EV00E2	0CB8DA68
+motion	7	0	b9507c057d98fc7b	1	once	0.52	0.24	0.83	-0.52	no	big	EV00E2	0CB9296C
+motion	7	0	3266c21e81ef53c6	1	once	0.09	0.00	0.00	-0.09	no	big	EV00E2	0CB94050
+motion	7	0	c1e32f5eb1e6bda3	0.8	once	0.00	3.80	0.95	-0.52	no	big	EV00E2	0CB9B064
+motion	7	0	e7ce5042fa64bf2b	0.8	loop	1.36	0.00	0.00	-1.36	no	big	EV00E2	0CB9C748
+motion	7	0	451d0ef647da3b8f	0.8	loop	0.10	1.71	0.30	-0.10	yes	big	EV00E2	0CBA1AAC
+motion	7	0	e70e3e4b6c12153a	0.2	once	0.00	0.81	0.11	0.01	no	big	EV0170	0CB89B64
+motion	7	0	f9f3bad1f2cf9fd7	0.5	loop	0.01	0.12	0.04	-0.01	no	big	EV0170	0CB8C038
+motion	7	0	e54298d74d734cf6	0.3	once	0.01	0.48	0.11	-0.01	no	big	EV0170	0CB8EDAC
+motion	7	0	5792802eb4164661	0.2	once	0.00	0.30	0.15	0.01	no	big	EV0171	0CB899A0
+motion	7	0	461f5bee1ba8ae82	0.5	loop	0.00	0.11	0.08	0.01	no	big	EV0171	0CB8C184
+motion	7	0	86aab17d8a97b48f	0.25	once	0.03	0.21	0.12	-0.03	no	big	EV0171	0CB8EEE8
+@header	cast	overlay	cast
+cast	EV0001	sonic
+cast	EV0002	eggman,sonic
+cast	EV0003	sonic,tails_eventcopy
+cast	EV0006	sonic,tails
+cast	EV0007	eggman_eventcopy,sonic,tails
+cast	EV0008	eggman_eventcopy,sonic,tails
+cast	EV0009	eggman_eventcopy,sonic,tails
+cast	EV000B	eggman_eventcopy,knuckles,sonic,tails
+cast	EV000C	eggman_eventcopy,sonic,tails
+cast	EV000D	sonic
+cast	EV0011	sonic
+cast	EV0012	amy,sonic
+cast	EV0013	amy,sonic
+cast	EV0014	sonic
+cast	EV0015	sonic
+cast	EV0016	sonic
+cast	EV0017	sonic
+cast	EV001A	amy,eggman_eventcopy,sonic,tails
+cast	EV001B	amy,gamma,sonic,tails
+cast	EV001C	big,eggman_eventcopy,sonic
+cast	EV001D	eggman_eventcopy
+cast	EV001E	sonic
+cast	EV0020	sonic
+cast	EV0021	sonic
+cast	EV0022	sonic,tikal
+cast	EV0023	eggman_eventcopy,sonic
+cast	EV0024	sonic
+cast	EV0026	eggman_eventcopy,sonic,tails,tails_flight
+cast	EV0028	knuckles,sonic,tails
+cast	EV0029	-
+cast	EV002A	sonic,tails
+cast	EV002B	-
+cast	EV0030	-
+cast	EV0031	sonic,tails
+cast	EV0032	sonic,tails
+cast	EV0033	eggman_eventcopy,sonic,tails
+cast	EV0034	eggman_eventcopy,sonic,tails
+cast	EV0035	eggman_eventcopy,sonic,tails
+cast	EV0038	knuckles,tails
+cast	EV0039	eggman_eventcopy,knuckles,sonic,tails
+cast	EV003A	eggman_eventcopy,sonic,tails
+cast	EV003B	-
+cast	EV003E	sonic,tails
+cast	EV0040	tails
+cast	EV0042	tails
+cast	EV0044	tails
+cast	EV0045	tails,tikal
+cast	EV0046	big,tails
+cast	EV0047	tails
+cast	EV0048	sonic
+cast	EV004B	amy,eggman_eventcopy,sonic,tails
+cast	EV004C	amy,gamma,sonic,tails,tails_flight
+cast	EV004D	amy,eggman_eventcopy,sonic,tails
+cast	EV004E	eggman_eventcopy,tails
+cast	EV0050	eggman_eventcopy,tails
+cast	EV0051	tails
+cast	EV0052	sonic,tails,tails_flight
+cast	EV0053	-
+cast	EV0054	-
+cast	EV0055	tails
+cast	EV0056	sonic,tails
+cast	EV0058	-
+cast	EV0060	amy,sonic
+cast	EV0061	amy
+cast	EV0062	amy,sonic
+cast	EV0063	amy,sonic
+cast	EV0064	amy
+cast	EV0065	amy,gamma
+cast	EV0066	amy
+cast	EV0067	-
+cast	EV0068	tikal
+cast	EV0069	amy,eggman_eventcopy,tails
+cast	EV006A	amy,sonic,tails,tails_flight
+cast	EV006B	-
+cast	EV006C	amy
+cast	EV006D	amy,tails,tails_flight
+cast	EV006E	amy
+cast	EV006F	amy
+cast	EV0070	amy
+cast	EV0071	amy
+cast	EV0072	amy
+cast	EV0075	-
+cast	EV0080	knuckles
+cast	EV0082	knuckles
+cast	EV0083	knuckles
+cast	EV0084	knuckles
+cast	EV0085	tikal
+cast	EV0086	knuckles
+cast	EV0087	eggman,knuckles
+cast	EV0088	eggman,knuckles
+cast	EV0089	knuckles
+cast	EV008A	knuckles,sonic,tails
+cast	EV008B	eggman_eventcopy,knuckles,sonic,tails
+cast	EV008C	eggman_eventcopy,sonic,tails
+cast	EV008D	-
+cast	EV008E	-
+cast	EV008F	tikal
+cast	EV0091	knuckles
+cast	EV0092	-
+cast	EV0094	-
+cast	EV0095	knuckles
+cast	EV0096	knuckles
+cast	EV0097	knuckles,tikal
+cast	EV0098	-
+cast	EV0099	eggman_eventcopy,knuckles
+cast	EV009A	knuckles
+cast	EV009B	-
+cast	EV009C	-
+cast	EV009D	knuckles
+cast	EV009F	knuckles
+cast	EV00A0	eggman,knuckles
+cast	EV00B0	eggman,gamma
+cast	EV00B1	eggman,gamma
+cast	EV00B2	gamma
+cast	EV00B3	eggman,gamma
+cast	EV00B4	eggman,gamma,gamma_eventcopy
+cast	EV00B5	eggman,gamma,gamma_eventcopy
+cast	EV00B7	eggman,gamma,gamma_eventcopy
+cast	EV00B8	-
+cast	EV00B9	-
+cast	EV00BA	tikal
+cast	EV00BB	eggman,gamma,gamma_eventcopy
+cast	EV00BC	gamma
+cast	EV00BD	gamma
+cast	EV00BE	gamma
+cast	EV00BF	amy,gamma
+cast	EV00C0	-
+cast	EV00C1	amy,eggman_eventcopy,sonic,tails
+cast	EV00C2	amy,eggman_eventcopy,gamma,sonic,tails
+cast	EV00C3	-
+cast	EV00C4	-
+cast	EV00C5	gamma
+cast	EV00C7	gamma
+cast	EV00D0	big
+cast	EV00D1	-
+cast	EV00D2	big
+cast	EV00D3	big,tails
+cast	EV00D4	big
+cast	EV00D8	-
+cast	EV00D9	big
+cast	EV00DA	big
+cast	EV00DB	-
+cast	EV00DC	tikal
+cast	EV00DD	big
+cast	EV00DE	big,eggman_eventcopy,sonic
+cast	EV00DF	big,sonic
+cast	EV00E0	big
+cast	EV00E1	-
+cast	EV00E2	big
+cast	EV00E3	-
+cast	EV00F0	-
+cast	EV00F2	eggman_eventcopy
+cast	EV00F3	eggman,eggman_eventcopy,knuckles
+cast	EV00F4	sonic,tails
+cast	EV00F5	eggman,eggman_eventcopy,knuckles,sonic,tails
+cast	EV00F6	sonic
+cast	EV00F7	tikal
+cast	EV00F8	sonic,tikal
+cast	EV00F9	sonic,tails
+cast	EV00FA	sonic,tails
+cast	EV00FB	sonic,tikal
+cast	EV00FD	eggman_eventcopy,sonic,tikal
+cast	EV00FE	eggman_eventcopy,tails,tikal
+cast	EV00FF	amy,big,knuckles,sonic,tails
+cast	EV0100	sonic
+cast	EV0101	-
+cast	EV0102	sonic
+cast	EV0103	-
+cast	EV0104	sonic
+cast	EV0106	-
+cast	EV0107	-
+cast	EV0110	sonic
+cast	EV0111	-
+cast	EV0112	sonic
+cast	EV0113	-
+cast	EV0114	sonic
+cast	EV0120	-
+cast	EV0121	-
+cast	EV0122	-
+cast	EV0130	-
+cast	EV0131	-
+cast	EV0140	-
+cast	EV0141	-
+cast	EV0142	gamma
+cast	EV0150	-
+cast	EV0160	tikal
+cast	EV0165	sonic
+cast	EV0166	sonic
+cast	EV0167	sonic
+cast	EV0168	tails
+cast	EV0169	tails
+cast	EV016A	knuckles
+cast	EV016B	knuckles
+cast	EV016C	amy
+cast	EV016D	amy
+cast	EV016E	gamma
+cast	EV016F	gamma
+cast	EV0170	big
+cast	EV0171	big
+cast	EV0176	-
+cast	EV0177	-
+cast	EV0178	-
+cast	EV0179	-
+cast	EV017A	-
+cast	EV017B	-
+cast	EV017C	-
+cast	EV0180	-

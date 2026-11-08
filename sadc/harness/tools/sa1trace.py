@@ -25,7 +25,9 @@ what the step gave (host-object events, the HURT / DEATH / CAPACITY world events
 proxies); diff compares it field by field (floats with --ulps / --abs, the proxies' guest addresses left
 out), and a reference that has one fails a diff against a trace that has none.  Its version 2 (round
 0.9.2: --create-task .../SX,SY,SZ+ocp) adds each task's scale and OBJ_CONDITION slot after the version-1
-header; version-1 files read as before (their tasks have no scale and no condition). Round 0.9.4:
+header; version-1 files read as before (their tasks have no scale and no condition). Version 3 (1.0.0 round
+R0: --create-task ...@X,Y,Z,ANGX,ANGY,ANGZ and --poke8 ADDR=V) adds the tasks' X and Z words and the poked
+bytes after the version-2 header, with version-2 records. Round 0.9.4:
 +ocp=HEX sets another initial ssCondition (task flag 8, the word in the task's reserved[0]; 0x8001 without it).
 
 `diff` is what a libsa1 test does: write its own per-step state in the same
@@ -270,6 +272,13 @@ OBJ_HDR_V2_SIZE = OBJ_HDR_SIZE + 4 * OBJ_TASK_EXT.size + 16
 assert OBJ_HDR_V2_SIZE == 424
 OBJ_T_SCL, OBJ_T_OCP, OBJ_T_LATE = 1, 2, 4
 OBJ_T_OCPW = 8                                  # round 0.9.4: +ocp=HEX, the initial ssCondition in reserved[0]
+OBJ_T_ANG = 0x10                                # 1.0.0 round R0: @X,Y,Z,ANGX,ANGY,ANGZ (version 3)
+# version 3 (1.0.0 round R0: the tasks' X and Z words, --poke8): sa1_trace_obj_header_v3's tail after the v2 header
+OBJ_TASK_ANG = struct.Struct("<2I")
+OBJ_POKE = struct.Struct("<2I")
+OBJ_MAX_POKES = 16
+OBJ_HDR_V3_SIZE = OBJ_HDR_V2_SIZE + 4 * OBJ_TASK_ANG.size + 4 + OBJ_MAX_POKES * OBJ_POKE.size + 12
+assert OBJ_HDR_V3_SIZE == 600
 OBJ_REC_EXT = struct.Struct("<4I4I")             # sa1_trace_obj_rec_ext after each version-2 record
 OBJ_REC_V2_SIZE = OBJ_REC_SIZE + OBJ_REC_EXT.size
 assert OBJ_REC_V2_SIZE == 1768
@@ -304,6 +313,7 @@ def load_obj(path):
     hdr["coords_scale"], hdr["coords_axis"], hdr["ntasks"] = t[0], t[1:10], t[10]
     hdr["tasks"] = []
     v2 = hdr["version"] >= 2 and hdr["header_size"] >= OBJ_HDR_V2_SIZE
+    v3 = hdr["version"] >= 3 and hdr["header_size"] >= OBJ_HDR_V3_SIZE
     for k in range(min(hdr["ntasks"], 4)):
         v = OBJ_TASK.unpack_from(data, EXT_HDR.size + OBJ_HDR_TAIL.size + k * OBJ_TASK.size)
         t = {"exec": v[0], "im": v[1], "list": v[2], "has_pos": v[3], "pos": v[4:7], "angy": v[7]}
@@ -311,7 +321,18 @@ def load_obj(path):
         x = OBJ_TASK_EXT.unpack_from(data, OBJ_HDR_SIZE + k * OBJ_TASK_EXT.size) if v2 else (0, 0.0, 0.0, 0.0, 0, 0.0, 0, 0)
         t.update({"ext_flags": x[0], "scl": x[1:4], "ocp_slot": x[4], "ocp_range": x[5],
                   "ocp_init": (x[6] & 0xFFFF) if x[0] & OBJ_T_OCPW else 0x8001})
+        # version 3: the X and Z rotation words (0 when the task has only ang.y, and in versions 1 and 2)
+        g = OBJ_TASK_ANG.unpack_from(data, OBJ_HDR_V2_SIZE + k * OBJ_TASK_ANG.size) if v3 else (0, 0)
+        t.update({"angx": g[0] if x[0] & OBJ_T_ANG else 0, "angz": g[1] if x[0] & OBJ_T_ANG else 0})
         hdr["tasks"].append(t)
+    # version 3: the --poke8 bytes written before the stage load
+    hdr["pokes"] = []
+    if v3:
+        off = OBJ_HDR_V2_SIZE + 4 * OBJ_TASK_ANG.size
+        n = struct.unpack_from("<I", data, off)[0]
+        for k in range(min(n, OBJ_MAX_POKES)):
+            a, v = OBJ_POKE.unpack_from(data, off + 4 + k * OBJ_POKE.size)
+            hdr["pokes"].append((a, v & 0xFF))
     hdr["script"] = data[EXT_HDR.size + OBJ_HDR_TAIL.size + 4 * OBJ_TASK.size:][:48].split(b"\0")[0].decode(
         "latin-1")
     recs = []
@@ -399,14 +420,17 @@ def obj_info(path):
     print("host-object sidecar %s: version %d, %d records, script %s, %d host call(s), %d task(s)%s; events: %s; "
           "most proxies %d" % (os.path.basename(path), h["version"], h["count"], h["script"] or "-",
                                sum(r["nops"] for r in recs), h["ntasks"],
-                               "".join(" (%08X im %d list %d%s%s%s)" % (
+                               "".join(" (%08X im %d list %d%s%s%s%s)" % (
                                    t["exec"], t["im"], t["list"],
                                    " scl (%g %g %g)" % tuple(t["scl"]) if t["ext_flags"] & OBJ_T_SCL else "",
                                    " ocp %d%s" % (t["ocp_slot"], "=%04X" % t["ocp_init"]
                                                   if t["ext_flags"] & OBJ_T_OCPW else "")
                                    if t["ext_flags"] & OBJ_T_OCP else "",
-                                   " late" if t["ext_flags"] & OBJ_T_LATE else "")
-                                   for t in h["tasks"]),
+                                   " late" if t["ext_flags"] & OBJ_T_LATE else "",
+                                   " ang (%04X %04X %04X)" % (t["angx"], t["angy"], t["angz"])
+                                   if t["ext_flags"] & OBJ_T_ANG else "")
+                                   for t in h["tasks"]) +
+                               ("".join(" poke %08X=%02X" % pk for pk in h["pokes"])),
                                ", ".join("%s %d" % kv for kv in ev.items()) or "none",
                                max([r["proxies"] for r in recs] or [0])))
 
@@ -467,6 +491,8 @@ def diff_obj(ref, other, a):
     first = {}
     if h1["tasks"] != h2["tasks"]:
         first["tasks"] = (0, str(h1["tasks"]), str(h2["tasks"]))
+    if h1.get("pokes", []) != h2.get("pokes", []):     # version 3: --poke8
+        first["pokes"] = (0, str(h1.get("pokes")), str(h2.get("pokes")))
     n = min(len(r1), len(r2))
     for i in range(n):
         x, y = dict(_obj_flat(r1[i])), dict(_obj_flat(r2[i]))

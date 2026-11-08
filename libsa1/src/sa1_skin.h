@@ -31,14 +31,21 @@ typedef struct sa1k_drive {
     float center_height;
 } sa1k_drive;
 
-/* the model and the nine textures of `skin` into ctx->skin, once per disc: SA1_ERR_NOT_LOADED with the reason in sa1_last_error without the disc's files */
-sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *skin);
+/* the model and the textures of `skin`, once per disc and skin (round 1.0.0-beta1: up to SA1_SKINS_MAX, known by their identity; a loaded one is answered as it is): *out its state.
+   SA1_ERR_NOT_LOADED with the reason in sa1_last_error without the disc's files, SA1_ERR_LIMIT past SA1_SKINS_MAX, SA1_ERR_UNSUPPORTED for a base_kind other than 0 */
+sa1_status sa1k_load(sa1_context *ctx, const sa1_skin_desc *skin, struct sa1k_state **out);
 void sa1k_free(sa1_context *ctx);
-/* what sa1_texture_get and sa1_texture_archive see as (kind 0, SA1_ARCHIVE_SKIN); NULL before the load */
-const sa1_archive *sa1k_archive(const sa1_context *ctx);
+/* what sa1_texture_get and sa1_texture_archive see as (kind 0, archive): SA1_ARCHIVE_SKIN_FIRST + slot, or SA1_ARCHIVE_SKIN for slot 0; NULL: no such skin loaded */
+const sa1_archive *sa1k_archive(const sa1_context *ctx, uint32_t archive);
+/* round 1.0.0-beta1: the trail variant of Sonic's (archive, index) for the skin in `slot` (sa1_texture_variant_get); NULL: not one of its four textures, or no trail */
+const uint8_t *sa1k_trail_rgba(const sa1_context *ctx, uint32_t slot, uint32_t archive, uint32_t index);
 
-/* the per-character state: outside the arena. fly: SA1_SKIN_ANIM_* at the start */
-sa1_status sa1k_char_new(sa1_context *ctx, uint32_t anim, sa1k_char **out);
+/* the per-character state: outside the arena, wearing q (sa1k_load's). anim: SA1_SKIN_ANIM_* at the start */
+sa1_status sa1k_char_new(sa1_context *ctx, const struct sa1k_state *q, uint32_t anim, sa1k_char **out);
+/* round 1.0.0-beta1: the archive its parts draw from (SA1_ARCHIVE_SKIN_FIRST + slot); 1: its trails are marked (a trail colour and SA1_SKIN_ANIM_TRAIL); the state it wears */
+uint32_t sa1k_char_archive(const sa1k_char *sc);
+int sa1k_trail_on(const sa1k_char *sc);
+const struct sa1k_state *sa1k_char_state(const sa1k_char *sc);
 void sa1k_char_free(sa1_context *ctx, sa1k_char *sc);
 void sa1k_set_anim(sa1k_char *sc, uint32_t anim);
 

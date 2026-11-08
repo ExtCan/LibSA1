@@ -66,8 +66,9 @@ boot [frames] [chr] [level] [--init] [--disp] [--tasks-only] [--stick X,Y] [--bu
                                headless boot experiment (heap, task system, player task, logic frames)
 trace [--level N --act N --chr N] [--input SCRIPT|@file] [--out PREFIX] [--check REF.bin]
       [--no-objects] [--route ...] [--dump-land PREFIX] ...
-      [--no-level-tasks] [--super-free] [--create-task ADDR[:IM[:LIST]][@X,Y,Z[,ANGY]][/SX,SY,SZ][+ocp[=HEX]][+late]]
-      [--pno1]
+      [--no-level-tasks] [--super-free]
+      [--create-task ADDR[:IM[:LIST]][@X,Y,Z[,ANGY | ,ANGX,ANGY,ANGZ]][/SX,SY,SZ][+ocp[=HEX]][+late]]
+      [--poke8 ADDR=V[,V..]] [--pno1]
       [--no-image-guard] [--hostobj FILE] [--log-2d FILE]
                                reference simulator: the game loads a real stage and runs its own
                                60 Hz logic under a scripted pad; per-step player trace (.bin + .csv);
@@ -101,7 +102,7 @@ to each hardware register. Exit status is non-zero when a test fails.
 | `src/hle.c` | BIOS syscall vector stubs |
 | `src/t_*.c`, `main.c` | the commands |
 | `src/t_sim.c`, `src/sa1_trace.h` | reference simulator (`trace`) and its trace format |
-| `src/sa1_trace_ext.h` | trace sidecars: `NAME.p1.bin` (player 1 and the follower AI, `trace --pno1`), `NAME.obj.bin` (host objects, round 5: `trace --hostobj` / `--create-task`) |
+| `src/sa1_trace_ext.h` | trace sidecars: `NAME.p1.bin` (player 1 and the follower AI, `trace --pno1`), `NAME.obj.bin` (host objects, round 5: `trace --hostobj` / `--create-task`; version 3, 1.0.0 round R0: the X and Z rotation words, `--poke8`) |
 | `src/ho_oracle.c`, `src/ho_oracle.h` | the round-5 host-object oracle (`trace --hostobj FILE`): the script, the hooks around the executor and the CCL pass, the special hook at the proxies' exec `0x7F000100`, typed wrappers that run game functions with `sh4_invoke`, the `.obj.bin` sidecar |
 | `src/ho_lib_glue.c`, `src/ho_glue.h` | libsa1's side of the oracle: the world and context that libsa1's own `src/sa1_hostobj.c` and `src/world/sa1_world_hostobj.c` (compiled in unchanged) run against |
 | `tests/sim/ho/*.ho` | the `--hostobj` scripts of the round-5 references |
@@ -109,6 +110,7 @@ to each hardware register. Exit status is non-zero when a test fails.
 | `tools/sa1trace.py` | trace reader: `info`, `dump`, `diff` (ulps / abs tolerance), `script`, `p1`, `obj` (sidecars: also `info`, `dump --p1` / `--obj`, `diff`) |
 | `tools/route_bisect.py` | finds the decompiled function whose native version makes a trace diverge |
 | `tests/sim/*.txt`, `tests/sim/regress.py` | sample input scripts; regression against stored reference traces |
+| `tests/sim/oracle100.py` | the 1.0.0 test-time prototype oracles (a private ROM copy at test time: the capsule's touch zone, a hunt of N, other hunters) |
 | `tools/gen_optab.py` | opcode -> handler table from `tools/sh4/isa.py` |
 | `tools/gen_native.py` | clang AST of the decompiled files -> thunks, adapters, absolute symbols, rewritten sources |
 | `tools/gen_ga.py` | `--ga` builds: thunks, adapters, code map, pcdata and glue for the lowered text of `tools/pclower.py` |
@@ -363,8 +365,20 @@ CreateElementalTask(2, 0, ..)`, the level task), before `LoadPlayerTask`.
     sidecar task of a libsa1 replay (`world_replay.c` makes them after the world's boot). It matters where a stage
     start task of the same list interacts with it: the item box and the item icon task 8C05E14E (both list 3) -
     without `+late` the icon task runs first and sees a new icon one step later than in the game.
+  * `@X,Y,Z,ANGX,ANGY,ANGZ` (G-SA1 1.0.0, round R0, lane p-refs; `docs/research/gsa1_100_plan.md` 5.3 with its Review
+    R100.8): all three rotation words (hex BAMS) written to the taskwk (`+0x14`, `+0x18`, `+0x1C`) as the SET spawner
+    8C091380 copies a SET entry's, for the objects that read X or Z: a tilted air spring, a jump panel's X and Z, spikes'
+    `ang.x & 0xC000`, a ring line's switch ID `ang.x & 0xFF`, an armed rocket's `ang.x & 0xF`, a shard's id in `ang.z`.
+    One word stays ang.y alone, as before; two words are refused. The task's sidecar flag is `SA1_TOBJ_T_ANG` (0x10).
 
-  Any suffix makes the host-object sidecar version 2 (next sections).
+  Any suffix makes the host-object sidecar version 2 (next sections); the three-word rotation makes it version 3.
+* `--poke8 ADDR=V[,V..]` (G-SA1 1.0.0, round R0; `docs/research/gsa1_100_shards.md` 12.1 with its Review RE.12;
+  repeatable, at most 16 bytes in all): the bytes V (hex) at guest address ADDR (hex, 8C000000-8CFFFFFF) and on, written
+  after the game init and the character's load, before the stage load (the stage's start reads them: the hunt is set up
+  before the first logic step, MEASURED, a poke after the stage load is too late for it). For a row of the hunt's table
+  D_8C15C100 and an event flag of B_8C799920 (`--poke8 8C799A39=1` is flag 0x119, Knuckles' Shovel Claw: equipment 0x40,
+  MEASURED), with a stock ROM. The bytes go to the host-object sidecar, version 3, also in a run with no task. (`--set8`
+  is the `menu` command's.)
 * `--super-free` (gsa1_rounds_plan.md 11.1; needs `--level 19 --act 0 --chr 0`): `D_8C19E0E0[19]` (`0C900080`)
   is not created; `D_8C19DE30[19]` is, by the game, with its real exec `0C900000`, which is hooked by a native
   stand-in. The real level task (asm `0C900000`, `0C914E36`, `0C914F36`, `0C914F78`, `0C914DC6`) does: exec 1
@@ -482,6 +496,15 @@ writes version 1, byte for byte as before; `--check`, `sa1trace.py` and LIB's `t
 replay makes the scale and the condition, and compares the condition words like the records). A `--create-task` task
 that has ended (seen live, then freed or `DestroyTask`) is reported as gone from then on: its freed task block may be
 reused by another task (the item box's after step 44), whose state is not this task's.
+
+**Version 3** (G-SA1 1.0.0, round R0, lane p-refs): a run with a task made `@X,Y,Z,ANGX,ANGY,ANGZ` or with `--poke8`
+writes version 3: the version-2 header (`version` 3, `header_size` 600) followed by `sa1_trace_obj_header_v3`'s tail (each
+task's ang.x / ang.z words under `SA1_TOBJ_T_ANG`, the number of poked bytes and each byte's address and value), and
+version-2 records (1,768 bytes). Every other run is written as before, version 1 or 2 byte for byte (MEASURED: the 57
+sidecars of the 92 references of 2026-11-08 written again byte-identical). `--check` and `sa1trace.py` (`info`, `obj`,
+`diff`: the tasks' `angx` / `angz` and the `pokes`) read all three. LIB's `tests/world_replay.c` reads versions 1 and 2 and
+reports a version-3 file as one it does not know: its version-3 reader (the angle words, the pokes) is round R2's lane
+`r2-a-lib` (`gsa1_100_master.md` D15).
 
 **libsa1 replays them through the public API** (`libsa1/tests/world_replay.c`, `tests/build_replay.py` list `HOSTOBJ`):
 the replay's character gets a fresh registry and the sidecar's tasks (made in the world after the boot), the record's
@@ -685,6 +708,47 @@ GUEST-ARENA build with every `src/1st_read` TU routed (`--non-matching --pc --ga
 V5, DISC), and LIB `build.py --test`: every list strict (67 traces, V7 byte-identical). `build_replay.py` cuts its
 replay_test runs so that no stage has more than 4 character kinds in one run (the DISC context's image limit; `ITEMBOX`
 has six kinds in Emerald Coast act 1).
+
+### G-SA1 1.0.0, round R0: the object batch, the Egg Capsule and the shard hunt (2026-11-08, p-refs)
+
+`docs/research/gsa1_100_plan.md` 6.2 (the list `OBJ100`, 45 names) and `gsa1_100_shards.md` 12.1 (4 names). Every object
+is made as the SET spawner 8C091380 makes it: `--create-task EXEC:IM:LIST@...+ocp+late`, IM and list level from the game's
+own object lists (SPRING 2:2, O AXPNL 3:3, O SWITCH 6:3, Rocket H 14:2, O Save Point 15:3, O EME P 3:3, ...), at level 1
+act 0 on the character's running line unless named (Sonic passes (-48, 3.58, 25.07) at step 90 of `30 0 0; 370 0 -127`).
+The scripts are written by `sadc/build/research/r100/p-refs/obj100_refs.py` (its table holds each one's numbers and
+why); `obj100_check.py` there compares each with the same run without the objects (`obj100_check.txt`: the first step
+that differs and the mode / action changes, MEASURED). Sidecar version 3 where a rotation word other than ang.y or a poke
+is used. A script's first line (`# args:`) holds at most 255 characters and no script may hold a `;`, in a comment too
+(the input parser cuts a line at 255 and starts a segment at every `;`).
+
+| Group | References | What the run shows (MEASURED, against the run without the objects) |
+|---|---|---|
+| Volumes | `vol_cube_ec1`, `vol_cyl_ec1`, `vol_sphere_ec1`, `vol_wall_ec1` | 10-unit C CUBE, C CYLINDER, C SPHERE, WALL on the line: Sonic stops or is turned from step 67-70 |
+| SPRING | `spring_ocp_ec1`, `spring_add_ec1`, `spring_knux_ec1`, `spring_big_ec1` | launch mode 9 action 16 at 97 (Add Y speed is scl.y: peak 251.6 for 3 against 116.9); Knuckles 7/17 at 63, Big 5/12 at 56 |
+| SPRINGB | `springb_ec1` (ang.x 1000, ang.z 0800: v3), `springb_nc_ec1` (No-control steps 60, scl.x) | the air spring's launch 10/16 at 92 |
+| O SPRING H | `springh_ec1` | the wide spring: 5/15 at 96 |
+| O AXPNL | `dash_ec1`, `dash_param_ec1` (speed 20, disable 20), `dash_gamma_fe1` (E-102, Final Egg act 1) | 2/13 at 79; E-102 45/2 at 63 |
+| O JPanel | `jpanel_chain_ec1`, `jpanel_tails_ec1`, `jpanel_gamma_ec1` (panel 2 with ang.x 1000: v3) | Sonic's flight 40/72 at 50, 41/74 at 52; Tails lands on panel 1 at 1; E-102 ignored (no change) |
+| O Save Point | `savept_ec1`, `savept_tails_ec1`, `savept_pass_ec1` | no path change; the task's mode 1 -> 2 at step 89 in the sidecar (`savept_ec1`), none when passed beside |
+| O SWITCH | `switch_k0_ec1` .. `switch_k3_ec1` (kind scl.x, ID scl.y, timer scl.z), `switch_gamma_ec1` | the switch's moving land changes the landing at step 17; its flag 0x108 when run over (step 73) |
+| O LINE RING, V | `linering_ec1` (ID 3 in ang.x), `lineringv_ec1` (ID 5): v3, with the O SWITCH of that ID | the ring line comes on with the switch: a ring taken (rings 0 -> 1); only ID 0 could be given before |
+| O TOGE | `toge_ec1`, `toge_big_ec1` (ang.x 4000: v3) | HURT: 82/87 at 82; Big 10/17 at 57, 54/100 at 71 |
+| O IRONB, O FeBJG | `ironb_ec1`, `febjg_ec1`, `febjg_hit_ec1` | the iron ball's swing reaches the line at 86; FeBJG HURT 82/87 at 82 (still and travelling) |
+| Rockets | `rocket_h_ec1`, `rocket_v_ec1`, `rocket_vs_ec1` (ID 2 in ang.x: v3, the O SWITCH ID 2) | the rides: mode 20 from 82 (H) and 120 (V); the armed VS bounces him (12/18 at 84) |
+| O RELEASE | `capsule_sonic_ec1`, `capsule_tails_ec1`, `capsule_knux_ec1`, `capsule_amy_ec1`, `capsule_gamma_ec1`, `capsule_big_ec1`, `capsule_tails_sh1`, `capsule_walkpast_ec1`, `capsule_side_ec1` | the press and each character's clear pose (Sonic 20/75 at 173, Tails 62/54 at 74, Knuckles 16/39, Amy 13/32, E-102 52/67 then 14/67 at 228, Big 14/48, Tails at Speed Highway 62/56); walking past: no change; the side: stopped at 72. Each run ends before the results' 8C04E386(1) |
+| O BALOON | `balloon_real_amy_ec1` | the real balloon holds Amy: 13/32 from step 14 |
+| The hunt | `hunt_ec1_three` (row 0 of D_8C15C100 poked to {1,0,1,1, 0x0100}, ids 10, 30, 40 in ang.z), `hunt_rm3_three` (the game's row: the pick 13, 34, 42), `hunt_rm3_buried` (flag 0x119 and c = 0 poked: id 24 buried at the start, X + A), `hunt_rm3_faint` (no objects) | the clear pose 16/39 at 113 (E1's 112 + 1: the shards are made after the stage start) and at 87; the dig 19/41 at 60, 20/43 at 150, 21/44 at 161; no spot known, the radar faint |
+
+**The test-time prototype oracles** (`tests/sim/oracle100.py`, `docs/research/gsa1_100_plan.md` 6.2 and 4.8,
+`gsa1_100_shards.md` 12.1 E2 / E7): behaviour the original never shows. Each subcommand makes a private copy of
+`baserom/1ST_READ.BIN` at test time under `build/scratch/oracle100/` with only numbers changed, runs this harness on it
+with `--root`, writes the numbers to `build/traces/oracle100/<command>.json` and deletes the copy; never committed.
+`touch`: the capsule's press zone of plan 4.8 for Amy (r 23) and Big (r 29), low -10 (MEASURED: Amy presses at step 82,
+clears at 154, pose 13/32; Big 58, 130, 14/48; neither with the stock zone). `hunt-n N..`: E2's count bytes and records
+(N 1, 2, 5, 12: finds [44], [44, 84], [44, 84, 110, 122, 132], 12 finds to 187; the clear one step after the last).
+`hunters C..`: E7's character bytes and the radar task (Sonic's clear 117, pose 20/75 at 119; Big 112, 14/48 at 113;
+Knuckles 111, 16/39 at 112, as E7). The hunts make a private disc folder of the files the run opens and a SET file from
+numbers.
 
 ## The menu command (`menu`, round 0.9.2)
 

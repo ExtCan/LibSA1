@@ -1,0 +1,5 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C063100:14:2@-48,11.58,25.07/-348,63.58,175.07+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): Rocket H (8C063100,
+# 14:2) 8 above the line at step 90, target 300 back, 60 up, 150 across: the ride.
+30 0 0
+370 0 -127

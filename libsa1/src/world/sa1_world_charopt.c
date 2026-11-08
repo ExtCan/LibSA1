@@ -23,6 +23,9 @@
  *                SA1_GOPT_SUPER_AURA_ANIM = SA1_AURAANIM of src/overlays/b_chaos7/code_0C91D200.c (an overlay TU's
  *                pcdata: the same placement as 1ST_READ's, sa1g_pcdata.c); round 0.9.4: SA1_GOPT_ITEM_ICON_LIMIT = the
  *                SA1_ICONLIMIT block of src/1st_read/code_8C05E0F8.c ({on}: the item icon list's 20 entries are a bound).
+ *                Round 1.0.0-beta1: SA1_GOPT_UPGRADE_MODELS = the nine SA1_UPGDISP blocks of sadc include/sa1/upgdisp.h ({Uint32 magic[2];
+ *                Uint32 on, shown}: magic "UPGD" and the TU's tag), all nine written with on = 1, shown = value & SA1_UPGRADE_MODELS_ALL for a
+ *                value with SA1_UPGRADE_MODELS_ON and 0, 0 for 0; the front end writes those of one kind (sa1w_world_upgdisp).
  *   Super options (round 0.9.3a, sa1_character_set_super_option): the world's sg options (src/world/sa1_world_super.c
  *                sa1w_world_supopt), applied at once while a General Super Sonic is Super. Round 0.9.4a: the bit
  *                SA1_SUPER_EFFECTS_DUST of SA1_SUPOPT_SUPER_EFFECTS = the SA1_SUPERDUST block of
@@ -73,6 +76,24 @@
 #define CO_SUPERDUST_TEX_A   0x0CA6B2D0u    /* B_CHAOS7's ss_ball_a texlist: where the game picked D_8C1C694C (the Super
                                                after-images' own pick, code_0C91DB60.c) */
 #define CO_SUPERDUST_TEX_B   0x0CA6B2D8u    /* ss_ball_b: where the game picked D_8C1C6954 */
+
+/* round 1.0.0-beta1: the SA1_UPGDISP blocks (sadc include/sa1/upgdisp.h, select 4.3.3) {Uint32 magic[2]; Uint32 on, shown} */
+#define CO_UPGDISP_MAGIC0    0x44475055u    /* "UPGD" */
+#define CO_UPGDISP_BYTES     0x10u
+static const struct {
+    uint32_t tag;
+    const char *name, *tu;
+} k_upgdisp[9] = {
+    { 0x42373741u, "A77B", "code_8C0A77BC.c SonicMain" },
+    { 0x34313642u, "B614", "code_8C0B6148.c TailsMain" },
+    { 0x32433443u, "C4C2", "code_8C0C4C2E.c" },
+    { 0x30314144u, "DA10", "code_8C0DA106.c" },
+    { 0x43414643u, "CFAC", "code_8C0CFACE.c" },
+    { 0x41464644u, "DFFA", "code_8C0DFFA0.c BigMain" },
+    { 0x32373745u, "E772", "code_8C0E7720.c" },
+    { 0x31383645u, "E681", "code_8C0E6812.c" },
+    { 0x34304145u, "EA04", "code_8C0EA040.c" },
+};
 
 /* ---- guest memory (arena words, bounded) ------------------------------------------------------------------------- */
 static uint32_t co_rd32(const sa1g_world *w, uint32_t g)
@@ -298,7 +319,73 @@ static sa1_status co_gopts(sa1_context *ctx, sa1g_world *w, const sa1w_charopt *
             memcpy(p + 0x08u, &v, 4);
         }
     }
+    /* round 1.0.0-beta1: the upgrades' display set, all nine blocks (only the TUs of the world's character draw) */
+    {
+        int32_t v = (o->gopts & (1u << SA1_GOPT_UPGRADE_MODELS)) ? o->gopt_value[SA1_GOPT_UPGRADE_MODELS] : 0;
+        sa1_status s = sa1w_world_upgdisp(ctx, w, SA1W_UPGDISP_ALL, (uint32_t)v);
+        st = st != SA1_OK ? st : s;
+    }
     return st;
+}
+
+/* ---- round 1.0.0-beta1: the upgrades' display set (SA1_GOPT_UPGRADE_MODELS) ---------------------------------------- */
+uint32_t sa1w_upgdisp_tags_of_kind(int32_t kind)
+{
+    switch (kind) {
+    case SA1_CHAR_SONIC:
+    case SA1_CHAR_SUPER_SONIC:
+        return 1u << 0;
+    case SA1_CHAR_TAILS:
+        return 1u << 1;
+    case SA1_CHAR_KNUCKLES:
+        return 1u << 2;
+    case SA1_CHAR_AMY:
+        return 1u << 3;
+    case SA1_CHAR_GAMMA:
+        return 1u << 4;
+    case SA1_CHAR_BIG:
+        return (1u << 5) | (1u << 6) | (1u << 7) | (1u << 8);
+    default:
+        return 0u;
+    }
+}
+
+sa1_status sa1w_world_upgdisp(sa1_context *ctx, struct sa1g_world *w, uint32_t tags, uint32_t value)
+{
+    uint32_t i, on = value != 0u ? 1u : 0u, shown = value != 0u ? (value & SA1_UPGRADE_MODELS_ALL) : 0u;
+    char missing[64];
+    size_t n = 0;
+    if (w == NULL || w->ram == NULL) {
+        return SA1_OK;
+    }
+    if (w->dead) {
+        return w->dead_status;
+    }
+    missing[0] = '\0';
+    for (i = 0; i < 9u; i++) {
+        uint8_t *p;
+        if (!(tags & (1u << i))) {
+            continue;
+        }
+        p = co_block(w, CO_UPGDISP_MAGIC0, k_upgdisp[i].tag, CO_UPGDISP_BYTES);
+        if (p == NULL) {
+            if (n + 6u < sizeof missing) {
+                memcpy(missing + n, n ? " " : "", n ? 1u : 0u);
+                n += n ? 1u : 0u;
+                memcpy(missing + n, k_upgdisp[i].name, 4);
+                n += 4u;
+                missing[n] = '\0';
+            }
+            continue;
+        }
+        memcpy(p + 0x08u, &on, 4);
+        memcpy(p + 0x0Cu, &shown, 4);
+    }
+    if (n != 0u && on) {
+        return sa1_fail(ctx, SA1_ERR_NOT_IMPLEMENTED, "game option %u: the lowered game code of this build has no SA1_UPGDISP block %s (sadc "
+                        "include/sa1/upgdisp.h)", (unsigned)SA1_GOPT_UPGRADE_MODELS, missing);
+    }
+    return SA1_OK;
 }
 
 /* round 0.9.4a: the SA1_SUPERDUST block from the world's SA1_SUPOPT_SUPER_EFFECTS bits (General worlds; sa1w_world_supopt

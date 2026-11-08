@@ -557,6 +557,9 @@ struct sa1_context {
     struct sa1q_state  *question;
     /* round 0.9.9f (SA1_API_SKIN; src/sa1_skin.c): zero until a skin's first use, freed with the disc */
     struct sa1k_state  *skin;
+    /* round 100-EV (SA1_API_EMOTE_EVENT; src/sa1_emote_ev.c): the cutscene animations' cache and the lift option, zero until
+       the first load or option, freed with the disc */
+    struct sa1ev_state *emote_ev;
 };
 
 void sa1_charset_free(sa1_context *ctx, sa1_charset *cs);

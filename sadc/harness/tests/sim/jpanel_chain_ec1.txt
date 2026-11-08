@@ -1,0 +1,12 @@
+# args: --level 1 --act 0 --no-objects --create-task 8C05EB76:2:2@-9,3.58,4/1,0,0+ocp+late --create-task 8C05EB76:2:2@-39,20,4,1000,4000,0/2,0,0+ocp+late --create-task 8C05EB76:2:2@21,20,4/0,0,0+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): O JPanel (8C05EB76,
+# 2:2) chain: panel 1 at Sonic's feet at the start (-9, 3.58, 4), panel 2 30 units away and up, panel 0 the other way,
+# A on panel 1: the flight to panel 2 (mode 40, 41). Panel 2 has rotation words X 1000 and Z 0 (sidecar version 3).
+50 0 0
+4 0 0 A
+40 0 0
+4 0 0 A
+40 0 0
+4 0 0 A
+60 0 0
+200 0 0

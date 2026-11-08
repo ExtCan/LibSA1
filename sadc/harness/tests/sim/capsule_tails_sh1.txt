@@ -1,0 +1,5 @@
+# args: --level 4 --act 0 --chr 2 --no-objects --create-task 8C062640:2:3@-673,-39.05,5+ocp+late
+# G-SA1 1.0.0 reference (round R0, lane p-refs, gsa1_100_plan.md 6.2 / gsa1_100_shards.md 12.1): O RELEASE under Tails
+# at Speed Highway act 1 (level 4), his start (-673, -11, 5): its base 28.05 below the ground, as at EC1 (ground 3.7,
+# base -24.35).
+600 0 0
