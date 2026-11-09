@@ -3539,6 +3539,8 @@ static sa1_status render_build(sa1_context *ctx, sa1_char *ch, float alpha, cons
                 return st;
         }
         moved = render_interp(ctx, ch, alpha);
+        if (ch->skin != NULL)
+            sa1k_frame(ctx, ch->skin, prev, cur, alpha, o->vpos, o->vnrm);     /* round 1.0.0-beta1a: a skin's 60 Hz frames (sa1_skin.h) */
         interp = same || o->stats.matched > 0;
         for (t = 0; t < nt; t++) {
             for (k = 0; k < 3; k++) {

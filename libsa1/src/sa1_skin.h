@@ -75,6 +75,11 @@ sa1_status sa1k_append(sa1_context *ctx, sa1k_char *sc, const sa1_charset *cs, s
 /* the interpolation's questions (sa1_character.c): Sonic's mesh node a part follows, -1: no part; flying: no motion hint (RM.8) */
 int32_t sa1k_part_mesh(const sa1k_char *sc, uint32_t model);
 int32_t sa1k_flying(const sa1k_char *sc);
+/* round 1.0.0-beta1a (lane b1a-mecha): THE 60 Hz FRAMES, for sa1_character.c's render_build right after render_interp: vpos / vnrm hold cur's vertices at alpha (host space). A skin that plants (D9 on)
+   has its parts posed again between two pairs that both showed its drawn row on its own (the phase, root and shift between the two), then its parts and shells moved along his up between the two
+   pairs' ups (the host's up when a pair had no drawn root) so that their lowest point at alpha is on the line between the two pairs' own lowest points (sa1_skin.c). Nothing else is touched, nothing for
+   any other skin. The character's own calls only (its tick's thread). Called by sa1_character.c's render_build (round 1.0.0-beta1a's fix run: before it, nothing called it) */
+void sa1k_frame(sa1_context *ctx, sa1k_char *sc, const sa1_meshbuf *prev, const sa1_meshbuf *cur, float alpha, float *vpos, float *vnrm);
 
 /* src/sa1_character.c */
 sa1k_char *sa1k_char_of(const sa1_context *ctx, sa1_character_id id);
@@ -106,6 +111,14 @@ typedef struct sa1k_test_info {
     double flown_r[SA1K_PARTS_MAX][9];  /* the flown pose */
     double src_r[SA1K_PARTS_MAX][9];    /* what it fades from, against the root */
     int32_t glow_passes;
+    /* round 1.0.0-beta1a (lane b1a-mecha) */
+    int32_t plant;                      /* the skin plants and the option lets it (D9) */
+    double step;                        /* the drawn phase's step of the last pair (a skin of Sonic's own tree), -1: none */
+    double pace_top;                    /* its top, a pair (0: no limit) */
+    double ground;                      /* how much of the floor rule the last append took, 0 to 1 */
+    double floor_h, target_low, shift;  /* the floor along up through the drawn root, the lowest point the parts were put on, the shift along up */
+    int32_t locks, starts;              /* hand-overs back to the world's row, starts that went on from it */
+    int32_t frames_posed, frames_planted;   /* sa1k_frame: frames posed again between two pairs, frames whose lowest point it put on the line */
 } sa1k_test_info;
 void sa1k_test_get(const sa1k_char *sc, sa1k_test_info *out);
 uint32_t sa1k_test_glow_bytes(const sa1k_char *sc);

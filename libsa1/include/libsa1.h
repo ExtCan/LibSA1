@@ -118,6 +118,9 @@
  *                    archives, trails and Character Select's slots; SA1_GOPT_UPGRADE_MODELS (which upgrade models show, apart from the
  *                    abilities, through the game's own draw code); the cutscene animations as emotes (SA1_EMOTE_EVENT,
  *                    sa1_emote_event_load, SA1_COPT_EMOTE_LIFT).
+ *   0.6.1 1.0.0 beta 1a: a skin of Sonic's own tree (Mecha Sonic) planted on the floor at the 60 Hz frames between two pairs too
+ *                    (sa1k_frame from the render), SA1_SKIN_ANIM_NO_PLANT and the jog's top pace SA1_SKIN_ANIM_PACE(h) in
+ *                    SA1_COPT_SKIN_ANIM (host deviations D9, D10, render step only).
  */
 #ifndef LIBSA1_H
 #define LIBSA1_H
@@ -135,7 +138,7 @@ extern "C" {
 
 #define SA1_VERSION_MAJOR 0
 #define SA1_VERSION_MINOR 6
-#define SA1_VERSION_PATCH 0
+#define SA1_VERSION_PATCH 1
 /* API version passed in sa1_host.api_version.  The library accepts a host whose
  * major version matches and whose minor version is <= the library's. */
 #define SA1_API_VERSION ((SA1_VERSION_MAJOR << 16) | SA1_VERSION_MINOR)
@@ -215,7 +218,7 @@ typedef struct sa1_host {
 typedef struct sa1_context sa1_context;
 
 SA1_API uint32_t    sa1_version(void);            /* (major << 16) | (minor << 8) | patch */
-SA1_API const char *sa1_version_string(void);     /* "0.6.0" */
+SA1_API const char *sa1_version_string(void);     /* "0.6.1" */
 SA1_API const char *sa1_status_string(sa1_status status);
 
 /* Fills `host` with defaults (struct_size, api_version, log level INFO, no callbacks). */
@@ -3587,6 +3590,21 @@ SA1_API sa1_status sa1_frontend_set_slot_skin(sa1_frontend *fe, int32_t slot, co
  * from the skin's first use. Nothing else of the world or the draw changes; Sonic without a skin never has the flag. */
 #define SA1_SKIN_ANIM_TRAIL            8u       /* SA1_COPT_SKIN_ANIM: the trails in the skin's colour (with FLY 1, WALK 2, GLOW 4; the default of a create is
                                                    FLY | GLOW | TRAIL) */
+/* A SKIN OF SONIC'S OWN TREE (round 1.0.0-beta1a; every row of its tables in Sonic's body tree, lift 0: Mecha Sonic's jog, rows 12 and 13 drawn as row 11). Two more parts of SA1_COPT_SKIN_ANIM's value,
+ * both 0 in a create, so a host that never sets them gets the defaults; no other skin reads them (Metal Sonic's rows are all in the Super tree). HOST DEVIATIONS, render step only:
+ *   D9  THE PLANT: the parts move along Sonic's up so that their lowest point is Sonic's own lowest point in the pose they show; in Sonic's standing, walking and running rows (0-13, 20:
+ *       MEASURED on the ground) never above the floor through the drawn root: on it, or as deep as Sonic's own toes dip under it. Between two pairs (sa1_character_render with an alpha between
+ *       0 and 1) the drawn jog is posed again at the phase between them and the lowest point follows the line between the two pairs' own, along his up between theirs (sa1k_frame,
+ *       src/sa1_skin.h, called by the render). SA1_SKIN_ANIM_NO_PLANT turns all of it off: his parts where Sonic's would be.
+ *   D10 THE JOG'S PACE: a row drawn from another of Sonic's speed loops goes on from the world's own row where that is the drawn row (no fade, no jump), steps k = racio and frame ratio times
+ *       the world row's rate (the game's own step of the drawn row at that speed), but never above its top: the field PACE in hundredths of Sonic's own fastest jog (row 11 at the game's
+ *       switch to row 12: 4.2853 frames a pair, MEASURED), 0 = 100 (the default), SA1_SKIN_ANIM_PACE_FREE = no top (1.0.0-beta1's 1.6 / 1.65 times the world row's rate). The pace only goes
+ *       down while he slows down, and a fade out to another row keeps stepping. */
+#define SA1_SKIN_ANIM_NO_PLANT         16u      /* SA1_COPT_SKIN_ANIM: D9 off */
+#define SA1_SKIN_ANIM_PACE_SHIFT       8u       /* SA1_COPT_SKIN_ANIM bits 8-18: D10's top pace, hundredths of Sonic's own fastest jog (0: 100) */
+#define SA1_SKIN_ANIM_PACE_MASK        0x7FF00u
+#define SA1_SKIN_ANIM_PACE_FREE        2047u    /* the field's top: no limit */
+#define SA1_SKIN_ANIM_PACE(h)          (((uint32_t)(h) << SA1_SKIN_ANIM_PACE_SHIFT) & SA1_SKIN_ANIM_PACE_MASK)
 #define SA1_DRAW_SKIN_TRAIL            0x8000u  /* the draw is one of the skin's trails: draw SA1_TEXTURE_VARIANT_SKIN_FIRST + the skin's slot of its texture */
 #define SA1_TEXTURE_VARIANT_SKIN_FIRST 16u      /* + the skin's slot (0..15): kind 0, Sonic's SON_EFF archive, lcharge01-04 */
 #ifdef __cplusplus

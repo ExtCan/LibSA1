@@ -14,6 +14,10 @@
  * 64; Mecha Sonic the second: 65), Mecha Sonic's table (LANDING.md B of sadc build/staging/upgdisp), the trails in the skin's hue, the display set of the upgrades under a skin.
  * 100-S6 (select 4.2.1, 7.1 S6; the owner's answer 17, rounds plan 14.1bl): Mecha's entry is feat/sh_skins.lua's (rows 12, 13 -> 11, lift 0, no walk or fast rows): rows 12 and 13 drawn as the live
  * row 11 at k (1.6, 1.65) its rate, the plant (his lowest point on Sonic's own), r1-verify-s's feet phases against plain Sonic and Metal in lockstep; Metal's flown rows never in Sonic's tree.
+ * Round 1.0.0-beta1a (lane b1a-mecha; the "1a-M" lines and the 100-S6 lines changed with it): on his feet his lowest point is on the floor (or as deep as Sonic's own toes dip), frame by frame as
+ * Garry's Mod draws him (alpha 0 and 0.5 after each pair); the jog never faster than Sonic's own fastest (SA1_SKIN_ANIM_PACE), its phase read off the render frame by frame; the options; Metal's
+ * draws byte for byte as 1.0.0-beta1's. Frames between two pairs need sa1_character.c's call of sa1k_frame (render_build): without it 1a-M1, M2, M4 and M7 FAIL (the lane's fix run: they had
+ * only said "PENDING", and the gate was green with half of the frames broken). The fix run adds 1a-M8 (no change of pace at the switch), 1a-M9 (no stall on a stop) and 1a-M10 (slopes).
  */
 #include <math.h>
 #include <stddef.h>
@@ -49,11 +53,28 @@ static uint32_t g_hash = 2166136261u;
         }                                                                                                               \
     } while (0)
 
+/* round 1.0.0-beta1a, the lane's fix run: the libsa1 self-check lines of a skin of Sonic's own tree, as G-SA1's log shows them (INFO; 1a-M11) */
+static int g_said_feet, g_said_frames;
+
 static void log_cb(void *user, int32_t level, const char *msg)
 {
     (void)user;
-    if (level <= SA1_LOG_WARN && !g_quiet_log) {
+    if (level == SA1_LOG_WARN && !g_quiet_log) {       /* (the warnings, as before the host's level went down to INFO) */
         printf("    [libsa1] %s\n", msg);
+    }
+    if (level == SA1_LOG_INFO && strncmp(msg, "skin id:mechasonic: ", 20) == 0) {
+        if (strstr(msg, ": on his feet (D9) on, the jog's top (D10) 1.00 x Sonic's own fastest jog") != NULL) {
+            if (!g_said_feet) {
+                printf("  info  libsa1 said: %s\n", msg);
+            }
+            g_said_feet++;
+        }
+        if (strstr(msg, ": the 60 Hz frames between two pairs are drawn by sa1k_frame") != NULL) {
+            if (!g_said_frames) {
+                printf("  info  libsa1 said: %s\n", msg);
+            }
+            g_said_frames++;
+        }
     }
 }
 
@@ -2422,7 +2443,8 @@ static void test_100_s2(void)
             sl = s6_low(rs, 0);
             sa1_character_destroy(g_ctx, s);
         }
-        CHECK(x.action == 0 && fabs(t.lowest - sl) <= 0.1, "100-S2 at the scale 0.52 his feet stand where Sonic's do in row %d: lowest vertex %.3f, Sonic's %.3f (within 0.1; r1-verify-s: Sonic +0.36)",
+        /* round 1.0.0-beta1a (lane b1a-mecha; the owner: "Mecha Sonic is floating"): on the floor, not at Sonic's own lowest point, which stands off it (+0.36 .. +0.42) */
+        CHECK(x.action == 0 && fabs(t.lowest) <= 0.05 && t.lowest <= sl, "100-S2 at the scale 0.52 he stands on the floor in row %d: lowest vertex %+.3f (within 0.05), Sonic's own %+.3f (r1-verify-s: +0.36)",
               (int)x.action, t.lowest, sl);
     }
     sa1_character_destroy(g_ctx, id);
@@ -2626,8 +2648,9 @@ static void test_100_s6(void)
     sa1_character_id m = 0, s = 0, t = 0;
     sa1_state_ex x, xp, xs;
     double k12, k13, worst_ang = 0.0, worst_perp = 0.0, worst_shape = 0.0, worst_plant = 0.0, sum_d[2] = { 0.0, 0.0 }, sum_w[2] = { 0.0, 0.0 };
-    double stand_worst = 0.0, sink_m = -1e30, sink_t = -1e30, live_worst = 0.0;
-    int live_n = 0, have_live = 0, p, row, last_jog = -1000, have_prev = 0, prev_jog = 0, jog[2] = { 0, 0 }, rate_n[2] = { 0, 0 };
+    double stand_worst = 0.0, sink_m = -1e30, sink_t = -1e30, live_worst = -1e30, live_under = -1e30, max_step = 0.0, top = 4.2853 / (double)s6_frames(cs, 11);
+    int top_n = 0, last_full = -1000;
+    int live_n = 0, have_live = 0, p, row, have_prev = 0, prev_jog = 0, jog[2] = { 0, 0 }, rate_n[2] = { 0, 0 };
     int super_tree = 0, flown_other = 0, live_bad = 0, mismatch = 0, metal_own = 0, metal_rate_bad = 0, metal_flown = 0, stand_n = 0;
     uint32_t mhash = 2166136261u, mtris = 0;
     int own = 1;
@@ -2689,9 +2712,12 @@ static void test_100_s6(void)
         if (lm < 1e29 && ls < 1e29 && ls - lm > sink_m) {
             sink_m = ls - lm;
         }
-        if (ti->w <= 0.0f && ti->live_mix >= 1.0f && lm < 1e29 && ls < 1e29) {
+        if (ti->w <= 0.0f && ti->live_mix >= 1.0f && lm < 1e29 && ls < 1e29 && x.action >= 0 && x.action <= 13 && (x.flags & SA1_STATE_ON_GROUND) && rm != NULL && rm->position[2] / 4.0f < 0.03f) {
+            /* round 1.0.0-beta1a: never above the floor, never deeper than Sonic's own toes where they dip under it */
+            double sd = ls < 0.0 ? ls : 0.0;
             live_n++;
-            live_worst = fabs(lm - ls) > live_worst ? fabs(lm - ls) : live_worst;
+            live_worst = lm > live_worst ? lm : live_worst;
+            live_under = sd - lm > live_under ? sd - lm : live_under;
         }
         if (getenv("S6_DEBUG") != NULL) {
             printf("    s6 %3d act %3d req %3d spd %.2f drive %3d cur %3d prev %3d w %.3f x %.3f live %.3f | Mecha %+.3f Sonic %+.3f Metal %+.3f\n", p, (int)x.action, (int)x.req_action, (double)x.player_speed[0],
@@ -2702,7 +2728,7 @@ static void test_100_s6(void)
         }
         if (p >= 480 && x.action == 0 && lm < 1e29 && ls < 1e29) {
             stand_n++;
-            stand_worst = fabs(lm - ls) > stand_worst ? fabs(lm - ls) : stand_worst;
+            stand_worst = fabs(lm) > stand_worst ? fabs(lm) : stand_worst;      /* round 1.0.0-beta1a: against the floor */
         }
         /* the drawn rows: only Sonic's own tree, only the jog */
         if (ti->cur >= 0) {
@@ -2750,7 +2776,6 @@ static void test_100_s6(void)
         if (is_jog) {
             ri = ti->drive_row - 12;
             jog[ri]++;
-            last_jog = p;
         }
         if (is_jog && have_live) {
             /* row 11 at the drawn frame by the library's evaluator, posed as the live path poses a drawn row (Sonic's mesh nodes), under the jog's root */
@@ -2802,8 +2827,12 @@ static void test_100_s6(void)
                 double dl = sqrt(dx * dx + dy * dy + dz * dz);
                 worst_shape = dl > worst_shape ? dl : worst_shape;
             }
-            /* the plant: his drawn lowest point (the render) is Sonic's own lowest in that pose (the floor is flat: up is the SA1 y the render's z / 4 is) */
+            /* the plant: his drawn lowest point (the render) is Sonic's own lowest in that pose, and never above the floor through the drawn root (round 1.0.0-beta1a, D9 on his feet; the floor is flat:
+               up is the SA1 y the render's z / 4 is) */
             low = s6_pose_low(cs, inst, fr, up);
+            if (ti->floor_h < low) {
+                low = ti->floor_h;
+            }
             if (lm < 1e29 && fabs(lm - low) > worst_plant) {
                 worst_plant = fabs(lm - low);
             }
@@ -2821,10 +2850,18 @@ static void test_100_s6(void)
                     sum_d[ri] += dd;
                     rate_n[ri]++;
                 }
+                /* round 1.0.0-beta1a (D10): the drawn step never above the top (Sonic's own fastest jog), at the top through the sprint */
+                if (ti->step > max_step) {
+                    max_step = ti->step;
+                }
+                top_n += ri == 1 && fabs(ti->step - top) < 1e-9;
             }
         }
-        if (x.action >= 0 && x.action <= 11 && p - last_jog > 14 && ti->w > 0.0f) {
-            live_bad++;
+        if (ti->w >= 1.0f) {
+            last_full = p;
+        }
+        if (x.action >= 0 && x.action <= 10 && p - last_full > 4 && ti->w > 0.0f) {
+            live_bad++;     /* round 1.0.0-beta1a: back in row 11 he may jog on his own until his phase meets the world's; a fade out takes 4 pairs */
         }
         memcpy(tp, ti, sizeof *tp);
         memcpy(tq, tm, sizeof *tq);
@@ -2838,15 +2875,16 @@ static void test_100_s6(void)
     CHECK(have_live && worst_ang <= 0.5 && worst_perp <= 1e-3 && worst_shape <= 1e-3,
           "100-S6 rows 12 and 13 drawn as the live row-11 pose at the drawn frame (Sonic's mesh nodes): every part's rotation within %.4f degrees (0.5), the torso's place %.2e units across the up axis, each part's place against it %.2e (1e-3)",
           worst_ang, worst_perp, worst_shape);
-    CHECK(worst_plant <= 1e-3, "100-S6 planted in the jog: his lowest drawn point is Sonic's own lowest point in that pose within %.2e units (1e-3)", worst_plant);
-    CHECK(rate_n[0] > 20 && rate_n[1] > 20 && fabs(sum_d[0] / sum_w[0] / 1.6 - 1.0) <= 0.01 && fabs(sum_d[1] / sum_w[1] / 1.65 - 1.0) <= 0.01,
-          "100-S6 the jog's step: %.4f x the world row's from row 12 (%d pairs), %.4f x from row 13 (%d pairs) (1.6, 1.65 within 1 %%)", rate_n[0] ? sum_d[0] / sum_w[0] : 0.0, rate_n[0],
-          rate_n[1] ? sum_d[1] / sum_w[1] : 0.0, rate_n[1]);
-    CHECK(live_bad == 0, "100-S6 rows 0-11 away from a jog's fade out: Sonic's own pose, no flown pair (%d)", live_bad);
-    CHECK(stand_n > 20 && stand_worst <= 0.1, "100-S6 at a stand after the run: his lowest point within %.3f units of Sonic's own (%d pairs; 0.1)", stand_worst, stand_n);
+    CHECK(worst_plant <= 1e-3, "100-S6 planted in the jog: his lowest drawn point is Sonic's own lowest point in that pose or the floor, the lower, within %.2e units (1e-3)", worst_plant);
+    CHECK(rate_n[0] > 20 && rate_n[1] > 20 && max_step <= top + 1e-9 && top_n >= rate_n[1] - 3,
+          "1a-M3 the jog's step never above Sonic's own fastest jog (%.5f a pair): at most %.5f; through the sprint (row 13) at it in %d of %d pairs; against the world row's %.4f x from row 12, %.4f x from row 13 (beta 1: 1.6, 1.65)",
+          top, max_step, top_n, rate_n[1], rate_n[0] ? sum_d[0] / sum_w[0] : 0.0, rate_n[1] ? sum_d[1] / sum_w[1] : 0.0);
+    CHECK(live_bad == 0, "100-S6 rows 0-10 more than 4 pairs after he last jogged on his own: Sonic's own pose, no flown pair (%d)", live_bad);
+    CHECK(stand_n > 20 && stand_worst <= 0.05, "100-S6 at a stand after the run: his lowest point within %.3f units of the floor (%d pairs; 0.05)", stand_worst, stand_n);
     printf("  info  the whole run: his lowest point at most %.3f units under plain Sonic's (whose run, rows 12-13, is not the jog he shows there); Metal's at most %.3f\n", sink_m, sink_t);
-    CHECK(live_n > 200 && live_worst <= 0.1, "100-S6 every pair he shows Sonic's own pose (rows 0-11): his lowest point within %.3f units of plain Sonic's (%d pairs; 0.1): he walks, runs and stops on it", live_worst, live_n);
-    printf("  info  Metal through the same pairs: %u skin triangles, his draws' hash %08X (compared before and after the change by hand)\n", (unsigned)mtris, (unsigned)mhash);
+    CHECK(live_n > 200 && live_worst <= 0.05 && live_under <= 1e-3, "100-S6 every pair he shows Sonic's own pose (rows 0-13): his lowest point at most %+.3f over the floor (0.05), at most %+.3f under Sonic's own dip (%d pairs)",
+          live_worst, live_under, live_n);
+    CHECK(mtris == 609000u && mhash == 0x0AC269FBu, "1a-M6 Metal through the same pairs: %u skin triangles, his draws' hash %08X (1.0.0-beta1: 609000, 0AC269FB, MEASURED before this round)", (unsigned)mtris, (unsigned)mhash);
     CHECK(metal_own == 0 && metal_flown > 50 && metal_rate_bad == 0,
           "100-S6 Metal Sonic: none of his drawn rows is in Sonic's own tree (%d pairs), his phase steps exactly at the world row's rate (k 1) in %d flown pairs (%d off)", metal_own, metal_flown, metal_rate_bad);
     sa1_character_destroy(g_ctx, m);
@@ -2866,7 +2904,7 @@ static void test_100_s6_feet(int ups)
     static const struct { const char *name; int n; float sy; } ph[4] = { { "standing after a spawn", 90, 0.0f }, { "walking (stick 0.3)", 90, 0.3f }, { "running (stick 1)", 220, 1.0f }, { "stopping", 90, 0.0f } };
     sa1_character_id m = 0, s = 0, t = 0;
     int i, p, stand_n = 0, deeper = 0, live_n = 0;
-    double stand_worst = 0.0, live_worst = 0.0, live_above = 0.0;
+    double stand_worst = 0.0, live_worst = -1e30, live_above = -1e30;
     sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti);
     printf("100-S6 his feet against Sonic's and Metal's, by phase (r1-verify-s's test F)%s\n", ups ? ", the three holding the Light Speed Shoes and the Crystal Ring" : "");
     g_cur = &g_mecha;
@@ -2902,11 +2940,13 @@ static void test_100_s6_feet(int ups)
             c = s6_low(rt, 1);
             state_of(m, &x);
             info_of(m, ti);
-            /* Sonic's own rows: how far under Sonic's lowest point (a sink), and over it (with the upgrades the plant reads the plain shoes' points: the worn ones reach a little lower) */
-            if (ti->w <= 0.0f && ti->live_mix >= 1.0f && a < 1e29 && b < 1e29) {
+            /* Sonic's own rows: round 1.0.0-beta1a, against the floor: how far over it, and how far under Sonic's own lowest point where that dips under it (with the upgrades the plant reads the plain
+               shoes' points: the worn ones reach a little lower) */
+            if (ti->w <= 0.0f && ti->live_mix >= 1.0f && a < 1e29 && b < 1e29 && (x.flags & SA1_STATE_ON_GROUND) && rm != NULL && rm->position[2] / 4.0f < 0.03f && x.action <= 13) {
+                double sd = b < 0.0 ? b : 0.0;
                 live_n++;
-                live_worst = b - a > live_worst ? b - a : live_worst;
-                live_above = a - b > live_above ? a - b : live_above;
+                live_worst = sd - a > live_worst ? sd - a : live_worst;
+                live_above = a > live_above ? a : live_above;
             }
             if (a < 1e29 && a < mlo) {
                 mlo = a;
@@ -2925,7 +2965,7 @@ static void test_100_s6_feet(int ups)
             /* a stand: rows 0-2 on the ground after the landing (spawned 10 units up), and the end of the stop */
             if (((i == 0 && p >= 45) || (i == 3 && p >= 50)) && x.action >= 0 && x.action <= 2 && a < 1e29 && b < 1e29) {
                 stand_n++;
-                stand_worst = fabs(a - b) > stand_worst ? fabs(a - b) : stand_worst;
+                stand_worst = fabs(a) > stand_worst ? fabs(a) : stand_worst;      /* round 1.0.0-beta1a: on the floor */
             }
         }
         printf("  info  %-23s Mecha lowest %+.3f (pair %d, action %d; Sonic there %+.3f); Sonic's lowest %+.3f; Metal's lowest %+.3f; under Sonic by up to: Mecha %.3f, Metal %.3f\n", ph[i].name, mlo, mpair,
@@ -2938,9 +2978,9 @@ static void test_100_s6_feet(int ups)
             printf("  info  %-23s deepest: Mecha %+.3f, Metal %+.3f, Sonic %+.3f: %s\n", ph[i].name, mlo, tlo, slo, mlo >= tlo - 1e-3 ? "no deeper than Metal" : "deeper than Metal, as deep as Sonic himself");
         }
     }
-    CHECK(stand_n > 40 && stand_worst <= 0.1, "100-S6%s standing after a spawn and after a stop: his lowest point within %.3f units of Sonic's own (%d pairs; the goal 0.1)", ups ? " (upgrades)" : "", stand_worst, stand_n);
-    CHECK(live_n > 200 && live_worst <= 0.1, "100-S6%s walking, running and stopping in Sonic's own rows: his lowest point at most %.3f units under Sonic's own (%d pairs; 0.1), at most %.3f over it", ups ? " (upgrades)" : "",
-          live_worst, live_n, live_above);
+    CHECK(stand_n > 40 && stand_worst <= 0.05, "100-S6%s standing after a spawn and after a stop: his lowest point within %.3f units of the floor (%d pairs; 0.05)", ups ? " (upgrades)" : "", stand_worst, stand_n);
+    CHECK(live_n > 200 && live_above <= 0.05 && live_worst <= (ups ? 0.15 : 1e-3), "100-S6%s walking, running and stopping in Sonic's own rows: his lowest point at most %+.3f over the floor (%d pairs; 0.05), at most %+.3f under Sonic's own dip (%s)",
+          ups ? " (upgrades)" : "", live_above, live_n, live_worst, ups ? "0.15: the worn shoes reach lower than the plain ones the plant reads" : "0.001");
     CHECK(deeper == 0, "100-S6%s walking, running and stopping: his deepest point no deeper than Metal Sonic's, or than Sonic's own (%d phases deeper)", ups ? " (upgrades)" : "", deeper);
     free(ti);
     sa1_character_destroy(g_ctx, m);
@@ -2948,6 +2988,617 @@ static void test_100_s6_feet(int ups)
     sa1_character_destroy(g_ctx, t);
 }
 
+/* ---- round 1.0.0-beta1a (lane b1a-mecha; the owner on beta 1: "Mecha Sonic is floating ... his run animation has stuttering and it animates far too fast") ------------------------------
+ * Frame by frame as Garry's Mod draws him (G-SA1's gsa1.Render(id, -1) at 60 fps: after each pair alpha 0, the pair before, then alpha 0.5), on the flat floor, Mecha and plain Sonic in lockstep
+ * (sadc build/research/b1a/b1a-mecha: probe2.c and its outputs, the measurements these stand on):
+ *   1a-M0 Sonic's own jog at its fastest: the last steady row-11 pair before the game switches to row 12 is sa1_skin.c's SK_OWN_TOP_FRAMES (4.2853 frames a pair)
+ *   1a-M1 on the ground (both pairs shown on his feet, the drawn root on the floor, not the ball): his lowest point never more than 0.05 over the floor; in each drawn row no deeper than plain
+ *         Sonic's own deepest point there (his toes' dips are Sonic's own: 1.0.0-beta1's numbers)
+ *   1a-M2 the drawn jog per frame, read off the render: each skin draw's centroid against the first one's, fitted to the poses of a run at a tenth of the top pace (dense phases): no step
+ *         backward but the loop's wrap, none over 1.5 times the median of the 15 frames around it, and between two pairs a pose of the jog (the fit's error)
+ *   1a-M4 his lowest point between two frames that both stand on the floor: no jump over 0.05; in the whole run no jump over plain Sonic's own (of min(lowest, floor)) + 0.05
+ *   1a-M5 the options: SA1_SKIN_ANIM_NO_PLANT (no step along up, no 60 Hz frames), SA1_SKIN_ANIM_PACE_FREE (1.0.0-beta1's 1.6 / 1.65 x the world row's rate), SA1_SKIN_ANIM_PACE(50) (half the top)
+ *   1a-M7 sa1_character.c's render_build calls sa1k_frame: frames between two pairs posed again and planted (without the call they are render_interp's own chords, 1.0.0-beta1's: M1, M2, M4 FAIL)
+ *   1a-M8 the pace through the switch to rows 12 and 13: while he does not slow down the drawn step never goes down (v-mecha MEASURED a 15 % dip for a pair just after the switch)
+ *   1a-M9 a stop: through the fade out of the jog its phase steps on every pair (v-mecha MEASURED it frozen for the fade's 4 pairs)
+ *   1a-M10 slopes of 12 degrees (test_1a_slope), up, down and across them, at 60 Hz the module's way (tick the frame's dt, render alpha -1): his lowest point to the slope (along its normal)
+ *         never more than 0.05 over it on the ground in rows 0-13, at pairs and between them, and in no row deeper under it than plain Sonic's own deepest point, or the slope, by more than 0.05 */
+#define M1A_REF_MAX  1400
+#define M1A_VEC_MAX  (3 * 96)
+#define M1A_SEQ_MAX  1400
+typedef struct m1a_ref {
+    double ph;
+    int n;
+    float v[M1A_VEC_MAX];
+} m1a_ref;
+typedef struct m1a_frame {
+    int p, sub;
+    double ph, err;
+} m1a_frame;
+
+/* the skin draws' centroids against the first one's, turned by -yaw about the host's up (the Source preset: z), SA1 units; the number of floats, -1: too many */
+static int m1a_vec(const sa1_render *r, float *v)
+{
+    uint32_t i, k;
+    int n = 0, have = 0;
+    double t0[3] = { 0.0, 0.0, 0.0 }, cy, sy;
+    if (r == NULL) {
+        return -1;
+    }
+    cy = cos(-(double)r->yaw);
+    sy = sin(-(double)r->yaw);
+    for (i = 0; i < r->num_draws; i++) {
+        const sa1_draw *d = &r->draws[i];
+        int is_skin = d->archive >= (int32_t)SA1_ARCHIVE_SKIN_FIRST && d->archive <= (int32_t)SA1_ARCHIVE_SKIN_LAST;
+        double c[3] = { 0.0, 0.0, 0.0 };
+        if (d->prim != SA1_PRIM_TRIANGLES || !is_skin || (d->flags & (SA1_DRAW_EFFECT | SA1_DRAW_SHADOW)) != 0u || d->count == 0u) {
+            continue;
+        }
+        for (k = 0; k < 3u * d->count; k++) {
+            const float *q = r->positions + 3u * (3u * d->first) + 3u * k;
+            c[0] += q[0];
+            c[1] += q[1];
+            c[2] += q[2];
+        }
+        c[0] /= 3.0 * d->count;
+        c[1] /= 3.0 * d->count;
+        c[2] /= 3.0 * d->count;
+        if (!have) {
+            memcpy(t0, c, sizeof t0);
+            have = 1;
+        }
+        if (n + 3 > M1A_VEC_MAX) {
+            return -1;
+        }
+        c[0] = (c[0] - t0[0]) / 4.0;
+        c[1] = (c[1] - t0[1]) / 4.0;
+        c[2] = (c[2] - t0[2]) / 4.0;
+        v[n++] = (float)(cy * c[0] - sy * c[1]);
+        v[n++] = (float)(sy * c[0] + cy * c[1]);
+        v[n++] = (float)c[2];
+    }
+    return n;
+}
+
+static double m1a_fit(const m1a_ref *ref, int nref, const float *v, int n, double *err)
+{
+    int i, k, best = -1;
+    double be = 1e30;
+    for (i = 0; i < nref; i++) {
+        double e = 0.0;
+        if (ref[i].n != n) {
+            continue;
+        }
+        for (k = 0; k < n; k++) {
+            double dd = (double)ref[i].v[k] - (double)v[k];
+            e += dd * dd;
+        }
+        if (e < be) {
+            be = e;
+            best = i;
+        }
+    }
+    *err = best >= 0 ? sqrt(be / (double)(n > 0 ? n : 1)) : 1e30;
+    return best >= 0 ? ref[best].ph : -1.0;
+}
+
+static double m1a_wrap(double x)
+{
+    x = fmod(x, 1.0);
+    if (x < 0.0) {
+        x += 1.0;
+    }
+    return x > 0.5 ? x - 1.0 : x;
+}
+
+static int m1a_foot(int32_t row)
+{
+    return (row >= 0 && row <= 13) || row == 20 || row == 30;
+}
+
+/* the pair's pose is row 11 at a known phase: drawn on its own, or the world's own row 11 steady this pair and the one before (not the game's link into it) */
+static int m1a_jog(const sa1k_test_info *ti, const sa1w_pstate *ps, const sa1w_pstate *pp)
+{
+    if (ti->cur == 11 && ti->w >= 1.0f && ti->prev < 0 && ti->live_mix <= 0.0f) {
+        return 1;
+    }
+    return ti->w <= 0.0f && ti->live_mix >= 1.0f && ti->drive_row == 11 && ps->action == 11u && ps->reqaction == 11u && ps->mtnmode != 2 && pp->action == 11u && pp->reqaction == 11u && pp->mtnmode != 2;
+}
+
+static void m1a_pstate(sa1_character_id id, sa1w_pstate *ps)
+{
+    memset(ps, 0, sizeof *ps);
+    sa1w_world_pstate(sa1_character_world(g_ctx, id), ps);
+}
+
+static uint32_t m1a_anim(uint32_t extra)
+{
+    return SA1_SKIN_ANIM_FLY | SA1_SKIN_ANIM_GLOW | SA1_SKIN_ANIM_TRAIL | extra;
+}
+
+static void test_1a_mecha(void)
+{
+    const sa1_charset *cs = &g_ctx->chars[SA1_CHAR_SONIC];
+    m1a_ref *ref = (m1a_ref *)calloc(M1A_REF_MAX, sizeof *ref);
+    m1a_frame *seq = (m1a_frame *)calloc(M1A_SEQ_MAX, sizeof *seq);
+    sa1k_test_info *ti = (sa1k_test_info *)malloc(sizeof *ti), *tp = (sa1k_test_info *)malloc(sizeof *tp);
+    float *vec = (float *)malloc(M1A_VEC_MAX * sizeof(float));
+    double top = 4.2853 / (double)s6_frames(cs, 11), last11 = -1.0;
+    int nref = 0, p, prof, hooked = 0, fade_all = 0, stall_all = 0, posed_all = 0, planted_all = 0;
+    sa1_character_id m = 0, s = 0;
+    printf("1a-M Mecha Sonic frame by frame as Garry's Mod draws him: the floor, the jog's pace and its steps (round 1.0.0-beta1a, lane b1a-mecha)\n");
+    /* M0: plain Sonic, the stick full from a stand: his row 11's frames a pair, the last steady pair before the game's switch to row 12 */
+    create(0, &s);
+    {
+        sa1w_pstate a, b;
+        double df = -1.0;
+        memset(&a, 0, sizeof a);
+        for (p = 0; p < 200 && s != 0; p++) {
+            tick(s, 0.0f, p < 30 ? 0.0f : 1.0f, 0u);
+            m1a_pstate(s, &b);
+            if (a.action == 11u && a.reqaction == 11u && a.mtnmode != 2 && b.action == 11u && b.reqaction == 11u && b.mtnmode != 2) {
+                df = (double)b.nframe - (double)a.nframe;
+                if (df < 0.0) {
+                    df += (double)s6_frames(cs, 11);
+                }
+            }
+            if (a.action == 11u && b.action == 12u && last11 < 0.0) {
+                last11 = df;
+            }
+            a = b;
+        }
+        sa1_character_destroy(g_ctx, s);
+        s = 0;
+    }
+    CHECK(fabs(last11 - 4.2853) < 1e-3, "1a-M0 Sonic's own jog at its fastest (the stick full from a stand, the last steady row-11 pair before row 12): %.4f frames a pair (%.2f loops a second), "
+          "sa1_skin.c's SK_OWN_TOP_FRAMES 4.2853", last11, last11 / (double)s6_frames(cs, 11) * 30.0);
+    /* the poses of the jog, densely: a run at a tenth of the top pace, each pair as it is (alpha 1) */
+    g_cur = &g_mecha;
+    create(SA1_CREATE_SKIN, &m);
+    g_cur = &g_skin;
+    if (m == 0) {
+        CHECK(0, "1a-M a Mecha world: %s", sa1_last_error(g_ctx));
+        free(ref); free(seq); free(ti); free(tp); free(vec);
+        return;
+    }
+    sa1_character_set_option(g_ctx, m, SA1_COPT_SKIN_ANIM, (int32_t)m1a_anim(SA1_SKIN_ANIM_PACE(10)));
+    for (p = 0; p < 1200 && nref < M1A_REF_MAX; p++) {
+        const sa1_render *rm = NULL;
+        tick(m, 0.0f, p < 30 ? 0.0f : 1.0f, 0u);
+        info_of(m, ti);
+        if (ti->cur == 11 && ti->w >= 1.0f && ti->prev < 0 && ti->live_mix <= 0.0f && sa1_character_render(g_ctx, m, 1.0f, &rm) == SA1_OK) {
+            int n = m1a_vec(rm, ref[nref].v);
+            if (n > 0) {
+                ref[nref].n = n;
+                ref[nref].ph = ti->phase;
+                nref++;
+            }
+        }
+    }
+    sa1_character_destroy(g_ctx, m);
+    m = 0;
+    printf("  info  %d poses of the jog at a tenth of the top pace for the fit\n", nref);
+    for (prof = 0; prof < 2; prof++) {
+        sa1w_pstate pm, pmp;
+        double over = -1e30, deep_m[32], deep_s[32], jump_floor = 0.0, jump_m = 0.0, jump_s = 0.0, prev_lm = 0.0, prev_sd = 0.0, worst_err = 0.0, err_mid = 0.0;
+        int nseq = 0, ground_n = 0, mid_n = 0, prev_ok = 0, back = 0, big = 0, deeper = 0, i, row, runs = 0;
+        int gnd_prev = 0, row_prev = -1, jog_last = 0;
+        /* M8, M9 (the fix run) */
+        int fast_n = 0, drops = 0, fade_n = 0, stalls = 0;
+        double worst_drop = 1.0, spd_prev = 0.0;
+        for (i = 0; i < 32; i++) {
+            deep_m[i] = deep_s[i] = 1e30;
+        }
+        g_cur = &g_mecha;
+        create(SA1_CREATE_SKIN, &m);
+        g_cur = &g_skin;
+        create(0, &s);
+        memset(&pm, 0, sizeof pm);
+        memset(&pmp, 0, sizeof pmp);
+        memset(tp, 0, sizeof *tp);
+        for (p = 0; p < 600 && m != 0 && s != 0; p++) {
+            int sprint = 0, sub, jog_now, jog_prev, gnd;
+            float sy = prof == 0 ? s6_stick(p, &sprint) : (p < 30 ? 0.0f : (p < 330 ? (float)(p - 30) / 300.0f : (p < 480 ? 1.0f : 0.0f)));
+            sa1_state_ex x;
+            sa1w_pstate pq = pm;
+            if (sprint) {
+                s6_speed(m, 5.6f);
+                s6_speed(s, 5.6f);
+            }
+            tick(m, 0.0f, sy, 0u);
+            tick(s, 0.0f, sy, 0u);
+            state_of(m, &x);
+            memcpy(tp, ti, sizeof *tp);
+            info_of(m, ti);
+            pmp = pq;
+            m1a_pstate(m, &pm);
+            gnd = (x.flags & SA1_STATE_ON_GROUND) != 0u;
+            jog_now = m1a_jog(ti, &pm, &pmp);
+            jog_prev = p > 0 && jog_last;
+            /* M8: his own jog in rows 12-13 two pairs running, while |spd.x| does not fall (sa1_skin.c (5): by less than 0.005): the step never goes down */
+            if (p > 0 && tp->cur == 11 && tp->w >= 1.0f && tp->step > 0.0 && ti->cur == 11 && ti->w >= 1.0f && ti->prev < 0 && ti->step > 0.0 && (ti->drive_row == 12 || ti->drive_row == 13)) {
+                double rr = ti->step / tp->step;
+                fast_n++;
+                if (fabs((double)pm.pspd[0]) >= spd_prev - 0.005) {
+                    drops += rr < 1.0 - 1e-9;
+                    worst_drop = rr < worst_drop ? rr : worst_drop;
+                }
+            }
+            /* M9: a fade out of his own jog (w going down, still his row): the phase steps every pair */
+            if (p > 0 && tp->cur == 11 && ti->cur == 11 && tp->w > 0.0f && ti->w < tp->w) {
+                fade_n++;
+                stalls += fabs(m1a_wrap(ti->phase - tp->phase)) < 1e-9;
+            }
+            spd_prev = fabs((double)pm.pspd[0]);
+            for (sub = 0; sub < 2; sub++) {
+                const sa1_render *rm = NULL, *rs = NULL;
+                double lm, ls, rz;
+                int shown = sub == 0 ? (p > 0 && gnd_prev) : (p > 0 && gnd_prev && gnd), foot, ball, n;
+                int planted0 = ti->frames_planted, jog = sub == 0 ? jog_prev : (jog_prev && jog_now);
+                row = sub == 0 ? row_prev : ti->drive_row;
+                sa1_character_render(g_ctx, m, sub == 0 ? 0.0f : 0.5f, &rm);
+                sa1_character_render(g_ctx, s, sub == 0 ? 0.0f : 0.5f, &rs);
+                if (sub == 1) {
+                    info_of(m, ti);
+                    hooked |= ti->frames_planted > planted0;
+                }
+                lm = s6_low(rm, 1);
+                ls = s6_low(rs, 0);
+                rz = rm != NULL ? (double)rm->position[2] / 4.0 : 9.0;
+                foot = m1a_foot(row_prev) && (sub == 0 || m1a_foot(ti->drive_row));
+                ball = row_prev == 14 || row_prev == 15 || ti->drive_row == 14 || ti->drive_row == 15;
+                if (shown && foot && !ball && rz < 0.03 && lm < 1e29 && ls < 1e29) {
+                    /* every frame counts, between two pairs too (the fix run: without sa1k_frame these FAIL) */
+                    double sd = ls < 0.0 ? ls : 0.0;
+                    ground_n++;
+                    mid_n += sub;
+                    over = lm > over ? lm : over;
+                    if (row >= 0 && row < 32) {
+                        deep_m[row] = lm < deep_m[row] ? lm : deep_m[row];
+                        deep_s[row] = sd < deep_s[row] ? sd : deep_s[row];
+                    }
+                    if (prev_ok) {
+                        double jm = fabs(lm - prev_lm), js = fabs(sd - prev_sd);
+                        if (fabs(lm) <= 0.05 && fabs(prev_lm) <= 0.05) {
+                            jump_floor = jm > jump_floor ? jm : jump_floor;
+                        }
+                        jump_m = jm > jump_m ? jm : jump_m;
+                        jump_s = js > jump_s ? js : jump_s;
+                    }
+                    prev_ok = 1;
+                    prev_lm = lm;
+                    prev_sd = sd;
+                } else {
+                    prev_ok = 0;
+                }
+                /* the drawn jog */
+                n = jog ? m1a_vec(rm, vec) : -1;
+                if (n > 0 && nseq < M1A_SEQ_MAX) {
+                    double e, ph = m1a_fit(ref, nref, vec, n, &e);
+                    if (ph >= 0.0) {
+                        seq[nseq].p = p;
+                        seq[nseq].sub = sub;
+                        seq[nseq].ph = ph;
+                        seq[nseq].err = e;
+                        nseq++;
+                    }
+                } else if (nseq > 0 && seq[nseq - 1].p >= 0) {
+                    if (nseq < M1A_SEQ_MAX) {
+                        seq[nseq].p = -1;           /* a run ends */
+                        nseq++;
+                    }
+                }
+            }
+            gnd_prev = gnd;
+            row_prev = ti->drive_row;
+            jog_last = jog_now;
+        }
+        /* M2: the runs of jog frames */
+        for (i = 0; i < nseq;) {
+            int j = i, k;
+            while (j < nseq && seq[j].p >= 0) {
+                j++;
+            }
+            if (j - i >= 8) {
+                runs++;
+                for (k = i + 1; k < j; k++) {
+                    double st = m1a_wrap(seq[k].ph - seq[k - 1].ph), win[15], med;
+                    int a = k - 7 < i + 1 ? i + 1 : k - 7, b = k + 7 >= j ? j - 1 : k + 7, c, w = 0, u, v;
+                    for (c = a; c <= b && w < 15; c++) {
+                        win[w++] = m1a_wrap(seq[c].ph - seq[c - 1].ph);
+                    }
+                    for (u = 1; u < w; u++) {
+                        for (v = u; v > 0 && win[v - 1] > win[v]; v--) {
+                            double tt = win[v];
+                            win[v] = win[v - 1];
+                            win[v - 1] = tt;
+                        }
+                    }
+                    med = w > 0 ? win[w / 2] : st;
+                    back += st < -0.005;
+                    big += st > 1.5 * med + 0.004;
+                    if (seq[k].sub == 1) {
+                        err_mid = seq[k].err > err_mid ? seq[k].err : err_mid;
+                    }
+                    worst_err = seq[k].err > worst_err ? seq[k].err : worst_err;
+                }
+            }
+            i = j + 1;
+        }
+        for (row = 0; row < 32; row++) {
+            if (deep_m[row] < 1e29 && deep_m[row] < deep_s[row] - 0.05) {
+                deeper++;
+                printf("  info  run %d row %d: Mecha's deepest %+.3f, plain Sonic's own dip (or the floor) %+.3f\n", prof, row, deep_m[row], deep_s[row]);
+            }
+        }
+        printf("  info  run %d (%s): %d frames on the ground, %d of them between two pairs; %d runs of jog frames, %d fitted frames; the 60 Hz frames %s\n", prof, prof == 0 ? "a stand, a ramp, the run, the sprint, a stop" : "a slow ramp, the run, a stop",
+               ground_n, mid_n, runs, nseq, hooked ? "posed by sa1k_frame" : "NOT posed: sa1_character.c's render_build does not call sa1k_frame (frames between pairs are render_interp's chords)");
+        CHECK(ground_n > 600 && mid_n > 300 && over <= 0.05 && deeper == 0, "1a-M1 run %d on the ground: his lowest point at most %+.3f over the floor (0.05) in %d frames (%d between two pairs); in no drawn row deeper than "
+              "the floor or plain Sonic's own deepest dip there (%d rows over 0.05)", prof, over, ground_n, mid_n, deeper);
+        CHECK(runs >= 1 && back == 0 && big == 0 && worst_err <= 0.05, "1a-M2 run %d the drawn jog frame by frame (%d runs): %d steps backward (but the wrap), %d over 1.5 x the median around them; a pose of the jog in every "
+              "frame (fit error at most %.4f, between pairs %.4f; 0.05)", prof, runs, back, big, worst_err, err_mid);
+        CHECK(jump_floor <= 0.05 && jump_m <= jump_s + 0.05, "1a-M4 run %d his lowest point between two frames on the floor: at most %.3f (0.05); in the run at most %.3f, plain Sonic's own (to the floor) %.3f",
+              prof, jump_floor, jump_m, jump_s);
+        CHECK(fast_n > 50 && drops == 0, "1a-M8 run %d the pace through the switch to rows 12-13: in %d pairs of his jog there, while he did not slow down, %d steps down (the least step against the pair "
+              "before %.4f; 1.0.0-beta1a before the fix: 0.85 for a pair just after the switch)", prof, fast_n, drops, worst_drop);
+        printf("  info  run %d a fade out of his jog: %d pairs, %d with its phase standing still\n", prof, fade_n, stalls);
+        fade_all += fade_n;
+        stall_all += stalls;
+        info_of(m, ti);
+        posed_all += ti->frames_posed;
+        planted_all += ti->frames_planted;
+        sa1_character_destroy(g_ctx, m);
+        sa1_character_destroy(g_ctx, s);
+        m = s = 0;
+    }
+    CHECK(hooked && posed_all > 300 && planted_all > 500, "1a-M7 sa1_character.c's render_build calls sa1k_frame: %d frames between two pairs posed again (his jog), %d planted, in the two runs",
+          posed_all, planted_all);
+    CHECK(fade_all > 0 && stall_all == 0, "1a-M9 a stop: his jog's phase steps on in every pair of its fade out (%d pairs, %d standing still; 1.0.0-beta1a before the fix: the fade's 4 pairs)", fade_all, stall_all);
+    CHECK(g_said_feet > 0 && g_said_frames > 0, "1a-M11 the self-check lines G-SA1's log shows (libsa1 INFO): \"on his feet (D9) on, the jog's top (D10) 1.00 x ...\" %d times, \"the 60 Hz frames between two "
+          "pairs are drawn by sa1k_frame\" %d times (once a character)", g_said_feet, g_said_frames);
+    /* M6: Metal Sonic and plain Sonic frame by frame through 100-S6's run, every triangle's corners hashed: 1.0.0-beta1's (MEASURED with its code, b1a-mecha probe_metal.c) */
+    {
+        sa1_character_id t = 0;
+        uint32_t ht = 2166136261u, hs = 2166136261u, mt = 0, k;
+        int sub;
+        g_cur = &g_skin;
+        create(SA1_CREATE_SKIN, &t);
+        create(0, &s);
+        for (p = 0; p < 600 && t != 0 && s != 0; p++) {
+            int sprint = 0;
+            float sy = s6_stick(p, &sprint);
+            if (sprint) {
+                s6_speed(t, 5.6f);
+                s6_speed(s, 5.6f);
+            }
+            tick(t, 0.0f, sy, 0u);
+            tick(s, 0.0f, sy, 0u);
+            for (sub = 0; sub < 2; sub++) {
+                const sa1_render *rt = NULL, *rs = NULL;
+                sa1_character_render(g_ctx, t, sub ? 0.5f : 0.0f, &rt);
+                for (k = 0; rt != NULL && rt->positions != NULL && k < 36u * rt->num_triangles; k++) {
+                    ht = (ht ^ ((const uint8_t *)rt->positions)[k]) * 16777619u;
+                }
+                mt += rt != NULL ? rt->num_triangles : 0u;
+                sa1_character_render(g_ctx, s, sub ? 0.5f : 0.0f, &rs);
+                for (k = 0; rs != NULL && rs->positions != NULL && k < 36u * rs->num_triangles; k++) {
+                    hs = (hs ^ ((const uint8_t *)rs->positions)[k]) * 16777619u;
+                }
+            }
+        }
+        CHECK(mt == 1220200u && ht == 0x03578E38u && hs == 0x36CCFCACu, "1a-M6 frame by frame (alpha 0 and 0.5) through the same run: Metal Sonic's %u triangles hash %08X, plain Sonic's %08X (1.0.0-beta1: 1220200, 03578E38, 36CCFCAC)",
+              (unsigned)mt, (unsigned)ht, (unsigned)hs);
+        sa1_character_destroy(g_ctx, t);
+        sa1_character_destroy(g_ctx, s);
+        s = 0;
+    }
+    /* M5: the options */
+    {
+        static const struct { uint32_t extra; const char *what; } opt[3] = { { SA1_SKIN_ANIM_NO_PLANT, "NO_PLANT" }, { SA1_SKIN_ANIM_PACE(SA1_SKIN_ANIM_PACE_FREE), "PACE_FREE" },
+                                                                             { SA1_SKIN_ANIM_PACE(50), "PACE(50)" } };
+        int o;
+        for (o = 0; o < 3; o++) {
+            int shifted = 0, planted = 0, n = 0, steps = 0, over_top = 0, half_over = 0, half_at = 0;
+            double ratio = 0.0, max_step = 0.0, off_hi = -1e30, off_lo = 1e30;     /* (the fix run) NO_PLANT: his lowest point against the floor, on the ground */
+            g_cur = &g_mecha;
+            create(SA1_CREATE_SKIN, &m);
+            g_cur = &g_skin;
+            if (m == 0) {
+                CHECK(0, "1a-M5 a Mecha world");
+                continue;
+            }
+            sa1_character_set_option(g_ctx, m, SA1_COPT_SKIN_ANIM, (int32_t)m1a_anim(opt[o].extra));
+            for (p = 0; p < 360; p++) {
+                int sprint = 0;
+                float sy = s6_stick(p, &sprint);
+                const sa1_render *rm = NULL;
+                if (sprint) {
+                    s6_speed(m, 5.6f);
+                }
+                tick(m, 0.0f, sy, 0u);
+                if (o == 0) {
+                    sa1_state_ex x;
+                    state_of(m, &x);
+                    sa1_character_render(g_ctx, m, 0.0f, &rm);
+                    info_of(m, ti);
+                    if ((x.flags & SA1_STATE_ON_GROUND) && ti->drive_row >= 0 && ti->drive_row <= 13 && p > 30 && rm != NULL && rm->position[2] / 4.0f < 0.03f) {
+                        double l = s6_low(rm, 1);
+                        off_hi = l > off_hi ? l : off_hi;
+                        off_lo = l < off_lo ? l : off_lo;
+                    }
+                }
+                sa1_character_render(g_ctx, m, 0.5f, &rm);
+                info_of(m, ti);
+                shifted += ti->shift != 0.0;
+                planted = ti->frames_planted;
+                if (ti->cur == 11 && ti->w >= 1.0f && ti->drive_row >= 12 && ti->step > 0.0) {
+                    max_step = ti->step > max_step ? ti->step : max_step;
+                    if (p >= 200 && ti->rate > 0.0) {
+                        double k = ti->drive_row == 12 ? 1.6 : 1.65;
+                        ratio += ti->step / (k * ti->rate);
+                        steps++;
+                    }
+                    over_top += ti->step > top + 1e-9;
+                    if (p >= 200) {
+                        half_over += ti->step > 0.5 * top + 1e-9;
+                        half_at += fabs(ti->step - 0.5 * top) < 1e-9;
+                    }
+                }
+                n++;
+            }
+            if (o == 0) {
+                CHECK(shifted == 0 && planted == 0, "1a-M5 SA1_SKIN_ANIM_NO_PLANT: no step along up in %d pairs (%d), no 60 Hz frame of his (%d): his parts where Sonic's would be", n, shifted, planted);
+                printf("  info  SA1_SKIN_ANIM_NO_PLANT on the ground in rows 0-13 (pairs): his lowest point from %+.3f to %+.3f against the floor (the Q-menu box's off text)\n", off_lo, off_hi);
+            } else if (o == 1) {
+                CHECK(steps > 50 && fabs(ratio / steps - 1.0) <= 0.01 && over_top > 50, "1a-M5 SA1_SKIN_ANIM_PACE_FREE: 1.0.0-beta1's jog, k x the world row's rate (1.6, 1.65): %.4f of it on average in %d pairs, %d pairs above the top",
+                      steps ? ratio / steps : 0.0, steps, over_top);
+            } else {
+                CHECK(half_over == 0 && half_at > 100, "1a-M5 SA1_SKIN_ANIM_PACE(50): half Sonic's own fastest jog (%.5f a pair) from 30 pairs after the switch: %d pairs above it, %d at it; at the switch it goes on at Sonic's own pace (%.5f) and eases down",
+                      0.5 * top, half_over, half_at, max_step);
+            }
+            sa1_character_destroy(g_ctx, m);
+            m = 0;
+        }
+    }
+    free(ref);
+    free(seq);
+    free(ti);
+    free(tp);
+    free(vec);
+}
+
+/* ---- round 1.0.0-beta1a, the lane's fix run: 1a-M10, slopes (v-mecha's vm_slope.c, a host plane through the origin; MEASURED +0.73 over it between pairs when sa1k_frame went along the host's
+ * up). He runs along +x (the stick forward); the plane z = (ax x + ay y) tan(12 degrees) rises along his way, falls along it, or rises across it ---------------------------------------------- */
+static double g_sl_tan, g_sl_cos, g_sl_ax, g_sl_ay;
+
+static int scene_slope(sa1_context *ctx, double deg, double ax, double ay)
+{
+    sa1_collision_tri *t = NULL;
+    uint32_t n = 0, cap = 0;
+    float x, y;
+    sa1_status st;
+    g_sl_tan = tan(deg * PI / 180.0);
+    g_sl_cos = cos(deg * PI / 180.0);
+    g_sl_ax = ax;
+    g_sl_ay = ay;
+    for (x = -16384.0f; x < 16383.0f; x += 1024.0f) {
+        for (y = -16384.0f; y < 16383.0f; y += 1024.0f) {
+            float x1 = x + 1024.0f, y1 = y + 1024.0f;
+            float p0[3] = { x, y, (float)((ax * x + ay * y) * g_sl_tan) }, p1[3] = { x1, y, (float)((ax * x1 + ay * y) * g_sl_tan) };
+            float p2[3] = { x1, y1, (float)((ax * x1 + ay * y1) * g_sl_tan) }, p3[3] = { x, y1, (float)((ax * x + ay * y1) * g_sl_tan) };
+            add_tri(&t, &n, &cap, p0, p1, p2);
+            add_tri(&t, &n, &cap, p0, p2, p3);
+        }
+    }
+    st = sa1_collision_set_static(ctx, t, n);
+    free(t);
+    return SA1_FAILED(st) ? -1 : 0;
+}
+
+/* the least signed distance of a render's skin parts (skin 1) or body (0) to the slope, along its normal, SA1 units */
+static double m1a_low_slope(const sa1_render *r, int skin)
+{
+    uint32_t i, k;
+    double lo = 1e30;
+    if (r == NULL) {
+        return lo;
+    }
+    for (i = 0; i < r->num_draws; i++) {
+        const sa1_draw *d = &r->draws[i];
+        int is_skin = d->archive >= (int32_t)SA1_ARCHIVE_SKIN_FIRST && d->archive <= (int32_t)SA1_ARCHIVE_SKIN_LAST;
+        if (d->prim != SA1_PRIM_TRIANGLES || (skin ? !is_skin : (d->flags & (SA1_DRAW_EFFECT | SA1_DRAW_SHADOW | SA1_DRAW_OBJECT)) != 0u)) {
+            continue;
+        }
+        for (k = 0; k < 3u * d->count; k++) {
+            const float *v = r->positions + 9u * d->first + 3u * k;
+            double h = ((double)v[2] - (g_sl_ax * (double)v[0] + g_sl_ay * (double)v[1]) * g_sl_tan) * g_sl_cos / 4.0;
+            lo = h < lo ? h : lo;
+        }
+    }
+    return lo;
+}
+
+static void test_1a_slope(void)
+{
+    static const char *what[4] = { "up a slope", "down a slope", "across a slope", "up a slope at an uneven frame rate (50-75 fps)" };
+    static const double sax[4] = { 1.0, -1.0, 0.0, 1.0 }, say[4] = { 0.0, 0.0, 1.0, 0.0 };
+    int dir;
+    uint32_t rnd = 12345u;
+    printf("1a-M10 Mecha Sonic on 12 degree slopes, frame by frame the module's way (tick the frame's dt, render alpha -1)\n");
+    for (dir = 0; dir < 4; dir++) {
+        sa1_character_id m = 0, s = 0;
+        double over[2] = { -1e30, -1e30 }, deep_m[32], deep_s[32], top_spd = 0.0, tilt = 0.0, x0 = 0.0, x1 = 0.0;
+        int n[2] = { 0, 0 }, f, row, deeper = 0;
+        uint32_t rows_seen = 0u;
+        for (row = 0; row < 32; row++) {
+            deep_m[row] = deep_s[row] = 1e30;
+        }
+        if (scene_slope(g_ctx, 12.0, sax[dir], say[dir]) != 0) {
+            CHECK(0, "1a-M10 the slope: %s", sa1_last_error(g_ctx));
+            break;
+        }
+        g_cur = &g_mecha;
+        create(SA1_CREATE_SKIN, &m);
+        g_cur = &g_skin;
+        create(0, &s);
+        for (f = 0; f < 600 && m != 0 && s != 0; f++) {
+            sa1_input in;
+            const sa1_render *rm = NULL, *rs = NULL;
+            sa1_state_ex x;
+            sa1w_pstate pm;
+            float dt = 1.0f / 60.0f;
+            if (dir == 3) {
+                rnd = rnd * 1103515245u + 12345u;
+                dt = 1.0f / (50.0f + 25.0f * (float)((rnd >> 16) & 0x7FFFu) / 32767.0f);
+            }
+            memset(&in, 0, sizeof in);
+            in.struct_size = sizeof in;
+            if (f >= 60 && f < 520) {
+                in.stick_y = 1.0f;
+            }
+            sa1_character_tick(g_ctx, m, &in, dt, NULL, NULL);
+            sa1_character_tick(g_ctx, s, &in, dt, NULL, NULL);
+            state_of(m, &x);
+            m1a_pstate(m, &pm);
+            sa1_character_render(g_ctx, m, -1.0f, &rm);
+            sa1_character_render(g_ctx, s, -1.0f, &rs);
+            row = (int)pm.drawn_action;
+            if (f == 60) {
+                x0 = (double)x.position[0] / 4.0;
+            }
+            x1 = (double)x.position[0] / 4.0;
+            if (rm != NULL && rs != NULL && (x.flags & SA1_STATE_ON_GROUND) && row >= 0 && row <= 13 && f > 90) {
+                double lm = m1a_low_slope(rm, 1), ls = m1a_low_slope(rs, 0), sd = ls < 0.0 ? ls : 0.0;
+                int b = rm->alpha > 1e-4f, ax = (int16_t)(x.angle[0] & 0xFFFF), az = (int16_t)(x.angle[2] & 0xFFFF);
+                double tl = sqrt((double)ax * ax + (double)az * az) * 360.0 / 65536.0;
+                if (lm > 1e29 || ls > 1e29) {
+                    continue;
+                }
+                rows_seen |= 1u << row;
+                top_spd = fabs((double)x.player_speed[0]) > top_spd ? fabs((double)x.player_speed[0]) : top_spd;
+                tilt = tl > tilt ? tl : tilt;
+                over[b] = lm > over[b] ? lm : over[b];
+                n[b]++;
+                deep_m[row] = lm < deep_m[row] ? lm : deep_m[row];
+                deep_s[row] = sd < deep_s[row] ? sd : deep_s[row];
+            }
+        }
+        for (row = 0; row < 32; row++) {
+            if (deep_m[row] < 1e29 && deep_m[row] < deep_s[row] - 0.05) {
+                deeper++;
+                printf("  info  %s row %d: Mecha's deepest %+.3f, plain Sonic's own (or the slope) %+.3f\n", what[dir], row, deep_m[row], deep_s[row]);
+            }
+        }
+        printf("  info  %s: x from %.1f to %.1f, at most spd.x %.3f, tilted up to %.1f degrees, rows seen %08X\n", what[dir], x0, x1, top_spd, tilt, (unsigned)rows_seen);
+        CHECK(n[1] > 200 && (dir == 3 || n[0] > 200) && over[0] <= 0.05 && over[1] <= 0.05 && deeper == 0, "1a-M10 %s: on the ground in rows 0-13 his lowest point at most %+.3f over the slope at pairs "
+              "(%d frames), %+.3f between them (%d frames; 0.05); in no row deeper than plain Sonic's own or the slope (%d rows over 0.05)", what[dir], over[0] > -1e29 ? over[0] : 0.0, n[0], over[1], n[1], deeper);
+        sa1_character_destroy(g_ctx, m);
+        sa1_character_destroy(g_ctx, s);
+    }
+    if (scene_flat(g_ctx) != 0) {
+        CHECK(0, "1a-M10 the flat floor back");
+    }
+}
 int main(int argc, char **argv)
 {
     sa1_host h;
@@ -2962,7 +3613,7 @@ int main(int argc, char **argv)
     mecha_init();
     sa1_host_defaults(&h);
     h.log = log_cb;
-    h.log_level = SA1_LOG_WARN;
+    h.log_level = SA1_LOG_INFO;     /* (the fix run: 1a-M11 reads the self-check lines; log_cb still prints only warnings and errors) */
     if (sa1_init(&h, &g_ctx) != SA1_OK) {
         return 1;
     }
@@ -3005,6 +3656,8 @@ int main(int argc, char **argv)
     test_100_s6();          /* the owner's answer 17: the jog, the plant (Metal is still slot 0, Mecha slot 1) */
     test_100_s6_feet(0);
     test_100_s6_feet(1);
+    test_1a_mecha();        /* round 1.0.0-beta1a: Mecha frame by frame (Mecha is still slot 1) */
+    test_1a_slope();        /* round 1.0.0-beta1a, the lane's fix run: slopes (the flat floor back after it) */
     test_100_s1();
     printf("DETERMINISM skin %08X\n", (unsigned)g_hash);
     printf("\nskin_test: %d checks, %d failed\n", g_ok + g_fail, g_fail);

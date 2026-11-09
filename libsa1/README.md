@@ -12,7 +12,11 @@ globals visible to the host (everything lives in an `sa1_context`), a flat versi
 `sadc/tools/pclower.py` and run in a Dreamcast-layout arena per character (design:
 `sadc/docs/libsa1_integration.md`).
 
-## Status (0.6.0, 2026-11-08)
+## Status (0.6.1, 2026-11-09)
+
+0.6.1 (G-SA1 1.0.0 beta 1a): a skin of Sonic's own tree (Mecha Sonic) keeps its feet on the floor also in the 60 Hz frames drawn between two game steps, and its jog never runs faster than Sonic's own fastest jog: `SA1_SKIN_ANIM_NO_PLANT` and `SA1_SKIN_ANIM_PACE(h)` in `SA1_COPT_SKIN_ANIM` (host deviations, render step only). The strict replays stay bit-exact (78 traces, V7).
+
+### 0.6.0 (2026-11-08)
 
 0.6.0 (G-SA1 1.0.0 beta 1): up to 16 skins at once, each with its own archives, Light Speed trails and Character Select slot; which upgrade models show, apart from the abilities, decided through the game's own draw code (`SA1_GOPT_UPGRADE_MODELS`); the playable characters' cutscene animations as emotes, read from the disc on demand (`SA1_EMOTE_EVENT`), with an optional lift that moves only the drawing (`SA1_COPT_EMOTE_LIFT`). The strict replays stay bit-exact (78 traces, V7).
 
